@@ -1,0 +1,20 @@
+[
+  {
+    "name": "ckpt_step_1",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/checkpoint-1",
+    "kind": "checkpoint",
+    "ts": 1777886420.782035
+  },
+  {
+    "name": "ckpt_step_2",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/checkpoint-2",
+    "kind": "checkpoint",
+    "ts": 1777886420.7822115
+  },
+  {
+    "name": "final_checkpoint",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/final",
+    "kind": "checkpoint",
+    "ts": 1777886420.7823966
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "experiment_name": "example_03_matrix",
+  "run_name": "sweep__e3__r4",
+  "model": {
+    "name": "tiny/fake",
+    "load_checkpoint_path": null,
+    "renderer_name": null
+  },
+  "backend": {
+    "kind": "mock",
+    "params": {}
+  },
+  "tags": [],
+  "algorithm": "mock_sft",
+  "learning_rate": 0.0001,
+  "batch_size": 1,
+  "num_epochs": 3,
+  "max_steps": null,
+  "lora_rank": 4,
+  "save_at_fractions": [
+    1.0
+  ],
+  "seed": 42
+}

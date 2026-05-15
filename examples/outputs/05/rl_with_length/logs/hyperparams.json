@@ -1,0 +1,27 @@
+{
+  "experiment_name": "example_05_custom_verifier",
+  "run_name": "rl_with_length",
+  "model": {
+    "name": "tiny/fake",
+    "load_checkpoint_path": null,
+    "renderer_name": null
+  },
+  "backend": {
+    "kind": "mock",
+    "params": {}
+  },
+  "tags": [],
+  "algorithm": "mock_rl",
+  "learning_rate": 5e-05,
+  "num_steps": 30,
+  "num_generations": 4,
+  "kl_penalty_coef": 0.0,
+  "verifier_kind": "length_reward",
+  "verifier_params": {
+    "target_length": 80,
+    "sigma": 20.0
+  },
+  "save_every": 30,
+  "lora_rank": 4,
+  "seed": 42
+}

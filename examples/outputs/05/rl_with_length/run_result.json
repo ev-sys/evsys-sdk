@@ -1,0 +1,61 @@
+{
+  "run_id": "rl_with_length",
+  "status": "completed",
+  "metrics": {
+    "train/final_reward": 0.8853474888890127,
+    "verifier/probe_reward": 0.07955950871822769
+  },
+  "artifacts": {
+    "ckpt_step_30": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/05/rl_with_length/checkpoint-30",
+    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/05/rl_with_length/final"
+  },
+  "error": null,
+  "hparams": {
+    "name": "rl_with_length",
+    "data": {
+      "source_kind": "in_memory",
+      "path": null,
+      "rows": [
+        {
+          "x": 1,
+          "tool_slug": "X",
+          "toolkit": "Y"
+        }
+      ],
+      "hf_dataset": null,
+      "hf_split": "train",
+      "transforms": []
+    },
+    "model": {
+      "name": "tiny/fake",
+      "load_checkpoint_path": null,
+      "renderer_name": null
+    },
+    "algorithm": {
+      "kind": "mock_rl",
+      "params": {
+        "num_steps": 30,
+        "save_every": 30,
+        "verifier_kind": "length_reward",
+        "verifier_params": {
+          "target_length": 80,
+          "sigma": 20.0
+        }
+      }
+    },
+    "backend": {
+      "kind": "mock",
+      "params": {}
+    },
+    "eval": {
+      "enabled": false,
+      "metrics": [],
+      "inference": null,
+      "eval_data": null,
+      "n_samples": null
+    },
+    "seed": 42,
+    "tags": []
+  },
+  "ts": 1777886428.0473604
+}

@@ -1,0 +1,138 @@
+"""End-to-end with the mock backend (no external deps).
+
+Validates the full pipeline:
+  in_memory data -> transform -> mock backend -> mock_sft -> jsonl logs -> result
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from trajectory_experiments import (
+    AlgorithmConfig,
+    BackendConfig,
+    DataConfig,
+    DataStoreSpec,
+    EvalConfig,
+    ExperimentConfig,
+    LogStoreSpec,
+    MetricSpec,
+    ModelConfig,
+    RunConfig,
+    TransformSpec,
+    InferenceSpec,
+    run_experiment,
+)
+from trajectory_experiments.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
+
+
+def _make_cfg(tmp_path: Path, composio_rows: list[dict]) -> ExperimentConfig:
+    return ExperimentConfig(
+        name="mock_e2e",
+        output_dir=str(tmp_path / "out"),
+        log_store=LogStoreSpec(kind="jsonl"),
+        run=RunConfig(
+            name="mock_run",
+            data=DataConfig(
+                source_kind="in_memory",
+                rows=composio_rows,
+                transforms=[TransformSpec(kind="composio_sft_no_tools")],
+            ),
+            model=ModelConfig(name="tiny/fake"),
+            algorithm=AlgorithmConfig(
+                kind="mock_sft",
+                params={"num_epochs": 1, "batch_size": 1, "save_at_fractions": [0.5, 1.0]},
+            ),
+            backend=BackendConfig(kind="mock"),
+            eval=EvalConfig(
+                enabled=True,
+                metrics=[MetricSpec(kind="exact_match"), MetricSpec(kind="toolkit_match")],
+                inference=InferenceSpec(
+                    kind="mock",
+                    params={
+                        "template": "<think>t</think>\n<answer>OUTLOOK_CREATE_CONTACT</answer>"
+                    },
+                ),
+            ),
+        ),
+    )
+
+
+def test_runner_mock_sft_end_to_end(tmp_path: Path, composio_rows):
+    cfg = _make_cfg(tmp_path, composio_rows)
+    results = run_experiment(cfg)
+    assert len(results) == 1
+    r = results[0]
+    assert r.status == "completed"
+    # Mock writes 2 checkpoints (50%, 100%) + final.
+    assert "final_checkpoint" in r.artifacts
+    # Logs landed.
+    metrics_path = tmp_path / "out" / "mock_run" / "logs" / "metrics.jsonl"
+    assert metrics_path.exists()
+    rows = [json.loads(l) for l in metrics_path.read_text().splitlines() if l.strip()]
+    assert any("train/loss" in row.get("metrics", {}) for row in rows)
+    # Eval ran and produced metrics (mock inference always answers OUTLOOK_CREATE_CONTACT).
+    assert "eval/exact_match" in r.metrics
+    # Only the first row's tool_slug matches the mock answer -> 1/3.
+    assert 0.30 < r.metrics["eval/exact_match"] < 0.35
+
+
+def test_runner_mock_rl_end_to_end(tmp_path: Path, composio_rows):
+    cfg = ExperimentConfig(
+        name="mock_rl_e2e",
+        output_dir=str(tmp_path / "out"),
+        run=RunConfig(
+            name="rl_run",
+            data=DataConfig(
+                source_kind="in_memory",
+                rows=composio_rows,
+                transforms=[TransformSpec(kind="composio_rl_no_tools")],
+            ),
+            model=ModelConfig(name="tiny/fake"),
+            algorithm=AlgorithmConfig(
+                kind="mock_rl",
+                params={
+                    "num_steps": 50,
+                    "save_every": 25,
+                    "verifier_kind": "composio_tool_match",
+                },
+            ),
+            backend=BackendConfig(kind="mock"),
+            eval=EvalConfig(enabled=False),
+        ),
+    )
+    results = run_experiment(cfg)
+    assert results[0].status == "completed"
+    assert "final_checkpoint" in results[0].artifacts
+    # Should have 2 checkpoints saved at step 25, 50.
+    assert any(k.startswith("ckpt_step_") for k in results[0].artifacts)
+
+
+def test_runner_yaml_path(tmp_path: Path, composio_rows):
+    cfg = _make_cfg(tmp_path, composio_rows)
+    yaml_path = tmp_path / "exp.yaml"
+    yaml_path.write_text(yaml.safe_dump(cfg.model_dump(exclude_none=True, mode="json")))
+    results = run_experiment(yaml_path)
+    assert results[0].status == "completed"
+
+
+def test_runner_failure_path_produces_failed_result(tmp_path: Path, composio_rows):
+    cfg = ExperimentConfig(
+        name="fail_e2e",
+        output_dir=str(tmp_path / "out"),
+        run=RunConfig(
+            name="bad",
+            data=DataConfig(source_kind="in_memory", rows=composio_rows),
+            model=ModelConfig(name="x"),
+            algorithm=AlgorithmConfig(kind="mock_sft"),
+            backend=BackendConfig(kind="mock", params={"fail_on_prepare": True}),
+            eval=EvalConfig(enabled=False),
+        ),
+    )
+    results = run_experiment(cfg)
+    assert results[0].status == "failed"
+    assert "MockBackend" in (results[0].error or "")

@@ -1,0 +1,25 @@
+{
+  "experiment_name": "example_01_mock_sft",
+  "run_name": "mock_sft_run",
+  "model": {
+    "name": "tiny/fake",
+    "load_checkpoint_path": null,
+    "renderer_name": null
+  },
+  "backend": {
+    "kind": "mock",
+    "params": {}
+  },
+  "tags": [],
+  "algorithm": "mock_sft",
+  "learning_rate": 0.0001,
+  "batch_size": 1,
+  "num_epochs": 1,
+  "max_steps": null,
+  "lora_rank": 8,
+  "save_at_fractions": [
+    0.5,
+    1.0
+  ],
+  "seed": 42
+}

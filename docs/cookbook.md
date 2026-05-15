@@ -1,0 +1,152 @@
+# Cookbook
+
+Walkthroughs for the most common things you'll do with `trajectory-experiments`.
+
+## Setup
+
+```bash
+cd trajectory-experiments
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e ".[tinker,local,tensorboard]"
+```
+
+For real Tinker training, also `export TINKER_API_KEY=...`.
+
+Run unit tests:
+
+```bash
+pytest tests/
+```
+
+## 1. Hello world (no GPU, no network)
+
+`examples/01_local_mock_sft.py` runs a deterministic mock SFT. It's the
+fastest way to verify the framework is wired up right.
+
+```bash
+python examples/01_local_mock_sft.py
+```
+
+You should see a `final_checkpoint` artifact and a `metrics.jsonl` in
+`examples/outputs/01/.../logs/`.
+
+## 2. Drive everything from YAML
+
+`examples/02_yaml_driven.py` shows the same experiment expressed as a YAML
+string. The library's canonical interface is YAML — Python configs are just
+sugar that produces the same dict tree. This is what an external evolution
+loop should mutate.
+
+```bash
+trajex validate examples/outputs/02/example.yaml --deep
+trajex run examples/outputs/02/example.yaml
+```
+
+## 3. Matrix campaigns
+
+`examples/03_matrix_campaign.py` shows a 6-run sweep from one `matrix:` block.
+For real campaigns (e.g. LoRA-rank × SFT-checkpoint fan-out), this is what
+you'd write — see also `composio-bench/training/campaign/` for the full
+production version.
+
+## 4. Adding your own algorithm
+
+`examples/04_custom_algorithm.py` registers a new training recipe via
+`@register_algorithm("cosine_toy")`. The decorator + Pydantic Config is the
+entire integration; YAMLs can immediately use `kind: cosine_toy`.
+
+For external packages that should auto-extend the registry, declare an entry
+point in your `pyproject.toml`:
+
+```toml
+[project.entry-points."trajectory_experiments.algorithms"]
+my_dpo = "my_pkg.algorithms:MyDPO"
+```
+
+When `trajectory_experiments` imports, every entry point in that group is
+loaded. No fork needed.
+
+## 5. Adding your own verifier (reward function)
+
+`examples/05_custom_verifier.py` registers a Gaussian length-reward verifier.
+Same pattern as algorithms; entry point group is
+`trajectory_experiments.verifiers`.
+
+## 6. Real Tinker SFT
+
+`examples/06_tinker_sft_real.py` — minimal real Tinker run, costs roughly $0.01.
+
+For a real-world campaign see `composio-bench/training/campaign/` in this
+repo: it runs a SFT-then-RL fan-out over LoRA rank with checkpointing at
+50/75/90/100% of training steps, then evaluates everything and produces a
+single combined plot.
+
+## CLI
+
+```bash
+trajex list                       # everything in the registries
+trajex list --kind algorithms
+trajex schema algorithm tinker_sft   # print Pydantic JSON schema
+trajex validate config.yaml --deep   # validate top-level + each kind/params block
+trajex run config.yaml            # run an experiment
+```
+
+## Architecture map
+
+```
+ExperimentConfig (YAML)
+├─ data_store: kind+params  ────►  DataStore  (LocalDataStore / SupabaseDataStore / InMemory)
+├─ log_store: kind+params   ────►  LogStore   (JSONLLogStore / TensorBoardLogStore / Multiplex)
+└─ runs / matrix:
+   └─ RunConfig
+      ├─ data:  source_kind + transforms[]
+      │            └─ Transform (composio_sft_no_tools / jsonl_to_chat / identity)
+      ├─ model: name, load_checkpoint_path, renderer_name
+      ├─ backend: kind+params  ───►  Backend  (tinker / local / mock)
+      ├─ algorithm: kind+params ──►  Algorithm (tinker_sft / tinker_rl / local_sft / local_rl / mock_*)
+      └─ eval:
+         ├─ inference: kind+params ► InferenceClient (tinker / local / mock)
+         └─ metrics[]: kind+params  ► Metric (exact_match / pass_at_k / mean_reward / ...)
+```
+
+Every box on the right is one extension point with its own registry and
+entry-point group.
+
+## Stores: local vs Supabase
+
+The library defines `DataStore` and `LogStore` as protocols (see
+`src/trajectory_experiments/protocols.py`). Built-in implementations:
+
+* `LocalDataStore` (root-anchored filesystem JSONL/JSON)
+* `InMemoryDataStore` (test-only)
+* `JSONLLogStore` (append-only metrics.jsonl + hyperparams.json + artifacts.json)
+* `TensorBoardLogStore` (SummaryWriter)
+* `MultiplexLogStore` (fan-out to N children)
+
+Supabase adapters live in `trajectory_experiments.adapters.supabase` (extra:
+`pip install trajectory-experiments[supabase]`). They are optional — the core
+library imports zero Supabase code.
+
+## Backends
+
+Pick `mock` for tests, `local` for local TRL training, `tinker` for hosted
+Tinker training. Algorithms are routed to the right code path based on
+`ctx.backend.name`.
+
+## Modular extension cheat sheet
+
+| Extension point | Decorator | Entry point group |
+|---|---|---|
+| Algorithm | `@register_algorithm("name")` | `trajectory_experiments.algorithms` |
+| Verifier | `@register_verifier("name")` | `trajectory_experiments.verifiers` |
+| Metric | `@register_metric("name")` | `trajectory_experiments.metrics` |
+| Backend | `@register_backend("name")` | `trajectory_experiments.backends` |
+| InferenceClient | `@register_inference("name")` | `trajectory_experiments.inference` |
+| Transform | `@register_transform("name")` | `trajectory_experiments.transforms` |
+| DataStore | `@register_data_store("name")` | `trajectory_experiments.data_stores` |
+| LogStore | `@register_log_store("name")` | `trajectory_experiments.log_stores` |
+
+Each registered class declares a `Config: ClassVar[type]` Pydantic model that
+defines the legal field space — this is exactly what an evolutionary
+algorithm needs to know to mutate the YAML safely.

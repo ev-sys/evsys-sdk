@@ -1,0 +1,63 @@
+{
+  "run_id": "sweep__e3__r8",
+  "status": "completed",
+  "metrics": {
+    "train/final_loss": 0.13874048221710206,
+    "total_steps": 3.0
+  },
+  "artifacts": {
+    "ckpt_step_3": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e3__r8/checkpoint-3",
+    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e3__r8/final"
+  },
+  "error": null,
+  "hparams": {
+    "name": "sweep__e3__r8",
+    "data": {
+      "source_kind": "in_memory",
+      "path": null,
+      "rows": [
+        {
+          "query": "x",
+          "tool_slug": "FAKE_TOOL",
+          "toolkit": "FAKE",
+          "description": "..."
+        }
+      ],
+      "hf_dataset": null,
+      "hf_split": "train",
+      "transforms": [
+        {
+          "kind": "composio_sft_no_tools",
+          "params": {}
+        }
+      ]
+    },
+    "model": {
+      "name": "tiny/fake",
+      "load_checkpoint_path": null,
+      "renderer_name": null
+    },
+    "algorithm": {
+      "kind": "mock_sft",
+      "params": {
+        "num_epochs": 3,
+        "batch_size": 1,
+        "lora_rank": 8
+      }
+    },
+    "backend": {
+      "kind": "mock",
+      "params": {}
+    },
+    "eval": {
+      "enabled": false,
+      "metrics": [],
+      "inference": null,
+      "eval_data": null,
+      "n_samples": null
+    },
+    "seed": 42,
+    "tags": []
+  },
+  "ts": 1777886423.1973665
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "ckpt_step_2",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e2__r4/checkpoint-2",
+    "kind": "checkpoint",
+    "ts": 1777886423.1944532
+  },
+  {
+    "name": "final_checkpoint",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e2__r4/final",
+    "kind": "checkpoint",
+    "ts": 1777886423.1945946
+  }
+]

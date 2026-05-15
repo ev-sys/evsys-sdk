@@ -1,0 +1,68 @@
+[project]
+name = "trajectory-experiments"
+version = "0.1.0"
+description = "Declarative, modular experiment framework for LLM training (SFT, RL, distillation) with pluggable algorithms, data stores, log stores, and backends."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.10",
+    "pyyaml>=6.0",
+    "typing-extensions>=4.12",
+]
+
+[project.optional-dependencies]
+tinker = [
+    "tinker>=0.18.2",
+    "tinker-cookbook>=0.3.0",
+    "chz",
+]
+local = [
+    "torch>=2.4",
+    "transformers>=4.40",
+    "trl>=0.20",
+    "peft>=0.10",
+    "datasets>=2.20",
+    "accelerate>=0.30",
+]
+supabase = [
+    "requests>=2.32",
+]
+tensorboard = [
+    "tensorboard>=2.16",
+]
+plot = [
+    "matplotlib>=3.8",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+trajex = "trajectory_experiments.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trajectory_experiments"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that take >5s",
+    "tinker: tests that hit the Tinker API (require TINKER_API_KEY)",
+    "supabase: tests that hit Supabase (require SUPABASE_URL+key)",
+    "gpu: tests that require CUDA",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "RUF"]
+ignore = ["E501", "RUF013"]
