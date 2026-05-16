@@ -10,6 +10,8 @@ Some algorithms are backend-agnostic (Mock); most route to a single backend.
 
 from .mock_sft import MockSFT  # noqa: F401
 from .mock_rl import MockRL  # noqa: F401
+from .combo import ComboAlgorithm  # noqa: F401
+from .gepa_prompt import GEPAPromptAlgorithm  # noqa: F401
 
 # Tinker recipes — optional.
 try:

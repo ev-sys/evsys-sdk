@@ -77,6 +77,28 @@ from .registry import (
 )
 from .runner import run_experiment
 from .yaml_loader import dump_yaml, load_yaml, validate_yaml
+from .data_types import (
+    TargetFormat,
+    ChatMessagesRow,
+    HarborTask,
+    PromptExample,
+    InProcessVerifier,
+    E2BVerifier,
+    LLMJudgeVerifier,
+    VerifierPayload,
+    text_block,
+    image_url_block,
+    image_base64_block,
+    block_to_image_src,
+    has_images,
+    detect_format,
+    harbor_task_from_dict,
+    chat_messages_row_from_dict,
+    prompt_example_from_dict,
+    from_dict,
+    to_dict,
+    iter_jsonl,
+)
 
 # Trigger registration of built-in extensions.
 from . import algorithms as _algorithms  # noqa: F401
@@ -149,4 +171,25 @@ __all__ = [
     "dump_yaml",
     "load_yaml",
     "validate_yaml",
+    # Harbor data shapes (data interchange with internal stack + dashboards)
+    "TargetFormat",
+    "ChatMessagesRow",
+    "HarborTask",
+    "PromptExample",
+    "InProcessVerifier",
+    "E2BVerifier",
+    "LLMJudgeVerifier",
+    "VerifierPayload",
+    "text_block",
+    "image_url_block",
+    "image_base64_block",
+    "block_to_image_src",
+    "has_images",
+    "detect_format",
+    "harbor_task_from_dict",
+    "chat_messages_row_from_dict",
+    "prompt_example_from_dict",
+    "from_dict",
+    "to_dict",
+    "iter_jsonl",
 ]
