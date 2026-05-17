@@ -343,16 +343,18 @@ class ExperimentRun:
                 try: self.client.update_experiment(self.experiment_id, status="failed", error_message=msg)
                 except Exception: pass
             return None
-        # Clean exit.
+        # Clean exit. training_generations has no best_score column —
+        # combined_score is the headline metric there. training_experiments
+        # is where best_score lives.
         if self.generation_id:
-            patch: dict = {"status": "completed"}
-            if self._best_score is not None: patch["best_score"] = self._best_score
-            self.client.update_generation(self.generation_id, **patch)
+            gen_patch: dict = {"status": "completed"}
+            if self._best_score is not None: gen_patch["combined_score"] = self._best_score
+            self.client.update_generation(self.generation_id, **gen_patch)
         if self.experiment_id:
-            patch: dict = {"status": "completed"}
-            if self._best_score is not None: patch["best_score"] = self._best_score
-            if self.generation_id: patch["best_generation_id"] = self.generation_id
-            self.client.update_experiment(self.experiment_id, **patch)
+            exp_patch: dict = {"status": "completed"}
+            if self._best_score is not None: exp_patch["best_score"] = self._best_score
+            if self.generation_id: exp_patch["best_generation_id"] = self.generation_id
+            self.client.update_experiment(self.experiment_id, **exp_patch)
 
     # -- ergonomic passthroughs --
 
