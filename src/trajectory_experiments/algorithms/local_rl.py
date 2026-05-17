@@ -30,7 +30,10 @@ class LocalRLConfig(BaseModel):
     logging_steps: int = 10
     save_steps: int = 50
     save_total_limit: int = 5
-    bf16: bool = True
+    bf16: bool = False
+    """Enable only on CUDA GPUs that support bfloat16 (Ampere+). Crashes on CPU/MPS."""
+    fp16: bool = False
+    """Enable only on CUDA GPUs. Crashes on CPU/MPS."""
     beta: float = 0.04
     seed: int = 42
     lora_rank: int = 4
@@ -103,6 +106,7 @@ class LocalRL:
             save_steps=self.cfg.save_steps,
             save_total_limit=self.cfg.save_total_limit,
             bf16=self.cfg.bf16,
+            fp16=self.cfg.fp16,
             beta=self.cfg.beta,
             seed=self.cfg.seed,
             log_completions=False,

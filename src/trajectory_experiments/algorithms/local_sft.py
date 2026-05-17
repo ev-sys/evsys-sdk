@@ -29,6 +29,7 @@ class LocalSFTConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     learning_rate: float = 2e-4
     num_epochs: int = 3
+    max_steps: int | None = None
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 16
     warmup_steps: int = 20
@@ -36,7 +37,10 @@ class LocalSFTConfig(BaseModel):
     logging_steps: int = 10
     save_steps: int = 100
     save_total_limit: int = 5
-    bf16: bool = True
+    bf16: bool = False
+    """Enable only on CUDA GPUs that support bfloat16 (Ampere+). Crashes on CPU/MPS."""
+    fp16: bool = False
+    """Enable only on CUDA GPUs. Crashes on CPU/MPS."""
     seed: int = 42
     lora_rank: int = 16
     lora_alpha: int = 32
@@ -84,6 +88,7 @@ class LocalSFT:
         args = SFTConfig(
             output_dir=str(out),
             num_train_epochs=self.cfg.num_epochs,
+            max_steps=self.cfg.max_steps if self.cfg.max_steps is not None else -1,
             per_device_train_batch_size=self.cfg.per_device_train_batch_size,
             gradient_accumulation_steps=self.cfg.gradient_accumulation_steps,
             learning_rate=self.cfg.learning_rate,
@@ -94,6 +99,7 @@ class LocalSFT:
             save_steps=self.cfg.save_steps,
             save_total_limit=self.cfg.save_total_limit,
             bf16=self.cfg.bf16,
+            fp16=self.cfg.fp16,
             report_to="none",
             seed=self.cfg.seed,
         )
