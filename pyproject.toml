@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.10",
     "pyyaml>=6.0",
     "typing-extensions>=4.12",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]

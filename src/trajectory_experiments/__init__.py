@@ -77,6 +77,7 @@ from .registry import (
 )
 from .runner import run_experiment
 from .yaml_loader import dump_yaml, load_yaml, validate_yaml
+from .dashboard_client import DashboardClient, DashboardClientError, ExperimentRun
 
 # Trigger registration of built-in extensions.
 from . import algorithms as _algorithms  # noqa: F401
