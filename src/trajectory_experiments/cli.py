@@ -80,6 +80,58 @@ def _cmd_schema(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_eval_composio(args: argparse.Namespace) -> int:
+    from .eval import ComposioSearchConfig, evaluate_composio_search, format_summary_markdown
+
+    cfg = ComposioSearchConfig(
+        api_key_env=args.api_key_env,
+        user_id=args.user_id,
+        max_attempts=args.max_attempts,
+        threads=args.threads,
+    )
+    artifacts = evaluate_composio_search(
+        dataset_path=args.dataset,
+        aliases_path=args.aliases,
+        secondary_aliases_path=args.secondary_aliases,
+        config=cfg,
+        output_dir=args.output_dir,
+    )
+    print(format_summary_markdown(artifacts.summary, title="Composio search eval"))
+    rr = artifacts.summary.retry_report
+    return 0 if rr.get("total_failures", 0) == 0 or not args.fail_on_retries else 2
+
+
+def _cmd_eval_model(args: argparse.Namespace) -> int:
+    from .eval import ModelEvalConfig, evaluate_model, format_summary_markdown
+    from .registry import get_inference
+
+    inf_cls = get_inference(args.inference_kind)
+    client_kwargs: dict = {"model_name": args.model_name}
+    if args.adapter_path:
+        client_kwargs["adapter_path"] = args.adapter_path
+    if args.checkpoint_path:
+        client_kwargs["checkpoint_path"] = args.checkpoint_path
+    client = inf_cls(**client_kwargs)
+
+    cfg = ModelEvalConfig(
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+        max_attempts=args.max_attempts,
+        batch_size=args.batch_size,
+    )
+    artifacts = evaluate_model(
+        dataset_path=args.dataset,
+        aliases_path=args.aliases,
+        secondary_aliases_path=args.secondary_aliases,
+        client=client,
+        config=cfg,
+        output_dir=args.output_dir,
+    )
+    print(format_summary_markdown(artifacts.summary, title=f"Model eval ({args.inference_kind})"))
+    rr = artifacts.summary.retry_report
+    return 0 if rr.get("total_failures", 0) == 0 or not args.fail_on_retries else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trajex", description="Trajectory experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -102,6 +154,37 @@ def main(argv: list[str] | None = None) -> int:
     p_sch.add_argument("kind", help="One of: algorithm, backend, verifier, metric, transform, data_store, log_store, inference_client")
     p_sch.add_argument("name")
     p_sch.set_defaults(func=_cmd_schema)
+
+    p_eval = sub.add_parser("eval", help="Run a tool-detection eval (alias-aware, retry-wrapped).")
+    eval_sub = p_eval.add_subparsers(dest="eval_cmd", required=True)
+
+    p_ec = eval_sub.add_parser("composio-search", help="Evaluate Composio's COMPOSIO_SEARCH_TOOLS.")
+    p_ec.add_argument("--dataset", required=True, help="Path to v2 eval JSON.")
+    p_ec.add_argument("--aliases", required=True, help="Path to verified_aliases.json.")
+    p_ec.add_argument("--secondary-aliases", default=None, help="Optional path to verified_aliases_secondary.json.")
+    p_ec.add_argument("--output-dir", required=True, help="Where to write summary + per-row results.")
+    p_ec.add_argument("--api-key-env", default="COMPOSIO_API_KEY")
+    p_ec.add_argument("--user-id", default="trajectory-eval-user")
+    p_ec.add_argument("--max-attempts", type=int, default=5)
+    p_ec.add_argument("--threads", type=int, default=4)
+    p_ec.add_argument("--fail-on-retries", action="store_true", help="Exit non-zero if any retry-exhausted failures occurred.")
+    p_ec.set_defaults(func=_cmd_eval_composio)
+
+    p_em = eval_sub.add_parser("model", help="Evaluate a model checkpoint over the eval set.")
+    p_em.add_argument("--dataset", required=True)
+    p_em.add_argument("--aliases", required=True)
+    p_em.add_argument("--secondary-aliases", default=None)
+    p_em.add_argument("--output-dir", required=True)
+    p_em.add_argument("--inference-kind", required=True, choices=["local", "tinker", "mock"])
+    p_em.add_argument("--model-name", required=True)
+    p_em.add_argument("--adapter-path", default=None, help="Local PEFT adapter dir (for --inference-kind=local).")
+    p_em.add_argument("--checkpoint-path", default=None, help="Tinker checkpoint path (for --inference-kind=tinker).")
+    p_em.add_argument("--max-tokens", type=int, default=256)
+    p_em.add_argument("--temperature", type=float, default=0.0)
+    p_em.add_argument("--max-attempts", type=int, default=5)
+    p_em.add_argument("--batch-size", type=int, default=1, help="Submit prompts in chunks of this size (needs generate_batch on the inference client).")
+    p_em.add_argument("--fail-on-retries", action="store_true")
+    p_em.set_defaults(func=_cmd_eval_model)
 
     args = parser.parse_args(argv)
     return args.func(args)
