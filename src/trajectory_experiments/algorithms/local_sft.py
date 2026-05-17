@@ -34,6 +34,8 @@ class LocalSFTConfig(BaseModel):
     gradient_accumulation_steps: int = 16
     warmup_steps: int = 20
     max_seq_len: int = 512
+    max_steps: int | None = None
+    """If set, overrides num_epochs — training stops after this many steps."""
     logging_steps: int = 10
     save_steps: int = 100
     save_total_limit: int = 5
@@ -85,7 +87,7 @@ class LocalSFT:
             task_type="CAUSAL_LM",
         )
 
-        args = SFTConfig(
+        sft_kwargs: dict = dict(
             output_dir=str(out),
             num_train_epochs=self.cfg.num_epochs,
             max_steps=self.cfg.max_steps if self.cfg.max_steps is not None else -1,
@@ -103,6 +105,9 @@ class LocalSFT:
             report_to="none",
             seed=self.cfg.seed,
         )
+        if self.cfg.max_steps is not None:
+            sft_kwargs["max_steps"] = self.cfg.max_steps
+        args = SFTConfig(**sft_kwargs)
 
         trainer = SFTTrainer(
             model=model,
@@ -135,9 +140,11 @@ class LocalSFT:
         for k, v in artifacts.items():
             ctx.log_store.log_artifact(k, v, kind="checkpoint")
 
+        loss_entries = [e for e in getattr(trainer.state, "log_history", []) if "loss" in e]
+        final_loss = float(loss_entries[-1]["loss"]) if loss_entries else 0.0
         return RunResult(
             run_id=ctx.run_id,
             status="completed",
-            metrics={"train/final_loss": float(trainer.state.log_history[-1].get("loss", 0.0)) if trainer.state.log_history else 0.0},
+            metrics={"train/final_loss": final_loss},
             artifacts=artifacts,
         )
