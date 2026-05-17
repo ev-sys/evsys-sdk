@@ -84,6 +84,26 @@ class TestExperiments:
         assert body["hypothesis"] == "LoRA r=32 raises pass@1"
         assert body["tags"] == ["axis:lora"]
 
+    def test_create_experiment_carries_reasoning_and_plan(self):
+        sess = _mock_session({"experiment": {"id": "e1"}}, status=201)
+        client = _make_client(sess)
+        client.create_experiment(
+            experiment_name="x",
+            hypothesis="r=32 lifts pass@1",
+            hypothesis_reasoning="r=8 plateaued while loss still dropping",
+            plan="SFT 2ep, lr=1e-5, bs=16",
+        )
+        body = sess.post.call_args[1]["json"]
+        assert body["hypothesis_reasoning"] == "r=8 plateaued while loss still dropping"
+        assert body["plan"] == "SFT 2ep, lr=1e-5, bs=16"
+
+    def test_update_experiment_accepts_conclusion(self):
+        sess = _mock_session({"experiment_id": "e1", "patched": ["conclusion"]})
+        client = _make_client(sess)
+        client.update_experiment("e1", conclusion="r=32 confirmed; promote.")
+        body = sess.post.call_args[1]["json"]
+        assert body["conclusion"] == "r=32 confirmed; promote."
+
     def test_create_experiment_drops_none_fields(self):
         sess = _mock_session({"experiment": {"id": "e1"}}, status=201)
         client = _make_client(sess)
@@ -256,10 +276,13 @@ class TestExperimentRun:
         # And the completed-update body should include best_score.
         gen_patch = sess.post.call_args_list[-2][1]["json"]
         assert gen_patch["status"] == "completed"
-        assert gen_patch["best_score"] == 0.83
+        # training_generations has no best_score col — combined_score is the
+        # generation-level scalar, best_score lives on training_experiments.
+        assert gen_patch["combined_score"] == 0.83
         exp_patch = sess.post.call_args_list[-1][1]["json"]
         assert exp_patch["status"] == "completed"
         assert exp_patch["best_generation_id"] == "g1"
+        assert exp_patch["best_score"] == 0.83
 
     def test_exception_marks_failed_with_message(self):
         responses = [
@@ -286,6 +309,38 @@ class TestExperimentRun:
         assert "boom" in gen_patch["error_message"]
         exp_patch = sess.post.call_args_list[-1][1]["json"]
         assert exp_patch["status"] == "failed"
+
+    def test_clean_exit_flushes_conclusion(self):
+        responses = [
+            {"experiment": {"id": "e1"}},
+            {"generation": {"id": "g1"}},
+            {"generation_id": "g1"},      # update_generation
+            {"experiment_id": "e1"},      # update_experiment
+        ]
+        sess = mock.MagicMock()
+        def _post(*a, **kw):
+            r = mock.MagicMock(); r.status_code = 201
+            payload = responses.pop(0); r.text = json.dumps(payload); r.json.return_value = payload
+            return r
+        sess.post.side_effect = _post
+        client = _make_client(sess)
+
+        with ExperimentRun(
+            client, experiment_name="x", recipe_kind="sft",
+            hypothesis_reasoning="prior runs plateaued at 0.71",
+            plan="SFT 2ep, lr=1e-5",
+        ) as run:
+            run.set_best_score(0.83)
+            run.set_conclusion("r=32 raised pass@1 to 0.83; promote.")
+
+        # The exp-create call should carry the reasoning + plan.
+        create_body = sess.post.call_args_list[0][1]["json"]
+        assert create_body["hypothesis_reasoning"] == "prior runs plateaued at 0.71"
+        assert create_body["plan"] == "SFT 2ep, lr=1e-5"
+
+        # The final experiment patch should carry the conclusion.
+        exp_patch = sess.post.call_args_list[-1][1]["json"]
+        assert exp_patch["conclusion"] == "r=32 raised pass@1 to 0.83; promote."
 
     def test_threads_existing_experiment(self):
         responses = [

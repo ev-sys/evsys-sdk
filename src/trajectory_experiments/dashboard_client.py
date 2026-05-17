@@ -16,6 +16,10 @@ Quick usage::
         experiment_name="composio_sft_v9",
         client="composio",
         hypothesis="LoRA r=8 → r=32 raises pass@1",
+        hypothesis_reasoning=(
+            "Prior runs plateaued at 0.71 with r=8 and train-loss was still "
+            "dropping; higher rank should give the adapter more capacity."
+        ),
         tags=["axis:lora"],
     )
     gen = client.create_generation(
@@ -31,8 +35,11 @@ Quick usage::
          "expected": "...", "reward": 1.0, "kind": "eval"},
     ])
     client.update_generation(gen["id"], status="completed", best_score=0.83)
-    client.update_experiment(exp["id"], status="completed", best_score=0.83,
-                             best_generation_id=gen["id"])
+    client.update_experiment(
+        exp["id"],
+        status="completed", best_score=0.83, best_generation_id=gen["id"],
+        conclusion="r=32 raised pass@1 to 0.83 with no instability; promote.",
+    )
 
 Or use the context manager for the common case::
 
@@ -123,6 +130,8 @@ class DashboardClient:
         experiment_name: str,
         client: str | None = None,
         hypothesis: str | None = None,
+        hypothesis_reasoning: str | None = None,
+        plan: str | None = None,
         tags: list[str] | None = None,
         problem_statement_id: str | None = None,
         parent_experiment_id: str | None = None,
@@ -133,7 +142,9 @@ class DashboardClient:
     ) -> dict:
         body: dict = {"experiment_name": experiment_name}
         for k, v in (
-            ("client", client), ("hypothesis", hypothesis), ("tags", tags),
+            ("client", client), ("hypothesis", hypothesis),
+            ("hypothesis_reasoning", hypothesis_reasoning), ("plan", plan),
+            ("tags", tags),
             ("problem_statement_id", problem_statement_id),
             ("parent_experiment_id", parent_experiment_id),
             ("base_model", base_model), ("seed_config", seed_config),
@@ -144,6 +155,11 @@ class DashboardClient:
         return self._post("/sdk/experiments/", body)["experiment"]
 
     def update_experiment(self, experiment_id: str, **patch: Any) -> dict:
+        """PATCH experiment metadata. Whitelisted fields on the backend:
+        status, best_score, best_generation_id, current_iteration,
+        error_message, hypothesis, hypothesis_reasoning, plan, conclusion,
+        tags, problem_statement_id.
+        """
         return self._post(f"/sdk/experiments/{experiment_id}/", patch)
 
     # -- generations -------------------------------------------------------
@@ -281,6 +297,8 @@ class ExperimentRun:
         experiment_name: str,
         client_name: str | None = None,
         hypothesis: str | None = None,
+        hypothesis_reasoning: str | None = None,
+        plan: str | None = None,
         tags: list[str] | None = None,
         problem_statement_id: str | None = None,
         base_model: str | None = None,
@@ -300,6 +318,8 @@ class ExperimentRun:
             "experiment_name": experiment_name,
             "client": client_name,
             "hypothesis": hypothesis,
+            "hypothesis_reasoning": hypothesis_reasoning,
+            "plan": plan,
             "tags": tags,
             "problem_statement_id": problem_statement_id,
             "base_model": base_model,
@@ -317,6 +337,7 @@ class ExperimentRun:
         self.experiment_id: str | None = None
         self.generation_id: str | None = None
         self._best_score: float | None = None
+        self._conclusion: str | None = None
 
     def __enter__(self) -> "ExperimentRun":
         if self._given_experiment_id:
@@ -354,6 +375,7 @@ class ExperimentRun:
             exp_patch: dict = {"status": "completed"}
             if self._best_score is not None: exp_patch["best_score"] = self._best_score
             if self.generation_id: exp_patch["best_generation_id"] = self.generation_id
+            if self._conclusion is not None: exp_patch["conclusion"] = self._conclusion
             self.client.update_experiment(self.experiment_id, **exp_patch)
 
     # -- ergonomic passthroughs --
@@ -378,6 +400,14 @@ class ExperimentRun:
 
     def set_best_score(self, score: float) -> None:
         self._best_score = float(score)
+
+    def set_conclusion(self, text: str) -> None:
+        """One- or two-line takeaway from the run. Flushed on clean __exit__.
+
+        Example: "LoRA r=32 raised pass@1 from 0.71 → 0.83 with no train-loss
+        instability — hypothesis confirmed; promote to leaderboard."
+        """
+        self._conclusion = str(text)
 
     def update_generation(self, **patch: Any) -> None:
         assert self.generation_id

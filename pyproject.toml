@@ -35,6 +35,23 @@ tensorboard = [
 plot = [
     "matplotlib>=3.8",
 ]
+claude = [
+    "anthropic>=0.40",
+]
+gemini = [
+    "google-genai>=0.5",
+]
+openai = [
+    "openai>=1.40",
+]
+gepa = [
+    "gepa>=0.0.7",
+]
+frontier = [
+    "anthropic>=0.40",
+    "google-genai>=0.5",
+    "openai>=1.40",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
