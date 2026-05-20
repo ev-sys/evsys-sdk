@@ -21,7 +21,18 @@ from trajectory_experiments.dashboard_client import (
     DashboardClient,
     DashboardClientError,
     ExperimentRun,
+    TrajectoryAuthError,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_env(tmp_path, monkeypatch):
+    """Keep tests hermetic: no ambient creds, and mirror writes go to tmp."""
+    monkeypatch.delenv("TRAJECTORY_API_KEY", raising=False)
+    monkeypatch.delenv("TRAJECTORY_PROJECT_ID", raising=False)
+    monkeypatch.delenv("TRAJECTORY_API_URL", raising=False)
+    monkeypatch.delenv("TRAJECTORY_OFFLINE", raising=False)
+    monkeypatch.setenv("TRAJECTORY_LOG_DIR", str(tmp_path / "mirror"))
 
 
 def _mock_session(response_json: dict, status: int = 200):
@@ -36,33 +47,52 @@ def _mock_session(response_json: dict, status: int = 200):
 
 
 def _make_client(session=None) -> DashboardClient:
-    c = DashboardClient(base_url="http://test.local", api_key="sk_test")
+    c = DashboardClient(base_url="http://test.local", api_key="sk_test", project_id="proj_test")
     if session is not None:
         c._session = session
     return c
 
 
 class TestConstruction:
-    def test_requires_api_key(self, monkeypatch):
-        monkeypatch.delenv("TRAJECTORY_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="api_key"):
+    def test_requires_credentials_when_online(self, monkeypatch):
+        # No api_key / project_id and not offline → auth error.
+        with pytest.raises(TrajectoryAuthError, match="TRAJECTORY_API_KEY"):
             DashboardClient(base_url="http://x")
+
+    def test_offline_needs_no_credentials(self):
+        c = DashboardClient(base_url="http://x", offline=True)
+        assert c.offline is True
+        assert c._session is None
+
+    def test_offline_via_env(self, monkeypatch):
+        monkeypatch.setenv("TRAJECTORY_OFFLINE", "true")
+        c = DashboardClient()
+        assert c.offline is True
 
     def test_picks_up_env_vars(self, monkeypatch):
         monkeypatch.setenv("TRAJECTORY_API_KEY", "sk_from_env")
+        monkeypatch.setenv("TRAJECTORY_PROJECT_ID", "proj_from_env")
         monkeypatch.setenv("TRAJECTORY_API_URL", "https://x.test")
         c = DashboardClient()
         assert c.api_key == "sk_from_env"
+        assert c.project_id == "proj_from_env"
         assert c.base_url == "https://x.test"
 
     def test_strips_trailing_slash(self):
-        c = DashboardClient(base_url="http://t.com/", api_key="sk")
+        c = DashboardClient(base_url="http://t.com/", api_key="sk", project_id="p")
         assert c.base_url == "http://t.com"
 
     def test_sets_bearer_header(self):
-        c = DashboardClient(base_url="http://t.com", api_key="sk_abc")
+        c = DashboardClient(base_url="http://t.com", api_key="sk_abc", project_id="p")
         assert c._session.headers["Authorization"] == "Bearer sk_abc"
         assert c._session.headers["Content-Type"] == "application/json"
+
+    def test_create_experiment_includes_project_id(self):
+        sess = _mock_session({"experiment": {"id": "e1"}}, status=201)
+        client = _make_client(sess)
+        client.create_experiment(experiment_name="x")
+        body = sess.post.call_args[1]["json"]
+        assert body["project_id"] == "proj_test"
 
 
 class TestExperiments:
@@ -234,13 +264,25 @@ class TestErrors:
         assert "invalid" in exc.value.body
         assert "/sdk/experiments/" in exc.value.path
 
-    def test_500_raises(self):
+    def test_5xx_degrades_gracefully(self):
+        # A server error is treated like an outage: no raise, local fallback.
         sess = mock.MagicMock()
         resp = mock.MagicMock(); resp.status_code = 500; resp.text = "boom"
         sess.post.return_value = resp
         client = _make_client(sess)
-        with pytest.raises(DashboardClientError):
-            client.log_step_metric("g1", step=1, loss=0.1)
+        result = client.log_step_metric("g1", step=1, loss=0.1)
+        assert result == {"ok": True}
+        assert client._remote_down is True
+
+    def test_connection_error_degrades_gracefully(self):
+        import requests as _rq
+        sess = mock.MagicMock()
+        sess.post.side_effect = _rq.exceptions.ConnectionError("refused")
+        client = _make_client(sess)
+        # Should not raise; experiment still gets a (local) id.
+        row = client.create_experiment(experiment_name="x")
+        assert row["id"]
+        assert client._remote_down is True
 
 
 class TestExperimentRun:
