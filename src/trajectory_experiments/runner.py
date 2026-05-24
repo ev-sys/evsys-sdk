@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -278,8 +279,15 @@ def _execute_run(
 # ---------------------------------------------------------------------------
 
 
-def run_experiment(cfg_or_path) -> list[RunResult]:
-    """Run an experiment from a parsed config or YAML file."""
+def run_experiment(cfg_or_path, *, workers: int | None = None) -> list[RunResult]:
+    """Run an experiment from a parsed config or YAML file.
+
+    Args:
+        cfg_or_path: Parsed ExperimentConfig or path to a YAML file.
+        workers: Override cfg.max_parallel_runs. Pass an int to run that many
+            runs concurrently via ThreadPoolExecutor. Safe for the tinker
+            backend; not recommended for local (GPU OOM risk).
+    """
     if isinstance(cfg_or_path, ExperimentConfig):
         cfg = cfg_or_path
     else:
@@ -297,7 +305,24 @@ def run_experiment(cfg_or_path) -> list[RunResult]:
     else:  # pragma: no cover — caught earlier in config validator
         raise RuntimeError("ExperimentConfig has no runs (matrix not expanded?)")
 
-    results: list[RunResult] = []
-    for run in runs:
-        results.append(_execute_run(cfg=cfg, run=run, base_output_dir=base_output_dir))
-    return results
+    effective_workers = workers if workers is not None else cfg.max_parallel_runs
+
+    if effective_workers > 1:
+        local_runs = [r for r in runs if r.backend.kind == "local"]
+        if local_runs:
+            logger.warning(
+                "max_parallel_runs > 1 with local backend is not recommended: "
+                "concurrent GPU training from threads risks OOM and CUDA context "
+                "conflicts. Affected runs: %s",
+                [r.name for r in local_runs],
+            )
+
+    if effective_workers <= 1 or len(runs) <= 1:
+        return [_execute_run(cfg=cfg, run=run, base_output_dir=base_output_dir) for run in runs]
+
+    futures = {}
+    with ThreadPoolExecutor(max_workers=effective_workers) as pool:
+        for run in runs:
+            futures[pool.submit(_execute_run, cfg=cfg, run=run, base_output_dir=base_output_dir)] = run
+    # Collect in submission order so the result list matches the run order.
+    return [f.result() for f in futures]
