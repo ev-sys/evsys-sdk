@@ -23,7 +23,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     from .runner import run_experiment
 
-    results = run_experiment(args.path)
+    results = run_experiment(args.path, workers=args.workers)
     summary = []
     for r in results:
         summary.append(
@@ -144,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="Run an experiment.")
     p_run.add_argument("path")
     p_run.add_argument("--output", "-o", default=None, help="Where to write the run summary JSON.")
+    p_run.add_argument("--workers", type=int, default=None, metavar="N",
+                       help="Run up to N grid cells in parallel (overrides max_parallel_runs in YAML).")
     p_run.set_defaults(func=_cmd_run)
 
     p_list = sub.add_parser("list", help="List registered extensions.")

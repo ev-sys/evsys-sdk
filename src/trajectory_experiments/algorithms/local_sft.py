@@ -29,7 +29,6 @@ class LocalSFTConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     learning_rate: float = 2e-4
     num_epochs: int = 3
-    max_steps: int | None = None
     per_device_train_batch_size: int = 1
     gradient_accumulation_steps: int = 16
     warmup_steps: int = 20

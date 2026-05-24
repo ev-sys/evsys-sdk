@@ -175,6 +175,11 @@ class ExperimentConfig(_Strict):
     runs: list[RunConfig] | None = None
     matrix: MatrixSpec | None = None
 
+    max_parallel_runs: int = 1
+    """Max number of runs (grid cells) to execute concurrently. >1 uses a
+    ThreadPoolExecutor — safe for the tinker backend (remote service) but NOT
+    recommended for the local backend (GPU OOM / CUDA context conflicts)."""
+
     parent_experiment_id: str | None = None
     """For evolutionary lineage."""
     metadata: dict[str, Any] = Field(default_factory=dict)
