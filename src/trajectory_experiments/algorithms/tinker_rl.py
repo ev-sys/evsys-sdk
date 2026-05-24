@@ -283,6 +283,8 @@ class TinkerRL:
         except Exception as e:
             logger.exception("TinkerRL.train failed")
             return RunResult(run_id=ctx.run_id, status="failed", error=str(e))
+        finally:
+            del _RL_CACHE[cache_key]
 
         artifacts: dict[str, str] = {"run_dir": str(out)}
         ckpt_manifest = out / "checkpoints.jsonl"

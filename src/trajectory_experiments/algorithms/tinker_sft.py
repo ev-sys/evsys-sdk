@@ -271,6 +271,8 @@ class TinkerSFT:
         except Exception as e:
             logger.exception("TinkerSFT.train failed")
             return RunResult(run_id=ctx.run_id, status="failed", error=str(e))
+        finally:
+            del _ROW_CACHE[cache_key]
 
         # Tinker writes a `checkpoints.jsonl` manifest with rows like:
         #   {"name": "<step_or_'final'>", "batch": N, "epoch": M, "state_path": "tinker://..."}
