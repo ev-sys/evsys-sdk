@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -23,7 +23,7 @@ from trajectory_experiments import (
     register_verifier,
     run_experiment,
 )
-from trajectory_experiments.protocols import VerificationResult
+from trajectory_labs.protocols import VerificationResult
 
 HERE = Path(__file__).parent
 

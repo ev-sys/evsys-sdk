@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from trajectory_experiments import load_yaml, run_experiment
+from trajectory_labs import load_yaml, run_experiment
 
 HERE = Path(__file__).parent
 
@@ -25,7 +25,7 @@ CFG = {
             "data": {
                 "source_kind": "in_memory",
                 "rows": [{"query": "x", "tool_slug": "FAKE_TOOL", "toolkit": "FAKE", "description": "..."}],
-                "transforms": [{"kind": "composio_sft_no_tools"}],
+                "transforms": [{"kind": "jsonl_to_chat", "params": {"user_template": "Query: {query}", "assistant_template": "<answer>{tool_slug}</answer>"}}],
             },
             "model": {"name": "tiny/fake"},
             "algorithm": {

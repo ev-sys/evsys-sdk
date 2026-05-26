@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -43,7 +43,7 @@ def main():
                     {"query": "save a contact", "tool_slug": "OUTLOOK_CREATE_CONTACT", "toolkit": "OUTLOOK", "description": "..."},
                     {"query": "edit a slack message", "tool_slug": "SLACK_UPDATES_A_SLACK_MESSAGE", "toolkit": "SLACK", "description": "..."},
                 ],
-                transforms=[TransformSpec(kind="composio_sft_no_tools")],
+                transforms=[TransformSpec(kind="jsonl_to_chat", params={"user_template": "Query: {query}", "assistant_template": "<answer>{tool_slug}</answer>"})],
             ),
             model=ModelConfig(name="tiny/fake"),
             algorithm=AlgorithmConfig(

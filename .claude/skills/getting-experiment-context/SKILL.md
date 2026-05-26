@@ -40,7 +40,7 @@ H   = {"Authorization": f"Bearer {os.environ['TRAJECTORY_API_KEY']}"}
 
 # 1) What's been tried for this client?
 exps = requests.get(f"{API}/api/dashboard/api/experiments/",
-                    params={"client": "composio", "limit": 50},
+                    params={"limit": 50},
                     headers=H).json()["experiments"]
 
 # 2) For each, read the high-signal fields. These are the four you want:

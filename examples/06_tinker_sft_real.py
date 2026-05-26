@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -45,7 +45,7 @@ def main():
             data=DataConfig(
                 source_kind="in_memory",
                 rows=rows,
-                transforms=[TransformSpec(kind="composio_sft_no_tools")],
+                transforms=[TransformSpec(kind="jsonl_to_chat", params={"user_template": "Query: {query}", "assistant_template": "<answer>{tool_slug}</answer>"})],
             ),
             model=ModelConfig(name="Qwen/Qwen3.5-4B"),
             backend=BackendConfig(kind="tinker"),

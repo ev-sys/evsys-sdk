@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_experiments import (
+from trajectory_labs import (
     get_algorithm,
     list_algorithms,
     list_backends,
@@ -13,7 +13,7 @@ from trajectory_experiments import (
     list_verifiers,
     register_algorithm,
 )
-from trajectory_experiments.registry import _algorithms, schema_for
+from trajectory_labs.registry import _algorithms, schema_for
 
 
 def test_builtin_algorithms_registered():
@@ -34,13 +34,13 @@ def test_builtin_metrics():
 
 def test_builtin_verifiers():
     names = list_verifiers()
-    for k in ("composio_tool_match", "format_only"):
+    for k in ("format_only",):
         assert k in names
 
 
 def test_builtin_transforms():
     names = list_transforms()
-    for k in ("composio_sft_no_tools", "composio_rl_no_tools", "identity", "jsonl_to_chat"):
+    for k in ("identity", "jsonl_to_chat"):
         assert k in names
 
 

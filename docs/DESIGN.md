@@ -1,4 +1,4 @@
-# trajectory-experiments — design notes
+# trajectory-labs — design notes
 
 ## Goals
 
@@ -15,7 +15,7 @@
 
 PEP 544 protocols mean any class with the right methods satisfies the contract
 — no inheritance from us. This is critical for third-party extensions: if you
-have to subclass `trajectory_experiments.algorithms.BaseAlgorithm`, you've
+have to subclass `trajectory_labs.algorithms.BaseAlgorithm`, you've
 imported the world. With protocols, your `MyDPO` class is just plain Python.
 
 ## Why a registry per kind
@@ -55,7 +55,7 @@ The `matrix:` shorthand is a convenience that expands at load-time into
 
 ## What's NOT in v0.1
 
-* Supabase adapters (planned: `trajectory_experiments.adapters.supabase`).
+* Supabase adapters (planned: `trajectory_labs.adapters.supabase`).
 * Evolutionary loop (kept in `backend/api/experiments/loop.py` for now).
 * Distributed launchers (Modal, Slurm).
 * Streaming / checkpoint resumption beyond what tinker_cookbook provides.
@@ -66,5 +66,5 @@ without breaking changes to the public API.
 ## Backwards compatibility
 
 * `version: 1` in the YAML root is currently advisory; bumped on schema breaks.
-* Public symbols re-exported from `trajectory_experiments/__init__.py` are the
+* Public symbols re-exported from `trajectory_labs/__init__.py` are the
   stable surface. Anything else may move.

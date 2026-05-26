@@ -1,14 +1,14 @@
 [
   {
     "name": "ckpt_step_1",
-    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e1__r8/checkpoint-1",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/03/sweep__e1__r8/checkpoint-1",
     "kind": "checkpoint",
-    "ts": 1777886423.1934626
+    "ts": 1779762569.3887405
   },
   {
     "name": "final_checkpoint",
-    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e1__r8/final",
+    "path": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/03/sweep__e1__r8/final",
     "kind": "checkpoint",
-    "ts": 1777886423.1936095
+    "ts": 1779762569.389275
   }
 ]

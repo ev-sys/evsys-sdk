@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -59,7 +59,7 @@ def main() -> None:
             data=DataConfig(
                 source_kind="in_memory",
                 rows=ROWS,
-                transforms=[TransformSpec(kind="composio_sft_no_tools")],
+                transforms=[TransformSpec(kind="jsonl_to_chat", params={"user_template": "Query: {query}", "assistant_template": "<answer>{tool_slug}</answer>"})],
             ),
             model=ModelConfig(name="Qwen/Qwen3-0.6B"),
             backend=BackendConfig(

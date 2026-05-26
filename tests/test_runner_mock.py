@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -27,10 +27,10 @@ from trajectory_experiments import (
     InferenceSpec,
     run_experiment,
 )
-from trajectory_experiments.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
+from trajectory_labs.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
 
 
-def _make_cfg(tmp_path: Path, composio_rows: list[dict]) -> ExperimentConfig:
+def _make_cfg(tmp_path: Path, sample_rows: list[dict]) -> ExperimentConfig:
     return ExperimentConfig(
         name="mock_e2e",
         output_dir=str(tmp_path / "out"),
@@ -39,8 +39,8 @@ def _make_cfg(tmp_path: Path, composio_rows: list[dict]) -> ExperimentConfig:
             name="mock_run",
             data=DataConfig(
                 source_kind="in_memory",
-                rows=composio_rows,
-                transforms=[TransformSpec(kind="composio_sft_no_tools")],
+                rows=sample_rows,
+                transforms=[TransformSpec(kind="identity")],
             ),
             model=ModelConfig(name="tiny/fake"),
             algorithm=AlgorithmConfig(
@@ -62,8 +62,8 @@ def _make_cfg(tmp_path: Path, composio_rows: list[dict]) -> ExperimentConfig:
     )
 
 
-def test_runner_mock_sft_end_to_end(tmp_path: Path, composio_rows):
-    cfg = _make_cfg(tmp_path, composio_rows)
+def test_runner_mock_sft_end_to_end(tmp_path: Path, sample_rows):
+    cfg = _make_cfg(tmp_path, sample_rows)
     results = run_experiment(cfg)
     assert len(results) == 1
     r = results[0]
@@ -81,7 +81,7 @@ def test_runner_mock_sft_end_to_end(tmp_path: Path, composio_rows):
     assert 0.30 < r.metrics["eval/exact_match"] < 0.35
 
 
-def test_runner_mock_rl_end_to_end(tmp_path: Path, composio_rows):
+def test_runner_mock_rl_end_to_end(tmp_path: Path, sample_rows):
     cfg = ExperimentConfig(
         name="mock_rl_e2e",
         output_dir=str(tmp_path / "out"),
@@ -89,8 +89,8 @@ def test_runner_mock_rl_end_to_end(tmp_path: Path, composio_rows):
             name="rl_run",
             data=DataConfig(
                 source_kind="in_memory",
-                rows=composio_rows,
-                transforms=[TransformSpec(kind="composio_rl_no_tools")],
+                rows=sample_rows,
+                transforms=[TransformSpec(kind="identity")],
             ),
             model=ModelConfig(name="tiny/fake"),
             algorithm=AlgorithmConfig(
@@ -98,7 +98,7 @@ def test_runner_mock_rl_end_to_end(tmp_path: Path, composio_rows):
                 params={
                     "num_steps": 50,
                     "save_every": 25,
-                    "verifier_kind": "composio_tool_match",
+                    "verifier_kind": "format_only",
                 },
             ),
             backend=BackendConfig(kind="mock"),
@@ -112,21 +112,21 @@ def test_runner_mock_rl_end_to_end(tmp_path: Path, composio_rows):
     assert any(k.startswith("ckpt_step_") for k in results[0].artifacts)
 
 
-def test_runner_yaml_path(tmp_path: Path, composio_rows):
-    cfg = _make_cfg(tmp_path, composio_rows)
+def test_runner_yaml_path(tmp_path: Path, sample_rows):
+    cfg = _make_cfg(tmp_path, sample_rows)
     yaml_path = tmp_path / "exp.yaml"
     yaml_path.write_text(yaml.safe_dump(cfg.model_dump(exclude_none=True, mode="json")))
     results = run_experiment(yaml_path)
     assert results[0].status == "completed"
 
 
-def test_runner_failure_path_produces_failed_result(tmp_path: Path, composio_rows):
+def test_runner_failure_path_produces_failed_result(tmp_path: Path, sample_rows):
     cfg = ExperimentConfig(
         name="fail_e2e",
         output_dir=str(tmp_path / "out"),
         run=RunConfig(
             name="bad",
-            data=DataConfig(source_kind="in_memory", rows=composio_rows),
+            data=DataConfig(source_kind="in_memory", rows=sample_rows),
             model=ModelConfig(name="x"),
             algorithm=AlgorithmConfig(kind="mock_sft"),
             backend=BackendConfig(kind="mock", params={"fail_on_prepare": True}),

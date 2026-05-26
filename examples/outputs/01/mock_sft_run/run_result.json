@@ -6,9 +6,9 @@
     "total_steps": 2.0
   },
   "artifacts": {
-    "ckpt_step_1": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/checkpoint-1",
-    "ckpt_step_2": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/checkpoint-2",
-    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/01/mock_sft_run/final"
+    "ckpt_step_1": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/01/mock_sft_run/checkpoint-1",
+    "ckpt_step_2": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/01/mock_sft_run/checkpoint-2",
+    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/01/mock_sft_run/final"
   },
   "error": null,
   "hparams": {
@@ -34,8 +34,11 @@
       "hf_split": "train",
       "transforms": [
         {
-          "kind": "composio_sft_no_tools",
-          "params": {}
+          "kind": "jsonl_to_chat",
+          "params": {
+            "user_template": "Query: {query}",
+            "assistant_template": "<answer>{tool_slug}</answer>"
+          }
         }
       ]
     },
@@ -69,5 +72,5 @@
     "seed": 42,
     "tags": []
   },
-  "ts": 1777886420.7825565
+  "ts": 1779762566.273028
 }

@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_experiments.metrics.basic import (
+from trajectory_labs.metrics.basic import (
     ExactMatch,
     MeanReward,
     PassAtK,
     ToolkitMatch,
 )
-from trajectory_experiments.verifiers.composio_tool_match import (
-    ComposioToolMatchVerifier,
-)
-from trajectory_experiments.verifiers.format_only import FormatOnlyVerifier
+from trajectory_labs.verifiers.format_only import FormatOnlyVerifier
 
 
 def test_exact_match_basic():
@@ -63,34 +60,10 @@ def test_pass_at_k():
     assert m1.compute(predictions=preds, targets=targets) == pytest.approx(1 / 3)
 
 
-def test_composio_verifier_exact_match():
-    v = ComposioToolMatchVerifier()
-    completion = "<think>x</think>\n<answer>SLACK_FOO</answer>"
-    target = {"tool_slug": "SLACK_FOO", "toolkit": "SLACK"}
-    r = v.verify(prompt="", completion=completion, target=target)
-    # +1.0 exact + 0.05 + 0.05
-    assert r.reward == pytest.approx(1.1)
-    assert r.info["exact_match"] is True
 
 
-def test_composio_verifier_toolkit_only():
-    v = ComposioToolMatchVerifier()
-    completion = "<think>x</think>\n<answer>SLACK_BAR</answer>"
-    target = {"tool_slug": "SLACK_FOO", "toolkit": "SLACK"}
-    r = v.verify(prompt="", completion=completion, target=target)
-    # 0.3 toolkit + 0.05 + 0.05
-    assert r.reward == pytest.approx(0.4)
-    assert r.info["exact_match"] is False
-    assert r.info["toolkit_match"] is True
 
 
-def test_composio_verifier_no_answer_penalty():
-    v = ComposioToolMatchVerifier()
-    completion = "totally wrong text"
-    target = {"tool_slug": "SLACK_FOO", "toolkit": "SLACK"}
-    r = v.verify(prompt="", completion=completion, target=target)
-    # No think, no answer => -0.5
-    assert r.reward == pytest.approx(-0.5)
 
 
 def test_format_only_verifier():

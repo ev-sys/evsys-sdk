@@ -1,0 +1,6 @@
+{
+  "name": "trajectory-labs",
+  "description": "General training-decision agent + SDK usage skills for trajectory-labs. Reads a project's goal and experiment history, decides what experiment to run next, and launches it via the project's own train/benchmark skills.",
+  "version": "0.1.0",
+  "author": { "name": "Trajectory Labs" }
+}

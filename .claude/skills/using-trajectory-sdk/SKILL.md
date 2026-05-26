@@ -1,9 +1,9 @@
 ---
-name: Using the trajectory-experiments SDK
+name: Using the trajectory-labs SDK
 description: How to push training runs (SFT/RL/distillation) to the Trajectory dashboard. Use when writing experiment scripts that should appear in the dashboard, or when wiring metrics/predictions/conclusions into an existing training loop.
 ---
 
-# Using the trajectory-experiments SDK
+# Using the trajectory-labs SDK
 
 This SDK is the **write side** of the Trajectory dashboard. It pushes
 experiments, per-step training metrics, eval runs, predictions, and a final
@@ -18,7 +18,7 @@ checkpoints), use the `getting-experiment-context` skill instead.
 ```bash
 pip install -e /path/to/trajectory-labs-sdk    # local dev
 # or, once published:
-pip install trajectory-experiments
+pip install trajectory-labs
 ```
 
 Required env:
@@ -30,15 +30,14 @@ export TRAJECTORY_API_KEY="sk_..."   # from dashboard → Settings → API keys
 ## The 80% case: `ExperimentRun` context manager
 
 ```python
-from trajectory_experiments import DashboardClient, ExperimentRun
+from trajectory_labs import DashboardClient, ExperimentRun
 
 client = DashboardClient()  # picks up env vars
 
 with ExperimentRun(
     client,
-    experiment_name="composio_sft_lora_r32_v1",
-    client_name="composio",
-    hypothesis="LoRA r=8 → r=32 lifts pass@1 on composio_eval_v3",
+    experiment_name="sft_lora_r32_v1",
+    hypothesis="LoRA r=8 → r=32 lifts pass@1 on the eval set",
     hypothesis_reasoning=(
         "Prior r=8 runs plateaued at 0.71 while train-loss was still "
         "dropping → adapter capacity is the bottleneck, not data."
@@ -56,16 +55,16 @@ with ExperimentRun(
 
         if step % 250 == 0:
             metrics, preds = evaluate(model)            # your eval fn
-            run.log_eval(step=step, eval_name="composio_eval_v3",
+            run.log_eval(step=step, benchmark_id=benchmark_id,
                          metrics=metrics)               # {"pass_at_1": ..., ...}
             run.log_predictions(preds)                  # list[dict]; see schema below
 
     run.set_best_score(best_pass_at_1)
     run.set_conclusion(
         "r=32 raised pass@1 from 0.71 → 0.83 with no train-loss instability. "
-        "Hypothesis confirmed; promote checkpoint at step 1500 to leaderboard."
+        "Hypothesis confirmed; promote checkpoint at step 1500."
     )
-# clean exit → generation + experiment auto-marked completed,
+# clean exit → run + experiment auto-marked completed,
 # best_score + conclusion patched on the experiment.
 # raised exception → both marked failed with the exception message.
 ```
@@ -83,7 +82,9 @@ That single block is **all you need for a typical run**. The lower-level
 | `plan` | `training_experiments.plan` | the concrete recipe in words |
 | `conclusion` | `training_experiments.conclusion` | the takeaway, set at end of run |
 | `tags` | `training_experiments.tags` | filter chips on the dashboard |
-| `client_name` | `training_experiments.client` | scopes the workspace (e.g. "composio") |
+
+(The model is **not** an experiment field — it's a per-run hyperparameter in
+`runs.run_config`. `client` was removed; the project is the top-level scope.)
 
 `hypothesis_reasoning` and `conclusion` are what future agents (and future
 you) read first when revisiting this experiment. Treat them as the
@@ -101,7 +102,7 @@ Each item in the list:
     "expected":    "...",        # ground truth (eval) or None (rollout)
     "reward":      1.0,          # float — used to compute pass-rate
     "step":        500,          # optional, for eval-over-time
-    "eval_name":   "composio_eval_v3",   # optional
+    "eval_id":     "...",        # optional, links to the evals row
     "sample_idx":  0,            # optional, for RL rollouts
     "advantage":   0.42,         # optional, for RL
     "metadata":    {...},        # optional free-form
@@ -123,11 +124,11 @@ the per-step metrics table on the run page.
 
 ## When to use the low-level `DashboardClient` directly
 
-- Multi-generation sweeps in one experiment → pass `experiment_id=...` to
-  successive `ExperimentRun(...)` blocks, or call `client.create_generation`
-  yourself.
-- Posting a benchmark result tied to a `test_dataset_id`:
-  `client.record_benchmark(test_dataset_id=..., model_ref=..., score=...)`.
+- Multi-run campaigns in one experiment (e.g. groups × seeds) → pass
+  `experiment_id=...` to successive `ExperimentRun(...)` blocks, or call
+  `client.create_run(experiment_id=..., group_id=..., seed=...)` yourself.
+- Recording an eval of a run on a benchmark:
+  `client.create_eval(run_id, benchmark_id=..., metrics={...})`.
 - Patching a finished experiment with a revised conclusion:
   `client.update_experiment(exp_id, conclusion="...")`.
 
@@ -141,8 +142,8 @@ the per-step metrics table on the run page.
 3. **Don't call `set_best_score` with the latest step's score** — pass the
    best score across the whole run (typically `max(pass_at_1)` across eval
    steps).
-4. **One `ExperimentRun` = one generation.** If you want multiple
-   generations under the same experiment, reuse `experiment_id`:
+4. **One `ExperimentRun` = one run.** If you want multiple runs (groups ×
+   seeds) under the same experiment, reuse `experiment_id`:
    ```python
    exp = client.create_experiment(...)
    for sweep_config in sweep:
@@ -155,5 +156,4 @@ the per-step metrics table on the run page.
 
 ## End-to-end sanity check
 
-A working smoke run lives at `/tmp/e2e_composio_mini.py` in the parent
-repo. Confirms the full SDK → backend → Supabase → dashboard loop.
+A small smoke run confirms the full SDK → backend → Supabase → dashboard loop.

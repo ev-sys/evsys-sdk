@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     DataConfig,
     ExperimentConfig,

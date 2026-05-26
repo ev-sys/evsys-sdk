@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trajectory_experiments import dump_yaml, load_yaml, run_experiment
+from trajectory_labs import dump_yaml, load_yaml, run_experiment
 
 HERE = Path(__file__).parent
 
@@ -27,7 +27,8 @@ run:
       - {query: "save a contact", tool_slug: OUTLOOK_CREATE_CONTACT, toolkit: OUTLOOK, description: "..."}
       - {query: "edit a slack message", tool_slug: SLACK_UPDATES_A_SLACK_MESSAGE, toolkit: SLACK, description: "..."}
     transforms:
-      - kind: composio_sft_no_tools
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
   model:
     name: tiny/fake
   algorithm:

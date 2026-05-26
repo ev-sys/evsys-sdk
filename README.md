@@ -1,4 +1,4 @@
-# trajectory-experiments
+# trajectory-labs
 
 Declarative, modular experiment framework for LLM training. Built around a single YAML, with pluggable algorithms / verifiers / metrics / data stores / log stores / backends. Runs locally on TRL or remotely on Tinker.
 
@@ -12,7 +12,7 @@ See `docs/cookbook.md` for end-to-end walkthroughs and `examples/` for ready-to-
 
 ## Highlights
 
-- **Single YAML drives everything**: `trajex run experiments/composio_sft.yaml`.
+- **Single YAML drives everything**: `trajex run experiments/sft.yaml`.
 - **Modular by design**: add a new algorithm with `@register_algorithm("dpo")` — no library fork required.
 - **Backends**: `mock` (tests), `local` (TRL+peft on your GPU), `tinker` (Tinker hosted).
 - **Stores**: `LocalDataStore`, `JSONLLogStore`, `TensorBoardLogStore`, `MultiplexLogStore` out of the box.

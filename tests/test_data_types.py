@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_experiments.data_types import (
+from trajectory_labs.data_types import (
     ChatMessagesRow,
     E2BVerifier,
     HarborTask,

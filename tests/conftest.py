@@ -22,7 +22,7 @@ def tmp_run_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def composio_rows() -> list[dict]:
+def sample_rows() -> list[dict]:
     return [
         {
             "query": "I want to save a contact from an email I received",
@@ -46,9 +46,9 @@ def composio_rows() -> list[dict]:
 
 
 @pytest.fixture()
-def composio_jsonl(tmp_path: Path, composio_rows: list[dict]) -> Path:
-    p = tmp_path / "composio.jsonl"
+def sample_jsonl(tmp_path: Path, sample_rows: list[dict]) -> Path:
+    p = tmp_path / "sample.jsonl"
     with p.open("w") as f:
-        for r in composio_rows:
+        for r in sample_rows:
             f.write(json.dumps(r) + "\n")
     return p

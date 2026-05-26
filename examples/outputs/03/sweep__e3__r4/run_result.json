@@ -6,8 +6,8 @@
     "total_steps": 3.0
   },
   "artifacts": {
-    "ckpt_step_3": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e3__r4/checkpoint-3",
-    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-experiments/examples/outputs/03/sweep__e3__r4/final"
+    "ckpt_step_3": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/03/sweep__e3__r4/checkpoint-3",
+    "final_checkpoint": "/home/htg-sensei/Documents/projects/Trajectory-AI/trajectory-labs-sdk/examples/outputs/03/sweep__e3__r4/final"
   },
   "error": null,
   "hparams": {
@@ -27,8 +27,11 @@
       "hf_split": "train",
       "transforms": [
         {
-          "kind": "composio_sft_no_tools",
-          "params": {}
+          "kind": "jsonl_to_chat",
+          "params": {
+            "user_template": "Query: {query}",
+            "assistant_template": "<answer>{tool_slug}</answer>"
+          }
         }
       ]
     },
@@ -59,5 +62,5 @@
     "seed": 42,
     "tags": []
   },
-  "ts": 1777886423.1964524
+  "ts": 1779762569.3926356
 }

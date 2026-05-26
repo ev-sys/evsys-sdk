@@ -29,10 +29,9 @@ If the user provides a JSONL file path, read the first 2 rows with:
 ```bash
 head -n 2 <path>
 ```
-and confirm the schema contains `query`, `tool_slug`, `toolkit`, `description` fields
-(required by the `composio_sft_no_tools` transform). If the schema is different, use
-`jsonl_to_chat` transform instead and ask the user for `user_template` and optionally
-`assistant_template`.
+and confirm the row schema. Use the `jsonl_to_chat` transform with a `user_template`
+(and optional `assistant_template`) referencing the row's fields — e.g.
+`user_template="Query: {query}"`, `assistant_template="<answer>{tool_slug}</answer>"`.
 
 ## Step 3 — Generate YAML config
 
@@ -56,7 +55,8 @@ run:
       - {query: "send an email", tool_slug: GMAIL_SEND_EMAIL, toolkit: GMAIL, description: "Sends an email via Gmail."}
       - {query: "list calendar events", tool_slug: GOOGLE_CALENDAR_LIST_EVENTS, toolkit: GOOGLE_CALENDAR, description: "Lists upcoming calendar events."}
     transforms:
-      - kind: composio_sft_no_tools
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
   model:
     name: <model_name>
   backend:
@@ -120,4 +120,4 @@ If status is `failed`, show the `error` field and help diagnose the issue.
 - If the user is on a CUDA machine, suggest setting `dtype: bfloat16` and `bf16: true` in the config for faster training.
 - If the model download fails (network issue), suggest `huggingface-cli login` or using a cached local path.
 - If OOM occurs, suggest reducing `max_seq_len` to 128 or switching to a smaller model like `Qwen/Qwen2.5-0.5B`.
-- The `composio_sft_no_tools` transform expects `{query, tool_slug, toolkit, description}` rows. For other schemas, use `jsonl_to_chat` with custom templates.
+- The `jsonl_to_chat` transform builds chat rows from any row schema via `user_template`/`assistant_template`.

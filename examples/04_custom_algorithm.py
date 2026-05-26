@@ -15,7 +15,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from trajectory_experiments import (
+from trajectory_labs import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -26,7 +26,7 @@ from trajectory_experiments import (
     register_algorithm,
     run_experiment,
 )
-from trajectory_experiments.protocols import RunContext, RunResult
+from trajectory_labs.protocols import RunContext, RunResult
 
 HERE = Path(__file__).parent
 

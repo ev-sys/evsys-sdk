@@ -15,7 +15,7 @@ from unittest import mock
 
 import pytest
 
-from trajectory_experiments.registry import get_inference, list_inferences
+from trajectory_labs.registry import get_inference, list_inferences
 
 
 # ---------------------------------------------------------------------------
@@ -42,9 +42,9 @@ def test_three_clients_register_when_present():
 
 
 @pytest.mark.parametrize("module,config_cls", [
-    ("trajectory_experiments.inference.claude", "ClaudeInferenceConfig"),
-    ("trajectory_experiments.inference.gemini", "GeminiInferenceConfig"),
-    ("trajectory_experiments.inference.openai", "OpenAIInferenceConfig"),
+    ("trajectory_labs.inference.claude", "ClaudeInferenceConfig"),
+    ("trajectory_labs.inference.gemini", "GeminiInferenceConfig"),
+    ("trajectory_labs.inference.openai", "OpenAIInferenceConfig"),
 ])
 def test_config_rejects_extra_fields(module, config_cls):
     try:
@@ -62,8 +62,8 @@ def test_config_rejects_extra_fields(module, config_cls):
 
 
 @pytest.mark.parametrize("module,class_name,env_var,vendor_pkg", [
-    ("trajectory_experiments.inference.claude", "ClaudeInference", "ANTHROPIC_API_KEY", "anthropic"),
-    ("trajectory_experiments.inference.openai", "OpenAIInference", "OPENAI_API_KEY",    "openai"),
+    ("trajectory_labs.inference.claude", "ClaudeInference", "ANTHROPIC_API_KEY", "anthropic"),
+    ("trajectory_labs.inference.openai", "OpenAIInference", "OPENAI_API_KEY",    "openai"),
 ])
 def test_missing_api_key_raises_clearly(module, class_name, env_var, vendor_pkg):
     # Skip when the vendor SDK isn't installed — construction would raise
@@ -96,7 +96,7 @@ def test_missing_vendor_sdk_helpful_message(monkeypatch):
     the ImportError should name the install command."""
     # Pretend `anthropic` is missing.
     monkeypatch.setitem(sys.modules, "anthropic", None)  # importlib treats None as missing
-    from trajectory_experiments.inference.claude import ClaudeInference  # registration is lazy
+    from trajectory_labs.inference.claude import ClaudeInference  # registration is lazy
 
     with pytest.raises(ImportError, match="pip install anthropic"):
         ClaudeInference()

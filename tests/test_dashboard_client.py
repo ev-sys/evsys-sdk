@@ -17,7 +17,7 @@ from unittest import mock
 
 import pytest
 
-from trajectory_experiments.dashboard_client import (
+from trajectory_labs.dashboard_client import (
     DashboardClient,
     DashboardClientError,
     ExperimentRun,
@@ -100,8 +100,7 @@ class TestExperiments:
         sess = _mock_session({"experiment": {"id": "e1", "experiment_name": "x"}}, status=201)
         client = _make_client(sess)
         row = client.create_experiment(
-            experiment_name="composio_sft_v9",
-            client="composio",
+            experiment_name="sft_run_v9",
             hypothesis="LoRA r=32 raises pass@1",
             tags=["axis:lora"],
         )
@@ -109,10 +108,11 @@ class TestExperiments:
         url, kwargs = sess.post.call_args[0][0], sess.post.call_args[1]
         assert url == "http://test.local/api/dashboard/api/sdk/experiments/"
         body = kwargs["json"]
-        assert body["experiment_name"] == "composio_sft_v9"
-        assert body["client"] == "composio"
+        assert body["experiment_name"] == "sft_run_v9"
         assert body["hypothesis"] == "LoRA r=32 raises pass@1"
         assert body["tags"] == ["axis:lora"]
+        # base_model / client are no longer experiment fields
+        assert "base_model" not in body and "client" not in body
 
     def test_create_experiment_carries_reasoning_and_plan(self):
         sess = _mock_session({"experiment": {"id": "e1"}}, status=201)
@@ -146,8 +146,7 @@ class TestExperiments:
     def test_update_experiment(self):
         sess = _mock_session({"experiment_id": "e1", "patched": ["status"]})
         client = _make_client(sess)
-        client.update_experiment("e1", status="completed", best_score=0.83,
-                                  best_generation_id="g1")
+        client.update_experiment("e1", status="completed", best_score=0.83)
         url = sess.post.call_args[0][0]
         assert url == "http://test.local/api/dashboard/api/sdk/experiments/e1/"
         body = sess.post.call_args[1]["json"]
@@ -155,69 +154,84 @@ class TestExperiments:
         assert body["best_score"] == 0.83
 
 
-class TestGenerations:
-    def test_create_generation(self):
-        sess = _mock_session({"generation": {"id": "g1"}}, status=201)
+class TestRuns:
+    def test_create_run(self):
+        sess = _mock_session({"run": {"id": "r1"}}, status=201)
         client = _make_client(sess)
-        row = client.create_generation(
+        row = client.create_run(
             experiment_id="e1",
+            group_id="grp1",
+            seed=2,
             recipe_kind="sft",
-            run_config={"lr": 1e-5, "batch_size": 16},
+            run_config={"model": "Qwen/Qwen3-4B", "lr": 1e-5},
             wandb_run_url="https://wandb.ai/x",
         )
-        assert row["id"] == "g1"
+        assert row["id"] == "r1"
         url = sess.post.call_args[0][0]
         body = sess.post.call_args[1]["json"]
-        assert url == "http://test.local/api/dashboard/api/sdk/generations/"
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/"
         assert body["experiment_id"] == "e1"
-        assert body["recipe_kind"] == "sft"
-        assert body["run_config"] == {"lr": 1e-5, "batch_size": 16}
-        assert body["wandb_run_url"] == "https://wandb.ai/x"
+        assert body["group_id"] == "grp1"
+        assert body["seed"] == 2
+        assert body["run_config"]["model"] == "Qwen/Qwen3-4B"   # base model is a hyperparam
         assert body["status"] == "pending"  # default
 
-    def test_update_generation(self):
-        sess = _mock_session({"generation_id": "g1", "patched": ["status"]})
+    def test_update_run(self):
+        sess = _mock_session({"id": "r1", "patched": ["status"]})
         client = _make_client(sess)
-        client.update_generation("g1", status="completed", best_score=0.84,
-                                  duration_seconds=12300.5,
-                                  checkpoint_url="s3://bucket/ckpt",
-                                  tinker_run_id="r_xyz")
+        client.update_run("r1", status="completed", duration_seconds=12300.5)
+        url = sess.post.call_args[0][0]
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/r1/"
         body = sess.post.call_args[1]["json"]
         assert body["status"] == "completed"
-        assert body["checkpoint_url"] == "s3://bucket/ckpt"
-        assert body["tinker_run_id"] == "r_xyz"
+        assert body["duration_seconds"] == 12300.5
 
 
 class TestLogging:
     def test_log_step_metric(self):
         sess = _mock_session({"ok": True})
         client = _make_client(sess)
-        client.log_step_metric("g1", step=100, loss=0.42, learning_rate=1e-5)
+        # D15: arbitrary **metrics + split; metrics nested under body["metrics"].
+        client.log_step_metric("r1", step=100, loss=0.42, learning_rate=1e-5,
+                               split="val", val_loss=0.55)
         url = sess.post.call_args[0][0]
         body = sess.post.call_args[1]["json"]
-        assert url == "http://test.local/api/dashboard/api/sdk/generations/g1/step/"
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/r1/metrics/"
         assert body["step"] == 100
-        assert body["loss"] == 0.42
-        assert body["learning_rate"] == 1e-5
+        assert body["split"] == "val"
+        assert body["metrics"]["loss"] == 0.42
+        assert body["metrics"]["learning_rate"] == 1e-5
+        assert body["metrics"]["val_loss"] == 0.55          # arbitrary named series
         # None-valued metrics should be omitted.
-        assert "grad_norm" not in body
+        assert "grad_norm" not in body["metrics"]
 
-    def test_log_eval_run(self):
+    def test_create_eval(self):
         sess = _mock_session({"ok": True})
         client = _make_client(sess)
-        client.log_eval_run("g1", eval_name="composio_eval_v3", step=500,
-                            metrics={"pass_at_1": 0.83, "pass_at_3": 0.94})
+        client.create_eval("r1", benchmark_id="bm1", step=500,
+                           metrics={"pass_at_1": 0.83, "pass_at_3": 0.94})
         url = sess.post.call_args[0][0]
         body = sess.post.call_args[1]["json"]
-        assert url == "http://test.local/api/dashboard/api/sdk/generations/g1/eval/"
-        assert body["eval_name"] == "composio_eval_v3"
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/r1/evals/"
+        assert body["benchmark_id"] == "bm1"
         assert body["step"] == 500
         assert body["metrics"] == {"pass_at_1": 0.83, "pass_at_3": 0.94}
+
+    def test_add_checkpoint(self):
+        sess = _mock_session({"ok": True})
+        client = _make_client(sess)
+        client.add_checkpoint("r1", uri="tinker://ckpt/final", label="final",
+                              step=100, is_final=True)
+        url = sess.post.call_args[0][0]
+        body = sess.post.call_args[1]["json"]
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/r1/checkpoints/"
+        assert body["uri"] == "tinker://ckpt/final"
+        assert body["is_final"] is True
 
     def test_log_predictions_bulk(self):
         sess = _mock_session({"ok": True, "inserted": 3})
         client = _make_client(sess)
-        result = client.log_predictions("g1", [
+        result = client.log_predictions("r1", [
             {"task_id": f"t{i}", "instruction": "i", "model_output": "o",
              "expected": "x", "reward": 1.0, "kind": "eval"}
             for i in range(3)
@@ -225,31 +239,15 @@ class TestLogging:
         assert result["inserted"] == 3
         url = sess.post.call_args[0][0]
         body = sess.post.call_args[1]["json"]
-        assert url == "http://test.local/api/dashboard/api/sdk/generations/g1/predictions/"
+        assert url == "http://test.local/api/dashboard/api/sdk/runs/r1/predictions/"
         assert len(body["predictions"]) == 3
 
     def test_log_predictions_empty_no_request(self):
         sess = _mock_session({"ok": True})
         client = _make_client(sess)
-        result = client.log_predictions("g1", [])
+        result = client.log_predictions("r1", [])
         assert result["inserted"] == 0
         sess.post.assert_not_called()
-
-
-class TestBenchmark:
-    def test_record_benchmark(self):
-        sess = _mock_session({"benchmark_run": {"id": "b1"}}, status=201)
-        client = _make_client(sess)
-        client.record_benchmark(test_dataset_id="td1", model_ref="Qwen3-4B-sft-v1",
-                                generation_id="g1", n_passed=420, n_total=500)
-        url = sess.post.call_args[0][0]
-        body = sess.post.call_args[1]["json"]
-        assert url == "http://test.local/api/dashboard/api/benchmark-runs/"
-        assert body["test_dataset_id"] == "td1"
-        assert body["model_ref"] == "Qwen3-4B-sft-v1"
-        assert body["generation_id"] == "g1"
-        assert body["n_passed"] == 420
-        assert body["n_total"] == 500
 
 
 class TestErrors:
@@ -290,9 +288,9 @@ class TestExperimentRun:
         # Each call returns a different JSON; sess.post is called many times.
         responses = [
             {"experiment": {"id": "e1"}},    # create_experiment
-            {"generation": {"id": "g1"}},    # create_generation
+            {"run": {"id": "r1"}},    # create_generation
             {"ok": True},                    # log_step
-            {"generation_id": "g1"},         # update_generation (completed)
+            {"id": "r1"},         # update_generation (completed)
             {"experiment_id": "e1"},         # update_experiment (completed)
         ]
         sess = mock.MagicMock()
@@ -303,34 +301,32 @@ class TestExperimentRun:
         sess.post.side_effect = _post
         client = _make_client(sess)
 
-        with ExperimentRun(client, experiment_name="x", client_name="composio",
+        with ExperimentRun(client, experiment_name="x",
                            hypothesis="h", recipe_kind="sft",
                            run_config={"lr": 1e-5}) as run:
             assert run.experiment_id == "e1"
-            assert run.generation_id == "g1"
+            assert run.run_id == "r1"
             run.log_step(1, loss=0.5)
             run.set_best_score(0.83)
 
         # Last two posts should be the completed-status updates.
         called_urls = [c[0][0] for c in sess.post.call_args_list]
-        assert called_urls[-2] == "http://test.local/api/dashboard/api/sdk/generations/g1/"
+        assert called_urls[-2] == "http://test.local/api/dashboard/api/sdk/runs/r1/"
         assert called_urls[-1] == "http://test.local/api/dashboard/api/sdk/experiments/e1/"
-        # And the completed-update body should include best_score.
-        gen_patch = sess.post.call_args_list[-2][1]["json"]
-        assert gen_patch["status"] == "completed"
-        # training_generations has no best_score col — combined_score is the
-        # generation-level scalar, best_score lives on training_experiments.
-        assert gen_patch["combined_score"] == 0.83
+        # run completed-update carries best_score in runs.summary; the
+        # experiment holds best_score directly.
+        run_patch = sess.post.call_args_list[-2][1]["json"]
+        assert run_patch["status"] == "completed"
+        assert run_patch["summary"]["best_score"] == 0.83
         exp_patch = sess.post.call_args_list[-1][1]["json"]
         assert exp_patch["status"] == "completed"
-        assert exp_patch["best_generation_id"] == "g1"
         assert exp_patch["best_score"] == 0.83
 
     def test_exception_marks_failed_with_message(self):
         responses = [
             {"experiment": {"id": "e1"}},
-            {"generation": {"id": "g1"}},
-            {"generation_id": "g1"},   # failed update
+            {"run": {"id": "r1"}},
+            {"id": "r1"},   # failed update
             {"experiment_id": "e1"},   # failed update
         ]
         sess = mock.MagicMock()
@@ -355,8 +351,8 @@ class TestExperimentRun:
     def test_clean_exit_flushes_conclusion(self):
         responses = [
             {"experiment": {"id": "e1"}},
-            {"generation": {"id": "g1"}},
-            {"generation_id": "g1"},      # update_generation
+            {"run": {"id": "r1"}},
+            {"id": "r1"},      # update_generation
             {"experiment_id": "e1"},      # update_experiment
         ]
         sess = mock.MagicMock()
@@ -386,8 +382,8 @@ class TestExperimentRun:
 
     def test_threads_existing_experiment(self):
         responses = [
-            {"generation": {"id": "g1"}},     # create_generation only — no create_experiment
-            {"generation_id": "g1"},
+            {"run": {"id": "r1"}},     # create_generation only — no create_experiment
+            {"id": "r1"},
             {"experiment_id": "e_given"},
         ]
         sess = mock.MagicMock()
@@ -402,7 +398,7 @@ class TestExperimentRun:
                            experiment_id="e_given") as run:
             assert run.experiment_id == "e_given"
 
-        # First call should be the generation, NOT an experiment create.
+        # First call should be the run, NOT an experiment create.
         first_url = sess.post.call_args_list[0][0][0]
-        assert "/sdk/generations/" in first_url
+        assert "/sdk/runs/" in first_url
         assert "/sdk/experiments/" not in first_url
