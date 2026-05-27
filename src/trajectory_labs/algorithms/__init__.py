@@ -8,10 +8,10 @@ the YAML; routing to a specific backend happens inside the algorithm's
 Some algorithms are backend-agnostic (Mock); most route to a single backend.
 """
 
-from .mock_sft import MockSFT  # noqa: F401
-from .mock_rl import MockRL  # noqa: F401
 from .combo import ComboAlgorithm  # noqa: F401
 from .gepa_prompt import GEPAPromptAlgorithm  # noqa: F401
+from .mock_rl import MockRL  # noqa: F401
+from .mock_sft import MockSFT  # noqa: F401
 from .sdpo import SDPO  # noqa: F401  (tinker imported lazily inside train)
 
 # Tinker recipes — optional.
