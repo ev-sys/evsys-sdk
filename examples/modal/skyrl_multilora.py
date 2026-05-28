@@ -31,7 +31,11 @@ import json
 
 import modal
 
-SKYRL_REF = "main"
+# Pin SkyRL to commit de55355 (2026-05-28): "[fix] Prevent process hang when
+# vLLM engine dies during async generation" — uses os._exit(1) instead of
+# sys.exit(1) which asyncio was swallowing. Without this, vLLM dying during
+# generation hung the whole process silently (matches our 40-min stalls).
+SKYRL_REF = "de55355e72a6bcc04f17b971ab211a306900c08b"
 COOKBOOK_REF = "main"
 REMOTE = "/root"
 HF_CACHE = "/root/.cache/huggingface"
@@ -64,9 +68,11 @@ image = (
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
-        # SkyRL: tag clone (depth 1 OK for tags). tinker-cookbook: SHA, so full
-        # clone + checkout (git clone --depth 1 -b <SHA> doesn't work for SHAs).
-        f"cd {REMOTE} && git clone --depth 1 -b {SKYRL_REF} https://github.com/NovaSky-AI/SkyRL.git",
+        # Both SkyRL and tinker-cookbook: full clone + checkout (we pin SkyRL
+        # to a SHA so `clone --depth 1 -b <SHA>` won't work; same path for
+        # both keeps it simple).
+        f"cd {REMOTE} && git clone https://github.com/NovaSky-AI/SkyRL.git "
+        f"&& cd SkyRL && git checkout {SKYRL_REF}",
         f"cd {REMOTE} && git clone https://github.com/thinking-machines-lab/tinker-cookbook.git "
         f"&& cd tinker-cookbook && git checkout {COOKBOOK_REF}",
         f"cd {REMOTE}/SkyRL && uv sync --extra tinker --extra {EXTRA}",
