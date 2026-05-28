@@ -39,11 +39,16 @@ LORA_SYNC = "/tmp/lora_sync/multilora"
 
 hf_volume = modal.Volume.from_name("skyrl-hf-cache", create_if_missing=True)
 
+# Built on nvidia/cuda:12.8.1-devel (CUDA dev headers present) — the recipe
+# SkyRL's own Modal example uses. The `fsdp` extra installs torch/vllm/flash-attn
+# as prebuilt CUDA wheels (no source compile). NOTE: the `megatron` extra also
+# needs to compile transformer-engine against cuDNN — add cuDNN dev headers
+# before switching EXTRA to megatron for true multi-LoRA.
+EXTRA = "fsdp"
 image = (
-    modal.Image.from_registry(
-        "novaskyai/skyrl-train-ray-2.51.1-py3.12-cu12.8", add_python=None
-    )
-    .apt_install("git", "curl")
+    modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
+    .apt_install("git", "curl", "build-essential", "ca-certificates", "libnuma1", "numactl")
+    .run_commands("curl -LsSf https://astral.sh/uv/install.sh | sh")
     .env({
         "HF_HOME": HF_CACHE,
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
@@ -51,13 +56,10 @@ image = (
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
-        "curl -LsSf https://astral.sh/uv/install.sh | sh",
         f"cd {REMOTE} && git clone --depth 1 -b {SKYRL_REF} https://github.com/NovaSky-AI/SkyRL.git",
         f"cd {REMOTE} && git clone --depth 1 -b {COOKBOOK_REF} "
         "https://github.com/thinking-machines-lab/tinker-cookbook.git",
-        # Resolve SkyRL with the tinker + megatron extras (multi-LoRA needs megatron).
-        f"cd {REMOTE}/SkyRL && uv sync --extra tinker --extra megatron",
-        # The math-rl client recipe lives in tinker-cookbook.
+        f"cd {REMOTE}/SkyRL && uv sync --extra tinker --extra {EXTRA}",
         f"cd {REMOTE}/tinker-cookbook && uv sync --extra math-rl",
         gpu="any",
     )
@@ -67,20 +69,18 @@ app = modal.App("tl-skyrl-multilora")
 
 
 def _server_backend_config(n_loras: int, infer_gpus: int) -> str:
-    """Minimal Megatron + vLLM multi-LoRA backend config (scaled down from the
-    field-report 8-GPU recipe). colocate_all=False => train + infer on
-    separate GPUs; bump tensor_model_parallel_size for bigger models."""
+    """FSDP + vLLM colocated backend config (single GPU, proven path).
+
+    NOTE: FSDP is single-tenant — true multi-tenant LoRA needs the Megatron
+    backend (which requires a cuDNN/transformer-engine build in the image).
+    Keeping the multi-client harness in place so flipping EXTRA=megatron +
+    backend=megatron lights up real multi-LoRA without other changes."""
     return json.dumps({
-        "strategy": "megatron",
-        "trainer.placement.colocate_all": False,
+        "trainer.placement.colocate_all": True,
         "trainer.placement.policy_num_gpus_per_node": 1,
-        "trainer.policy.megatron_config.tensor_model_parallel_size": 1,
-        "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
-        "trainer.policy.model.lora.max_loras": n_loras,
-        "trainer.policy.model.lora.max_cpu_loras": n_loras,
-        "trainer.policy.model.lora.lora_sync_path": LORA_SYNC,
+        "generator.inference_engine.backend": "vllm",
         "generator.inference_engine.run_engines_locally": True,
         "generator.inference_engine.num_engines": 1,
         "generator.inference_engine.tensor_parallel_size": infer_gpus,
@@ -89,24 +89,47 @@ def _server_backend_config(n_loras: int, infer_gpus: int) -> str:
     })
 
 
-@app.function(image=image, timeout=30 * 60)
+@app.function(image=image, timeout=20 * 60)
 def smoke() -> dict:
-    """CPU-only: validate the image built and the SkyRL Tinker server imports +
-    exposes its CLI (no GPU spend)."""
+    """CPU-only probe of the prebuilt novaskyai env: which python, what's already
+    installed (skyrl/megatron/vllm/...), where cuDNN/CUDA live, and whether the
+    SkyRL repo has the tinker server. Informs how to install without recompiling."""
     import subprocess
-    imp = subprocess.run(
-        ["uv", "run", "--extra", "tinker", "--extra", "megatron", "python", "-c",
-         "import skyrl, importlib; importlib.import_module('skyrl.tinker.api'); print('skyrl.tinker.api OK')"],
-        cwd=f"{REMOTE}/SkyRL", capture_output=True, text=True,
-    )
-    return {"import_rc": imp.returncode, "stdout": imp.stdout[-1500:], "stderr": imp.stderr[-3000:]}
+
+    probe = r'''
+import importlib.util as u
+mods = ["skyrl","skyrl.tinker.api","skyrl_train","vllm","megatron","megatron.core",
+        "transformer_engine","flash_attn","torch","jax","fastapi","sqlmodel","apex",
+        "ray","sglang","uv"]
+for m in mods:
+    try:
+        print(("OK  " if u.find_spec(m) else "MISS"), m)
+    except Exception as e:
+        print("ERR ", m, type(e).__name__)
+import sys; print("python:", sys.executable, sys.version.split()[0])
+'''
+    out: dict[str, str] = {}
+    for key, cmd in {
+        "which_python": ["bash", "-lc", "which python python3 uv; python3 --version"],
+        "modules": ["python3", "-c", probe],
+        "pip_pkgs": ["bash", "-lc",
+                     "python3 -m pip list 2>/dev/null | grep -iE "
+                     "'skyrl|megatron|vllm|transformer.?engine|flash.?attn|^torch|jax|fastapi|sqlmodel|ray|sglang' || true"],
+        "cudnn": ["bash", "-lc",
+                  "ls -1 /usr/local/cuda*/include/cudnn.h 2>/dev/null; "
+                  "find / -name cudnn.h 2>/dev/null | head -3; echo CUDA_HOME=$CUDA_HOME"],
+        "skyrl_tinker_dir": ["bash", "-lc", "ls /root/SkyRL/skyrl/tinker/ 2>&1 | head"],
+    }.items():
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        out[key] = (r.stdout + r.stderr).strip()[-1200:]
+    return out
 
 
-@app.function(image=image, gpu="H100:2", timeout=60 * 60,
+@app.function(image=image, gpu="H100:1", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen2.5-1.5B-Instruct",
-    n_loras: int = 2,
+    n_loras: int = 1,
     max_steps: int = 2,
     infer_gpus: int = 1,
     server_warmup_s: int = 1200,
@@ -127,9 +150,9 @@ def run_multilora(
     # ---- 1. Launch the SkyRL multi-LoRA Tinker server ----
     server_log: list[str] = []
     server_cmd = [
-        "uv", "run", "--extra", "tinker", "--extra", "megatron",
+        "uv", "run", "--extra", "tinker", "--extra", EXTRA,
         "-m", "skyrl.tinker.api",
-        "--base-model", model, "--backend", "megatron", "--port", "8000",
+        "--base-model", model, "--backend", EXTRA, "--port", "8000",
         "--backend-config", _server_backend_config(n_loras, infer_gpus),
     ]
     print(">>> [modal] starting SkyRL multi-LoRA server", flush=True)
@@ -212,8 +235,8 @@ def check():
 
 
 @app.local_entrypoint()
-def main(model: str = "Qwen/Qwen2.5-1.5B-Instruct", n_loras: int = 2,
-         max_steps: int = 2, gpu: str = "H100:2", infer_gpus: int = 1):
+def main(model: str = "Qwen/Qwen2.5-1.5B-Instruct", n_loras: int = 1,
+         max_steps: int = 2, gpu: str = "H100:1", infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
         model=model, n_loras=n_loras, max_steps=max_steps, infer_gpus=infer_gpus)
     print("\n==== RESULT ====")
