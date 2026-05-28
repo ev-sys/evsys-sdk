@@ -244,21 +244,23 @@ class SDPO:
                 ).result()
                 teacher_lp.append([x for x in t_lp[-len(resp_ids):] if x is not None])
                 data.append(tinker.Datum(
-                    model_input=tinker.ModelInput.from_ints(student_ids),
-                    loss_fn_inputs={"target_tokens": tinker.ModelInput.from_ints(resp_ids)},
+                    model_input=tinker.ModelInput.from_ints(student_ids + resp_ids),
+                    loss_fn_inputs={"target_tokens": (student_ids + resp_ids)[1:] + [resp_ids[-1]]},
                 ))
 
             def loss_fn(_data, logprobs_list, _teacher=teacher_lp):
                 import torch
                 total, n = None, 0
                 for student_lp, t in zip(logprobs_list, _teacher, strict=False):
-                    k = min(len(student_lp), len(t))
-                    if k == 0:
+                    r = len(t)
+                    if r == 0 or len(student_lp) == 0:
                         continue
-                    s = student_lp[:k] if hasattr(student_lp, "__getitem__") else student_lp
-                    loss, _ = sdpo_surrogate_per_token_loss(
-                        s[:k], torch.as_tensor(t[:k], dtype=torch.float32),
-                    )
+                    # student_lp is per-position over the full sequence; the
+                    # response logprobs are the last r positions.
+                    s = student_lp[-r:]
+                    k = min(len(s), r)
+                    tt = torch.as_tensor(t[-k:], dtype=torch.float32)
+                    loss, _ = sdpo_surrogate_per_token_loss(s[-k:], tt)
                     total = loss if total is None else total + loss
                     n += 1
                 total = total / max(n, 1)
