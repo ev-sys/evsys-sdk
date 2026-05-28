@@ -51,6 +51,17 @@ class SDPOConfig(BaseModel):
     lora_rank: int = 8
     save_every: int = 50
     max_tokens: int = 512
+    topk: int = 20
+    """Top-K teacher tokens to distill. >0 → real forward-KL distillation via
+    tinker_cookbook.distillation.sdft.build_topk_distillation_datums +
+    cross_entropy. 0 → the selected-token importance-sampling surrogate."""
+    skip_first_n_tokens: int = 3
+    """Completion tokens skipped from the distillation loss (SDFT default)."""
+    demo_template: str = (
+        "{question}\n\nFeedback on a prior attempt:\n{golden_answer}\n\n"
+        "Now answer the question, incorporating the feedback."
+    )
+    """Teacher in-context demonstration. {golden_answer} is the next user turn."""
     feedback_prefix: str = "Feedback to incorporate: "
     """Prepended to the next-user-turn feedback in the teacher context."""
     min_feedback_chars: int = 1
@@ -97,10 +108,17 @@ def slice_chat_for_sdpo(
             *history,
             {"role": "user", "content": f"{feedback_prefix}{feedback}"},
         ]
+        question = next(
+            (str(m.get("content", "") or "") for m in reversed(history)
+             if m.get("role") == "user"),
+            "",
+        )
         out.append({
             "response": str(msg.get("content", "") or ""),
             "student_messages": history,
             "teacher_messages": teacher_messages,
+            "question": question,
+            "feedback": feedback,
         })
     return out
 
@@ -194,7 +212,10 @@ class SDPO:
         sampling_client = training_client.save_weights_and_get_sampling_client(name=f"{ctx.run_id}-init")
 
         try:
-            self._run_loop(ctx, training_client, sampling_client, tokenizer, records)
+            if self.cfg.topk > 0:
+                self._run_loop_topk(ctx, training_client, sampling_client, tokenizer, records)
+            else:
+                self._run_loop_surrogate(ctx, training_client, sampling_client, tokenizer, records)
         except Exception as e:
             logger.exception("SDPO.train loop failed")
             return RunResult(run_id=ctx.run_id, status="failed", error=str(e))
@@ -210,7 +231,92 @@ class SDPO:
             logger.warning("SDPO: final save_state failed: %s", e)
         return RunResult(run_id=ctx.run_id, status="completed", artifacts=artifacts)
 
-    def _run_loop(self, ctx, training_client, sampling_client, tokenizer, records):
+    # -- top-k distillation (uses tinker_cookbook.distillation.sdft) ---------
+
+    def _student_datum(self, tokenizer, rec, tinker, np):
+        """Build a supervised student datum (model_input + target_tokens + mask)
+        over the assistant response, using the model's chat template."""
+        def _ids(msgs, add_gen):
+            out = tokenizer.apply_chat_template(msgs, add_generation_prompt=add_gen, tokenize=True)
+            if hasattr(out, "input_ids"):
+                out = out.input_ids
+            elif hasattr(out, "keys"):  # dict / BatchEncoding (UserDict)
+                out = out["input_ids"]
+            out = list(out)
+            if out and isinstance(out[0], (list, tuple)):  # batched
+                out = out[0]
+            return [int(t) for t in out]
+
+        history = rec["student_messages"]
+        prompt_ids = _ids(history, True)
+        full_ids = _ids([*history, {"role": "assistant", "content": rec["response"]}], False)
+        if list(full_ids[: len(prompt_ids)]) != list(prompt_ids):
+            full_ids = list(prompt_ids) + tokenizer.encode(rec["response"])
+        completion_ids = list(full_ids[len(prompt_ids):])[: self.cfg.max_tokens]
+        if not completion_ids:
+            return None, None
+        full_ids = list(prompt_ids) + completion_ids
+        mask = [0.0] * (len(prompt_ids) - 1) + [1.0] * len(completion_ids)
+        datum = tinker.Datum(
+            model_input=tinker.ModelInput.from_ints(full_ids[:-1]),
+            loss_fn_inputs={
+                "target_tokens": np.asarray(full_ids[1:], dtype=np.int64),
+                "mask": np.asarray(mask, dtype=np.float32),
+            },
+        )
+        demo = self.cfg.demo_template.format(question=rec["question"], golden_answer=rec["feedback"])
+        t_ids = _ids([{"role": "user", "content": demo}], True)
+        return datum, tinker.ModelInput.from_ints(t_ids)
+
+    def _run_loop_topk(self, ctx, training_client, sampling_client, tokenizer, records):
+        """Real top-K forward-KL distillation via the SDFT datum builder.
+
+        Teacher = the model conditioned on the feedback (next user turn) as an
+        in-context demonstration; its top-K distribution over the response
+        tokens is recovered with Tinker's topk_prompt_logprobs and used as
+        cross_entropy soft targets. Validated e2e against the live Tinker API.
+        """
+        import asyncio
+
+        import numpy as np
+        import tinker
+        from tinker_cookbook.distillation.sdft import build_topk_distillation_datums
+
+        adam = tinker.AdamParams(learning_rate=self.cfg.learning_rate)
+        vocab = len(tokenizer)
+        bs = self.cfg.batch_size
+        for step in range(self.cfg.num_steps):
+            batch = records[(step * bs) % len(records):][:bs] or records[:bs]
+            data_D, meta_D, teacher_prompts = [], [], []
+            for rec in batch:
+                datum, tprompt = self._student_datum(tokenizer, rec, tinker, np)
+                if datum is None:
+                    continue
+                teacher_prompts.append(tprompt)
+                meta_D.append({"group_idx": len(teacher_prompts) - 1})
+                data_D.append(datum)
+            if not data_D:
+                continue
+            ce_datums, m = asyncio.run(build_topk_distillation_datums(
+                data_D, meta_D, teacher_client=sampling_client,
+                teacher_prompts_P=teacher_prompts, topk=self.cfg.topk,
+                vocab_size=vocab, skip_first_n_tokens=self.cfg.skip_first_n_tokens,
+            ))
+            fb = training_client.forward_backward(ce_datums, "cross_entropy").result()
+            training_client.optim_step(adam).result()
+            metrics = {"sdpo/step": float(step)}
+            metrics.update({k: float(v) for k, v in (m or {}).items() if isinstance(v, (int, float))})
+            metrics.update({k: float(v) for k, v in getattr(fb, "metrics", {}).items() if isinstance(v, (int, float))})
+            ctx.log_store.log_metrics(metrics, step=step)
+            if self.cfg.save_every and step and step % self.cfg.save_every == 0:
+                try:
+                    training_client.save_state(name=f"{ctx.run_id}-step{step}").result()
+                except Exception as e:
+                    logger.warning("SDPO: save_state @%d failed: %s", step, e)
+
+    # -- selected-token surrogate (topk=0; SDFT importance-sampling fallback) -
+
+    def _run_loop_surrogate(self, ctx, training_client, sampling_client, tokenizer, records):
         """One optimizer step per batch of records.
 
         For each record: teacher log-probs of the response tokens under the
@@ -218,10 +324,6 @@ class SDPO:
         the student's response-token log-probs are produced (with gradient) by
         `forward_backward_custom`, whose loss applies
         `sdpo_surrogate_per_token_loss`.
-
-        NB: the exact datum packing / log-prob alignment for
-        `forward_backward_custom` depends on the live Tinker API and is
-        validated against a real TINKER_API_KEY, not in CI.
         """
         import tinker
 
