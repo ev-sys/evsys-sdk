@@ -48,10 +48,11 @@ EXTRA = "megatron"
 image = (
     modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
     .apt_install("git", "curl", "build-essential", "ca-certificates", "libnuma1", "numactl")
-    # cuDNN dev headers so transformer-engine compiles (cudnn.h).
+    # cuDNN dev headers + clang (the transformer-engine-torch extension build
+    # invokes clang++) so the TE source build compiles.
     .run_commands(
-        "apt-get update && apt-get install -y libcudnn9-dev-cuda-12 || "
-        "apt-get install -y libcudnn9-dev-cuda-13 || true",
+        "apt-get update && apt-get install -y clang "
+        "&& (apt-get install -y libcudnn9-dev-cuda-12 || apt-get install -y libcudnn9-dev-cuda-13 || true)",
         "curl -LsSf https://astral.sh/uv/install.sh | sh",
     )
     .env({
