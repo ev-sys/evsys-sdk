@@ -63,8 +63,10 @@ image = (
         "CPATH": "/usr/include:/usr/local/cuda/include",
         # Reuse the prebuilt venv in Ray workers instead of letting `uv run`
         # auto-sync (which re-downloads ~3GB and rebuilds megatron-core + TE).
+        # UV_NO_SYNC skips `uv run`'s auto-sync but allows the explicit
+        # `uv sync` build steps to proceed. UV_FROZEN would block the initial
+        # sync because there's no preexisting lockfile.
         "UV_NO_SYNC": "1",
-        "UV_FROZEN": "1",
         "UV_PROJECT_ENVIRONMENT": "/root/SkyRL/.venv",
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
@@ -142,14 +144,14 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
     return out
 
 
-@app.function(image=image, gpu="H100:4", timeout=60 * 60,
+@app.function(image=image, gpu="H100:2", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen3-4B-Instruct-2507",
     n_loras: int = 2,
     max_steps: int = 2,
-    train_gpus: int = 2,
-    infer_gpus: int = 2,
+    train_gpus: int = 1,
+    infer_gpus: int = 1,
     server_warmup_s: int = 1500,
 ) -> dict:
     import os
@@ -254,8 +256,8 @@ def check():
 
 @app.local_entrypoint()
 def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 2,
-         max_steps: int = 2, gpu: str = "H100:4",
-         train_gpus: int = 2, infer_gpus: int = 2):
+         max_steps: int = 2, gpu: str = "H100:2",
+         train_gpus: int = 1, infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
         model=model, n_loras=n_loras, max_steps=max_steps,
         train_gpus=train_gpus, infer_gpus=infer_gpus)
