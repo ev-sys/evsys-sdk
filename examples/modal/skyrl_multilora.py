@@ -31,8 +31,8 @@ import json
 
 import modal
 
-SKYRL_REF = "skyrl-v0.2.0"
-COOKBOOK_REF = "aa602f5"  # 2026-04-23, one day after skyrl-v0.2.0 (API-compat)
+SKYRL_REF = "main"
+COOKBOOK_REF = "main"
 REMOTE = "/root"
 HF_CACHE = "/root/.cache/huggingface"
 LORA_SYNC = "/tmp/lora_sync/multilora"
@@ -73,30 +73,18 @@ image = (
         f"cd {REMOTE}/tinker-cookbook && uv sync --extra math-rl",
         gpu="any",
     )
-    # Backport of main's /api/v1/client/config stub (the modern tinker SDK
-    # calls it on every ServiceClient.__init__; skyrl-v0.2.0 doesn't have it
-    # and 404s, killing the client). MUST insert before the
-    # `if __name__ == "__main__":` block — appending after it means the
-    # decorator never runs (uvicorn.run is blocking). Separate layer so the
-    # heavy uv-sync layer stays cached.
+    # Fix the 1+1 non-colocated actor-init hang: in worker.py:_initiate_actors,
+    # `if raw_pg is None and self._num_gpus_per_node > 1:` skips internal PG
+    # creation for the single-GPU case — so the trainer's master_actor.remote()
+    # has no placement group, races with the inference engine for GPUs, and
+    # hangs forever (we observed ~40 min stall after `Synced registries` with
+    # 1 train + 1 infer on H100:2). Drop the `> 1` gate so a PG is created
+    # whenever none is provided.
     .run_commands(
-        "python3 - <<'PYEOF'\n"
-        "import pathlib\n"
-        "patch = '''\\n# --- backport from main: client_config stub for tinker SDK >= 0.3 ---\\n"
-        "from pydantic import BaseModel as _ClientCfgBase\\n"
-        "class _ClientConfigResponse(_ClientCfgBase):\\n"
-        "    pjwt_auth_enabled: bool = False\\n"
-        "@app.post(\"/api/v1/client/config\", response_model=_ClientConfigResponse)\\n"
-        "async def _client_config_stub():\\n"
-        "    return _ClientConfigResponse()\\n"
-        "'''\n"
-        "p = pathlib.Path('/root/SkyRL/skyrl/tinker/api.py')\n"
-        "src = p.read_text()\n"
-        "marker = 'if __name__ == \"__main__\":'\n"
-        "i = src.index(marker)\n"
-        "p.write_text(src[:i] + patch + '\\n' + src[i:])\n"
-        "print('client_config stub inserted at offset', i)\n"
-        "PYEOF",
+        "sed -i 's|if raw_pg is None and self._num_gpus_per_node > 1:|"
+        "if raw_pg is None:|' "
+        "/root/SkyRL/skyrl/backends/skyrl_train/workers/worker.py && "
+        "grep -n 'if raw_pg is None' /root/SkyRL/skyrl/backends/skyrl_train/workers/worker.py",
     )
 )
 
@@ -104,23 +92,20 @@ app = modal.App("tl-skyrl-multilora")
 
 
 def _server_backend_config(n_loras: int, train_gpus: int, infer_gpus: int) -> str:
-    """Megatron + vLLM single-LoRA backend config (non-colocated split).
+    """Megatron + vLLM multi-LoRA backend config (non-colocated split).
 
-    NOTE: skyrl-v0.2.0's SkyRLLoraConfig has no `max_loras`/`max_cpu_loras`
-    fields — vLLM `max_loras=1` is hardcoded in 5 places in this tag, so
-    multi-LoRA serving isn't actually wired up until a newer SkyRL release.
-    This config does single-LoRA training to validate the loop end-to-end;
-    flipping to multi-LoRA is a one-line config change once a stable SkyRL
-    release ships those fields."""
+    Uses main's schema (max_loras, max_cpu_loras, merge_lora) — paired with
+    the actor PG patch above for the 1+1 non-colocated case."""
     return json.dumps({
-        # Minimal v0.2.0-compatible config — schema is stricter than main's;
-        # iteratively pruning fields the server rejects.
         "strategy": "megatron",
         "trainer.placement.colocate_all": False,
         "trainer.placement.policy_num_gpus_per_node": train_gpus,
         "trainer.policy.megatron_config.tensor_model_parallel_size": train_gpus,
+        "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
+        "trainer.policy.model.lora.max_loras": n_loras,
+        "trainer.policy.model.lora.max_cpu_loras": n_loras,
         "trainer.policy.model.lora.lora_sync_path": LORA_SYNC,
         "generator.inference_engine.run_engines_locally": True,
         "generator.inference_engine.num_engines": 1,
@@ -170,7 +155,7 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen3-4B-Instruct-2507",
-    n_loras: int = 1,
+    n_loras: int = 2,
     max_steps: int = 2,
     train_gpus: int = 1,
     infer_gpus: int = 1,
@@ -283,7 +268,7 @@ def check():
 
 
 @app.local_entrypoint()
-def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 1,
+def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 2,
          max_steps: int = 2, gpu: str = "H100:2",
          train_gpus: int = 1, infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
