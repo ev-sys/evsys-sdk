@@ -73,6 +73,21 @@ image = (
         f"cd {REMOTE}/tinker-cookbook && uv sync --extra math-rl",
         gpu="any",
     )
+    # Backport of main's /api/v1/client/config stub (the modern tinker SDK
+    # calls it on every ServiceClient.__init__; skyrl-v0.2.0 doesn't have it
+    # and 404s, killing the client). Separate layer to keep the heavy uv-sync
+    # layer cached.
+    .run_commands(
+        "cat >> /root/SkyRL/skyrl/tinker/api.py <<'PATCH'\n"
+        "\n# --- backport from main: client_config stub for tinker SDK >= 0.3 ---\n"
+        "from pydantic import BaseModel as _ClientCfgBase  # noqa: E402\n"
+        "class _ClientConfigResponse(_ClientCfgBase):\n"
+        "    pjwt_auth_enabled: bool = False\n"
+        '@app.post("/api/v1/client/config", response_model=_ClientConfigResponse)\n'
+        "async def _client_config_stub():\n"
+        "    return _ClientConfigResponse()\n"
+        "PATCH",
+    )
 )
 
 app = modal.App("tl-skyrl-multilora")
