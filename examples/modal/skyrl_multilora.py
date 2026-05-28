@@ -155,14 +155,15 @@ def run_multilora(
     import urllib.request
 
     os.makedirs(LORA_SYNC, exist_ok=True)
-    # UV_NO_SYNC / UV_PROJECT_ENVIRONMENT set at *subprocess* level (not in
-    # the image) so the image build's `uv sync` is unaffected; the Ray worker's
-    # `uv run` reuses the prebuilt venv instead of re-syncing ~3GB.
+    # UV_NO_SYNC skips `uv run`'s auto-sync so the Ray worker reuses each
+    # project's prebuilt venv instead of re-syncing ~3GB. Don't set
+    # UV_PROJECT_ENVIRONMENT — it would force the client (cwd=tinker-cookbook)
+    # to use SkyRL's venv (which has no chz). Each `uv run` auto-picks the
+    # right .venv based on cwd.
     env = {
         **os.environ, "HOME": "/root", "TINKER_API_KEY": "tml-dummy",
         "TINKER_BASE_URL": "http://127.0.0.1:8000",
         "UV_NO_SYNC": "1",
-        "UV_PROJECT_ENVIRONMENT": f"{REMOTE}/SkyRL/.venv",
     }
     skyrl = f"{REMOTE}/SkyRL"
     cookbook = f"{REMOTE}/tinker-cookbook"
