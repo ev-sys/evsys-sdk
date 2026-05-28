@@ -31,7 +31,7 @@ import json
 
 import modal
 
-SKYRL_REF = "skyrl_train-v0.4.0"
+SKYRL_REF = "skyrl-v0.2.0"
 COOKBOOK_REF = "main"
 REMOTE = "/root"
 HF_CACHE = "/root/.cache/huggingface"
