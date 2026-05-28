@@ -61,13 +61,6 @@ image = (
         "UV_LINK_MODE": "copy",
         "CUDNN_PATH": "/usr",
         "CPATH": "/usr/include:/usr/local/cuda/include",
-        # Reuse the prebuilt venv in Ray workers instead of letting `uv run`
-        # auto-sync (which re-downloads ~3GB and rebuilds megatron-core + TE).
-        # UV_NO_SYNC skips `uv run`'s auto-sync but allows the explicit
-        # `uv sync` build steps to proceed. UV_FROZEN would block the initial
-        # sync because there's no preexisting lockfile.
-        "UV_NO_SYNC": "1",
-        "UV_PROJECT_ENVIRONMENT": "/root/SkyRL/.venv",
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
@@ -162,8 +155,15 @@ def run_multilora(
     import urllib.request
 
     os.makedirs(LORA_SYNC, exist_ok=True)
-    env = {**os.environ, "HOME": "/root", "TINKER_API_KEY": "tml-dummy",
-           "TINKER_BASE_URL": "http://127.0.0.1:8000"}
+    # UV_NO_SYNC / UV_PROJECT_ENVIRONMENT set at *subprocess* level (not in
+    # the image) so the image build's `uv sync` is unaffected; the Ray worker's
+    # `uv run` reuses the prebuilt venv instead of re-syncing ~3GB.
+    env = {
+        **os.environ, "HOME": "/root", "TINKER_API_KEY": "tml-dummy",
+        "TINKER_BASE_URL": "http://127.0.0.1:8000",
+        "UV_NO_SYNC": "1",
+        "UV_PROJECT_ENVIRONMENT": f"{REMOTE}/SkyRL/.venv",
+    }
     skyrl = f"{REMOTE}/SkyRL"
     cookbook = f"{REMOTE}/tinker-cookbook"
 
