@@ -89,6 +89,19 @@ def _server_backend_config(n_loras: int, infer_gpus: int) -> str:
     })
 
 
+@app.function(image=image, timeout=30 * 60)
+def smoke() -> dict:
+    """CPU-only: validate the image built and the SkyRL Tinker server imports +
+    exposes its CLI (no GPU spend)."""
+    import subprocess
+    imp = subprocess.run(
+        ["uv", "run", "--extra", "tinker", "--extra", "megatron", "python", "-c",
+         "import skyrl, importlib; importlib.import_module('skyrl.tinker.api'); print('skyrl.tinker.api OK')"],
+        cwd=f"{REMOTE}/SkyRL", capture_output=True, text=True,
+    )
+    return {"import_rc": imp.returncode, "stdout": imp.stdout[-1500:], "stderr": imp.stderr[-3000:]}
+
+
 @app.function(image=image, gpu="H100:2", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
@@ -189,6 +202,13 @@ def run_multilora(
     return {"status": "completed" if all_ok else "failed",
             "n_loras": n_loras, "max_steps": max_steps, **results,
             "server_tail": "".join(server_log[-40:])}
+
+
+@app.local_entrypoint()
+def check():
+    print("==== SMOKE ====")
+    for k, v in smoke.remote().items():
+        print(f"\n--- {k} ---\n{v}" if k in ("stdout", "stderr") else f"{k}: {v}")
 
 
 @app.local_entrypoint()
