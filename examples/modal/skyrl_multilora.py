@@ -75,18 +75,28 @@ image = (
     )
     # Backport of main's /api/v1/client/config stub (the modern tinker SDK
     # calls it on every ServiceClient.__init__; skyrl-v0.2.0 doesn't have it
-    # and 404s, killing the client). Separate layer to keep the heavy uv-sync
-    # layer cached.
+    # and 404s, killing the client). MUST insert before the
+    # `if __name__ == "__main__":` block — appending after it means the
+    # decorator never runs (uvicorn.run is blocking). Separate layer so the
+    # heavy uv-sync layer stays cached.
     .run_commands(
-        "cat >> /root/SkyRL/skyrl/tinker/api.py <<'PATCH'\n"
-        "\n# --- backport from main: client_config stub for tinker SDK >= 0.3 ---\n"
-        "from pydantic import BaseModel as _ClientCfgBase  # noqa: E402\n"
-        "class _ClientConfigResponse(_ClientCfgBase):\n"
-        "    pjwt_auth_enabled: bool = False\n"
-        '@app.post("/api/v1/client/config", response_model=_ClientConfigResponse)\n'
-        "async def _client_config_stub():\n"
-        "    return _ClientConfigResponse()\n"
-        "PATCH",
+        "python3 - <<'PYEOF'\n"
+        "import pathlib\n"
+        "patch = '''\\n# --- backport from main: client_config stub for tinker SDK >= 0.3 ---\\n"
+        "from pydantic import BaseModel as _ClientCfgBase\\n"
+        "class _ClientConfigResponse(_ClientCfgBase):\\n"
+        "    pjwt_auth_enabled: bool = False\\n"
+        "@app.post(\"/api/v1/client/config\", response_model=_ClientConfigResponse)\\n"
+        "async def _client_config_stub():\\n"
+        "    return _ClientConfigResponse()\\n"
+        "'''\n"
+        "p = pathlib.Path('/root/SkyRL/skyrl/tinker/api.py')\n"
+        "src = p.read_text()\n"
+        "marker = 'if __name__ == \"__main__\":'\n"
+        "i = src.index(marker)\n"
+        "p.write_text(src[:i] + patch + '\\n' + src[i:])\n"
+        "print('client_config stub inserted at offset', i)\n"
+        "PYEOF",
     )
 )
 
