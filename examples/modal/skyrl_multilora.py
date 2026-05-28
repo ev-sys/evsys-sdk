@@ -113,11 +113,12 @@ def _server_backend_config(n_loras: int, train_gpus: int, infer_gpus: int) -> st
     flipping to multi-LoRA is a one-line config change once a stable SkyRL
     release ships those fields."""
     return json.dumps({
+        # Minimal v0.2.0-compatible config — schema is stricter than main's;
+        # iteratively pruning fields the server rejects.
         "strategy": "megatron",
         "trainer.placement.colocate_all": False,
         "trainer.placement.policy_num_gpus_per_node": train_gpus,
         "trainer.policy.megatron_config.tensor_model_parallel_size": train_gpus,
-        "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
         "trainer.policy.model.lora.lora_sync_path": LORA_SYNC,
