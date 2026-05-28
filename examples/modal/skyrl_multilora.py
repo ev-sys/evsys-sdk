@@ -77,14 +77,16 @@ image = (
     # `if raw_pg is None and self._num_gpus_per_node > 1:` skips internal PG
     # creation for the single-GPU case — so the trainer's master_actor.remote()
     # has no placement group, races with the inference engine for GPUs, and
-    # hangs forever (we observed ~40 min stall after `Synced registries` with
-    # 1 train + 1 infer on H100:2). Drop the `> 1` gate so a PG is created
-    # whenever none is provided.
+    # hangs forever. Drop the `> 1` gate. Patch BOTH the repo source AND the
+    # venv copy (uv may have installed non-editably so runtime imports the
+    # site-packages copy).
     .run_commands(
-        "sed -i 's|if raw_pg is None and self._num_gpus_per_node > 1:|"
-        "if raw_pg is None:|' "
-        "/root/SkyRL/skyrl/backends/skyrl_train/workers/worker.py && "
-        "grep -n 'if raw_pg is None' /root/SkyRL/skyrl/backends/skyrl_train/workers/worker.py",
+        "find /root/SkyRL -path '*/skyrl/backends/skyrl_train/workers/worker.py' "
+        "-exec sed -i 's|if raw_pg is None and self._num_gpus_per_node > 1:|"
+        "if raw_pg is None:|' {} + && "
+        "echo '--- patched files: ---' && "
+        "find /root/SkyRL -path '*/skyrl/backends/skyrl_train/workers/worker.py' "
+        "-exec grep -Hn 'if raw_pg is None' {} +",
     )
 )
 
