@@ -39,20 +39,27 @@ LORA_SYNC = "/tmp/lora_sync/multilora"
 
 hf_volume = modal.Volume.from_name("skyrl-hf-cache", create_if_missing=True)
 
-# Built on nvidia/cuda:12.8.1-devel (CUDA dev headers present) — the recipe
-# SkyRL's own Modal example uses. The `fsdp` extra installs torch/vllm/flash-attn
-# as prebuilt CUDA wheels (no source compile). NOTE: the `megatron` extra also
-# needs to compile transformer-engine against cuDNN — add cuDNN dev headers
-# before switching EXTRA to megatron for true multi-LoRA.
-EXTRA = "fsdp"
+# LoRA training on SkyRL requires the MEGATRON backend (the FSDP worker has no
+# prime_optimizer_state — LoRA priming is Megatron-only). The `megatron` extra
+# pulls transformer-engine==2.11.0 with no prebuilt wheel, so it compiles from
+# source and needs cuDNN dev headers — installed via apt from the cuda-devel
+# image's NVIDIA repo. flash-attn/mamba/causal-conv1d come as prebuilt wheels.
+EXTRA = "megatron"
 image = (
     modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
     .apt_install("git", "curl", "build-essential", "ca-certificates", "libnuma1", "numactl")
-    .run_commands("curl -LsSf https://astral.sh/uv/install.sh | sh")
+    # cuDNN dev headers so transformer-engine compiles (cudnn.h).
+    .run_commands(
+        "apt-get update && apt-get install -y libcudnn9-dev-cuda-12 || "
+        "apt-get install -y libcudnn9-dev-cuda-13 || true",
+        "curl -LsSf https://astral.sh/uv/install.sh | sh",
+    )
     .env({
         "HF_HOME": HF_CACHE,
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
         "UV_LINK_MODE": "copy",
+        "CUDNN_PATH": "/usr",
+        "CPATH": "/usr/include:/usr/local/cuda/include",
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
@@ -69,18 +76,21 @@ app = modal.App("tl-skyrl-multilora")
 
 
 def _server_backend_config(n_loras: int, infer_gpus: int) -> str:
-    """FSDP + vLLM colocated backend config (single GPU, proven path).
-
-    NOTE: FSDP is single-tenant — true multi-tenant LoRA needs the Megatron
-    backend (which requires a cuDNN/transformer-engine build in the image).
-    Keeping the multi-client harness in place so flipping EXTRA=megatron +
-    backend=megatron lights up real multi-LoRA without other changes."""
+    """Megatron + vLLM multi-LoRA backend config (scaled down from the
+    field-report 8-GPU recipe). colocate_all=False => 1 train GPU + 1 infer GPU.
+    max_loras hot adapters served by vLLM; lora_sync_path is the trainer→vLLM
+    weight-sync channel."""
     return json.dumps({
-        "trainer.placement.colocate_all": True,
+        "strategy": "megatron",
+        "trainer.placement.colocate_all": False,
         "trainer.placement.policy_num_gpus_per_node": 1,
+        "trainer.policy.megatron_config.tensor_model_parallel_size": 1,
+        "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
-        "generator.inference_engine.backend": "vllm",
+        "trainer.policy.model.lora.max_loras": n_loras,
+        "trainer.policy.model.lora.max_cpu_loras": n_loras,
+        "trainer.policy.model.lora.lora_sync_path": LORA_SYNC,
         "generator.inference_engine.run_engines_locally": True,
         "generator.inference_engine.num_engines": 1,
         "generator.inference_engine.tensor_parallel_size": infer_gpus,
@@ -125,11 +135,11 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
     return out
 
 
-@app.function(image=image, gpu="H100:1", timeout=60 * 60,
+@app.function(image=image, gpu="H100:2", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen3-4B-Instruct-2507",
-    n_loras: int = 1,
+    n_loras: int = 2,
     max_steps: int = 2,
     infer_gpus: int = 1,
     server_warmup_s: int = 1200,
@@ -235,8 +245,8 @@ def check():
 
 
 @app.local_entrypoint()
-def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 1,
-         max_steps: int = 2, gpu: str = "H100:1", infer_gpus: int = 1):
+def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 2,
+         max_steps: int = 2, gpu: str = "H100:2", infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
         model=model, n_loras=n_loras, max_steps=max_steps, infer_gpus=infer_gpus)
     print("\n==== RESULT ====")
