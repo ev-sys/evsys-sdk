@@ -22,7 +22,7 @@ at `modal run` time without rebuilding.
 
 Usage:
     modal run examples/modal/skyrl_multilora.py \
-        --n-loras 2 --max-steps 2 --gpu "H100:2" --model "Qwen/Qwen2.5-1.5B-Instruct"
+        --n-loras 2 --max-steps 2 --gpu "H100:2" --model "Qwen/Qwen3-4B-Instruct-2507"
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
 @app.function(image=image, gpu="H100:1", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
-    model: str = "Qwen/Qwen2.5-1.5B-Instruct",
+    model: str = "Qwen/Qwen3-4B-Instruct-2507",
     n_loras: int = 1,
     max_steps: int = 2,
     infer_gpus: int = 1,
@@ -235,7 +235,7 @@ def check():
 
 
 @app.local_entrypoint()
-def main(model: str = "Qwen/Qwen2.5-1.5B-Instruct", n_loras: int = 1,
+def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 1,
          max_steps: int = 2, gpu: str = "H100:1", infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
         model=model, n_loras=n_loras, max_steps=max_steps, infer_gpus=infer_gpus)
