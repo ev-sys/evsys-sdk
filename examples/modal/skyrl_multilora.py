@@ -104,11 +104,14 @@ app = modal.App("tl-skyrl-multilora")
 
 
 def _server_backend_config(n_loras: int, train_gpus: int, infer_gpus: int) -> str:
-    """Megatron + vLLM multi-LoRA backend config (non-colocated split).
+    """Megatron + vLLM single-LoRA backend config (non-colocated split).
 
-    Scaled down from the field-report 4+4 recipe to 2 train + 2 infer on
-    H100:4 — the 1+1 layout hung at actor-group init. max_loras hot adapters
-    served by vLLM; lora_sync_path is the trainer→vLLM weight-sync channel."""
+    NOTE: skyrl-v0.2.0's SkyRLLoraConfig has no `max_loras`/`max_cpu_loras`
+    fields — vLLM `max_loras=1` is hardcoded in 5 places in this tag, so
+    multi-LoRA serving isn't actually wired up until a newer SkyRL release.
+    This config does single-LoRA training to validate the loop end-to-end;
+    flipping to multi-LoRA is a one-line config change once a stable SkyRL
+    release ships those fields."""
     return json.dumps({
         "strategy": "megatron",
         "trainer.placement.colocate_all": False,
@@ -117,8 +120,6 @@ def _server_backend_config(n_loras: int, train_gpus: int, infer_gpus: int) -> st
         "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
-        "trainer.policy.model.lora.max_loras": n_loras,
-        "trainer.policy.model.lora.max_cpu_loras": n_loras,
         "trainer.policy.model.lora.lora_sync_path": LORA_SYNC,
         "generator.inference_engine.run_engines_locally": True,
         "generator.inference_engine.num_engines": 1,
@@ -168,7 +169,7 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen3-4B-Instruct-2507",
-    n_loras: int = 2,
+    n_loras: int = 1,
     max_steps: int = 2,
     train_gpus: int = 1,
     infer_gpus: int = 1,
@@ -283,7 +284,7 @@ def check():
 
 
 @app.local_entrypoint()
-def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 2,
+def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 1,
          max_steps: int = 2, gpu: str = "H100:2",
          train_gpus: int = 1, infer_gpus: int = 1):
     res = run_multilora.with_options(gpu=gpu).remote(
