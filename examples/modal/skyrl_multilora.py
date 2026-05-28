@@ -31,7 +31,7 @@ import json
 
 import modal
 
-SKYRL_REF = "main"
+SKYRL_REF = "skyrl_train-v0.4.0"
 COOKBOOK_REF = "main"
 REMOTE = "/root"
 HF_CACHE = "/root/.cache/huggingface"
@@ -61,6 +61,11 @@ image = (
         "UV_LINK_MODE": "copy",
         "CUDNN_PATH": "/usr",
         "CPATH": "/usr/include:/usr/local/cuda/include",
+        # Reuse the prebuilt venv in Ray workers instead of letting `uv run`
+        # auto-sync (which re-downloads ~3GB and rebuilds megatron-core + TE).
+        "UV_NO_SYNC": "1",
+        "UV_FROZEN": "1",
+        "UV_PROJECT_ENVIRONMENT": "/root/SkyRL/.venv",
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
@@ -76,16 +81,17 @@ image = (
 app = modal.App("tl-skyrl-multilora")
 
 
-def _server_backend_config(n_loras: int, infer_gpus: int) -> str:
-    """Megatron + vLLM multi-LoRA backend config (scaled down from the
-    field-report 8-GPU recipe). colocate_all=False => 1 train GPU + 1 infer GPU.
-    max_loras hot adapters served by vLLM; lora_sync_path is the trainer→vLLM
-    weight-sync channel."""
+def _server_backend_config(n_loras: int, train_gpus: int, infer_gpus: int) -> str:
+    """Megatron + vLLM multi-LoRA backend config (non-colocated split).
+
+    Scaled down from the field-report 4+4 recipe to 2 train + 2 infer on
+    H100:4 — the 1+1 layout hung at actor-group init. max_loras hot adapters
+    served by vLLM; lora_sync_path is the trainer→vLLM weight-sync channel."""
     return json.dumps({
         "strategy": "megatron",
         "trainer.placement.colocate_all": False,
-        "trainer.placement.policy_num_gpus_per_node": 1,
-        "trainer.policy.megatron_config.tensor_model_parallel_size": 1,
+        "trainer.placement.policy_num_gpus_per_node": train_gpus,
+        "trainer.policy.megatron_config.tensor_model_parallel_size": train_gpus,
         "trainer.policy.megatron_config.lora_config.merge_lora": False,
         "trainer.micro_train_batch_size_per_gpu": 8,
         "trainer.micro_forward_batch_size_per_gpu": 8,
@@ -136,14 +142,15 @@ import sys; print("python:", sys.executable, sys.version.split()[0])
     return out
 
 
-@app.function(image=image, gpu="H100:2", timeout=60 * 60,
+@app.function(image=image, gpu="H100:4", timeout=60 * 60,
               volumes={HF_CACHE: hf_volume})
 def run_multilora(
     model: str = "Qwen/Qwen3-4B-Instruct-2507",
     n_loras: int = 2,
     max_steps: int = 2,
-    infer_gpus: int = 1,
-    server_warmup_s: int = 1200,
+    train_gpus: int = 2,
+    infer_gpus: int = 2,
+    server_warmup_s: int = 1500,
 ) -> dict:
     import os
     import signal
@@ -164,7 +171,7 @@ def run_multilora(
         "uv", "run", "--extra", "tinker", "--extra", EXTRA,
         "-m", "skyrl.tinker.api",
         "--base-model", model, "--backend", EXTRA, "--port", "8000",
-        "--backend-config", _server_backend_config(n_loras, infer_gpus),
+        "--backend-config", _server_backend_config(n_loras, train_gpus, infer_gpus),
     ]
     print(">>> [modal] starting SkyRL multi-LoRA server", flush=True)
     server = subprocess.Popen(server_cmd, cwd=skyrl, env=env, text=True,
@@ -247,9 +254,11 @@ def check():
 
 @app.local_entrypoint()
 def main(model: str = "Qwen/Qwen3-4B-Instruct-2507", n_loras: int = 2,
-         max_steps: int = 2, gpu: str = "H100:2", infer_gpus: int = 1):
+         max_steps: int = 2, gpu: str = "H100:4",
+         train_gpus: int = 2, infer_gpus: int = 2):
     res = run_multilora.with_options(gpu=gpu).remote(
-        model=model, n_loras=n_loras, max_steps=max_steps, infer_gpus=infer_gpus)
+        model=model, n_loras=n_loras, max_steps=max_steps,
+        train_gpus=train_gpus, infer_gpus=infer_gpus)
     print("\n==== RESULT ====")
     for k, v in res.items():
         if k.endswith("_tail"):
