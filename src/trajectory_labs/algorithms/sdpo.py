@@ -243,9 +243,10 @@ class SDPO:
                     tinker.ModelInput.from_ints(teacher_ids + resp_ids)
                 ).result()
                 teacher_lp.append([x for x in t_lp[-len(resp_ids):] if x is not None])
+                full_ids = student_ids + resp_ids
                 data.append(tinker.Datum(
-                    model_input=tinker.ModelInput.from_ints(student_ids + resp_ids),
-                    loss_fn_inputs={"target_tokens": (student_ids + resp_ids)[1:] + [resp_ids[-1]]},
+                    model_input=tinker.ModelInput.from_ints(full_ids),
+                    loss_fn_inputs={"target_tokens": [*full_ids[1:], resp_ids[-1]]},
                 ))
 
             def loss_fn(_data, logprobs_list, _teacher=teacher_lp):
