@@ -184,6 +184,17 @@ def run_multilora(
     env = {
         **os.environ, "HOME": "/root", "TINKER_API_KEY": "tml-dummy",
         "TINKER_BASE_URL": "http://127.0.0.1:8000",
+        # Force SkyRL workers (raylet, vLLM, training actors) to log to stdout
+        # instead of a hidden infra-*.log file under cfg.trainer.log_path.
+        # Without this we see only the FastAPI uvicorn access log and mistake
+        # multi-minute actor/vLLM init for a hang.
+        "SKYRL_DUMP_INFRA_LOG_TO_STDOUT": "1",
+        # Point TE at the exact dir containing libcudnn.so.9. TE's
+        # _load_cuda_library_from_system does glob("$CUDNN_PATH/**/libcudnn.so*",
+        # recursive=True); CUDNN_PATH=/usr walks 18k+ files and stalls the
+        # background engine for 10+ min on first import. The narrower path
+        # resolves in <1s (verified via py-spy on a hung run).
+        "CUDNN_PATH": "/usr/lib/x86_64-linux-gnu",
     }
     skyrl = f"{REMOTE}/SkyRL"
     cookbook = f"{REMOTE}/tinker-cookbook"
