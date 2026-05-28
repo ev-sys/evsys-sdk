@@ -32,7 +32,7 @@ import json
 import modal
 
 SKYRL_REF = "skyrl-v0.2.0"
-COOKBOOK_REF = "main"
+COOKBOOK_REF = "aa602f5"  # 2026-04-23, one day after skyrl-v0.2.0 (API-compat)
 REMOTE = "/root"
 HF_CACHE = "/root/.cache/huggingface"
 LORA_SYNC = "/tmp/lora_sync/multilora"
@@ -64,9 +64,11 @@ image = (
         "PATH": "/root/.local/bin:/usr/local/cuda/bin:${PATH}",
     })
     .run_commands(
+        # SkyRL: tag clone (depth 1 OK for tags). tinker-cookbook: SHA, so full
+        # clone + checkout (git clone --depth 1 -b <SHA> doesn't work for SHAs).
         f"cd {REMOTE} && git clone --depth 1 -b {SKYRL_REF} https://github.com/NovaSky-AI/SkyRL.git",
-        f"cd {REMOTE} && git clone --depth 1 -b {COOKBOOK_REF} "
-        "https://github.com/thinking-machines-lab/tinker-cookbook.git",
+        f"cd {REMOTE} && git clone https://github.com/thinking-machines-lab/tinker-cookbook.git "
+        f"&& cd tinker-cookbook && git checkout {COOKBOOK_REF}",
         f"cd {REMOTE}/SkyRL && uv sync --extra tinker --extra {EXTRA}",
         f"cd {REMOTE}/tinker-cookbook && uv sync --extra math-rl",
         gpu="any",
