@@ -195,6 +195,16 @@ def run_multilora(
         # background engine for 10+ min on first import. The narrower path
         # resolves in <1s (verified via py-spy on a hung run).
         "CUDNN_PATH": "/usr/lib/x86_64-linux-gnu",
+        # Disable Ray's auto uv-run propagation hook
+        # (ray/_private/runtime_env/uv_runtime_env_hook.py). When the driver
+        # runs under `uv run`, Ray normally sets py_executable=uv-run-cmdline
+        # AND uploads cwd as working_dir, so every Ray worker re-runs `uv sync`
+        # against pyproject.toml in a fresh runtime_resources dir — that's
+        # ~627 MiB cudnn + 782 MiB torch + TE recompile EVERY run (~10 min).
+        # Turning the hook off makes workers use the SkyRL .venv directly
+        # (already populated at image build time). Documented in
+        # ray/_private/ray_constants.py:556-562.
+        "RAY_ENABLE_UV_RUN_RUNTIME_ENV": "0",
     }
     skyrl = f"{REMOTE}/SkyRL"
     cookbook = f"{REMOTE}/tinker-cookbook"
