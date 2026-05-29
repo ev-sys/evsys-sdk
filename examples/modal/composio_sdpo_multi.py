@@ -37,6 +37,7 @@ DATA_MOUNT = "/data"
 
 HERE = Path(__file__).resolve().parent
 ARM_SCRIPT = HERE / "_composio_sdpo_arm.py"
+TOPK_PATCH = HERE / "patch_skyrl_topk.sh"
 
 hf_volume = modal.Volume.from_name("skyrl-hf-cache", create_if_missing=True)
 data_volume = modal.Volume.from_name("trajectory-data", create_if_missing=False)
@@ -74,6 +75,16 @@ image = (
         "-exec sed -i 's|if raw_pg is None and self._num_gpus_per_node > 1:|"
         "if raw_pg is None:|' {} +",
     )
+    # topk_prompt_logprobs plumbing patch. The cookbook's SDFT recipe calls
+    # `teacher_client.sample_async(..., topk_prompt_logprobs=K)` to recover
+    # the teacher's top-K distribution at each prompt position. Stock SkyRL
+    # accepts the field but silently drops it before reaching vLLM (which
+    # natively supports prompt_logprobs=K via its OpenAI extension). The patch
+    # threads the field through SampleInput → api.py → forwarding payload and
+    # parses vLLM's response back onto SampleOutput.
+    .add_local_file(str(TOPK_PATCH), remote_path=f"{REMOTE}/patch_skyrl_topk.sh",
+                    copy=True)
+    .run_commands(f"bash {REMOTE}/patch_skyrl_topk.sh {REMOTE}/SkyRL")
     # Ship the arm script into the image so subprocesses can launch it.
     .add_local_file(str(ARM_SCRIPT), remote_path=f"{REMOTE}/_composio_sdpo_arm.py",
                     copy=True)
