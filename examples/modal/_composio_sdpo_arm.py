@@ -231,36 +231,20 @@ def main() -> int:
     print(f"[arm={arm}] training_client + teacher_client ready (rank={args.rank}, vocab={vocab})",
           flush=True)
 
-    # 4b) Wait for the vLLM inference engine to publish its proxy URL to
-    #     EngineStateDB. SkyRL accepts API connections before the engine is
-    #     ready and surfaces this as a 400 "no proxy URL published" — the
-    #     tinker SDK's built-in retry handler caps at 3 attempts which is way
-    #     too few for the cold-start window (~60-90s). Poll with a tiny
-    #     sampling probe instead.
-    probe_input = tinker.ModelInput.from_ints(
-        tokenizer.encode("hello", add_special_tokens=False) or [0]
-    )
-    probe_sp = tinker.SamplingParams(max_tokens=1, temperature=0.0)
-    probe_deadline = time.time() + 600.0  # 10 min max wait
-    probe_n = 0
-    while True:
-        probe_n += 1
-        try:
-            asyncio.run(teacher_client.sample_async(
-                prompt=probe_input, num_samples=1, sampling_params=probe_sp,
-            ))
-            print(f"[arm={arm}] inference engine ready after {probe_n} probe(s)",
-                  flush=True)
-            break
-        except Exception as e:  # noqa: BLE001 — broad on purpose for the cold-start window
-            msg = str(e)
-            if "inference engine not ready" not in msg and "no proxy URL" not in msg:
-                raise
-            if time.time() > probe_deadline:
-                raise RuntimeError(
-                    f"[arm={arm}] inference engine never came up after {probe_n} probes"
-                ) from e
-            time.sleep(5.0)
+    # 4b) Kickstart the vLLM inference engine. SkyRL's non-colocated forwarding
+    #     path serves /asample directly to vLLM via a proxy URL it reads from
+    #     EngineStateDB. But the URL is only written when the engine
+    #     subprocess actually starts vLLM, which happens lazily on the first
+    #     forward_backward / sample / save_sampler_checkpoint call routed
+    #     through the engine queue (NOT through the forwarder). Sample calls
+    #     bypass the queue and so cannot kickstart vLLM themselves —
+    #     deadlock. save_weights_for_sampler is a queue-routed call that hits
+    #     backend.save_sampler_checkpoint → _ensure_inference_engines, which
+    #     publishes the proxy URL. After it completes, sample_async works.
+    print(f"[arm={arm}] kickstarting vLLM via save_weights_for_sampler...", flush=True)
+    t_kickstart = time.time()
+    _ = training_client.save_weights_for_sampler(f"arm-{arm}-kickstart").result()
+    print(f"[arm={arm}] vLLM kickstart complete in {time.time()-t_kickstart:.1f}s", flush=True)
 
     # 5) Training loop
     adam = tinker.AdamParams(learning_rate=args.learning_rate)
