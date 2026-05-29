@@ -231,6 +231,37 @@ def main() -> int:
     print(f"[arm={arm}] training_client + teacher_client ready (rank={args.rank}, vocab={vocab})",
           flush=True)
 
+    # 4b) Wait for the vLLM inference engine to publish its proxy URL to
+    #     EngineStateDB. SkyRL accepts API connections before the engine is
+    #     ready and surfaces this as a 400 "no proxy URL published" — the
+    #     tinker SDK's built-in retry handler caps at 3 attempts which is way
+    #     too few for the cold-start window (~60-90s). Poll with a tiny
+    #     sampling probe instead.
+    probe_input = tinker.ModelInput.from_ints(
+        tokenizer.encode("hello", add_special_tokens=False) or [0]
+    )
+    probe_sp = tinker.SamplingParams(max_tokens=1, temperature=0.0)
+    probe_deadline = time.time() + 600.0  # 10 min max wait
+    probe_n = 0
+    while True:
+        probe_n += 1
+        try:
+            asyncio.run(teacher_client.sample_async(
+                prompt=probe_input, num_samples=1, sampling_params=probe_sp,
+            ))
+            print(f"[arm={arm}] inference engine ready after {probe_n} probe(s)",
+                  flush=True)
+            break
+        except Exception as e:  # noqa: BLE001 — broad on purpose for the cold-start window
+            msg = str(e)
+            if "inference engine not ready" not in msg and "no proxy URL" not in msg:
+                raise
+            if time.time() > probe_deadline:
+                raise RuntimeError(
+                    f"[arm={arm}] inference engine never came up after {probe_n} probes"
+                ) from e
+            time.sleep(5.0)
+
     # 5) Training loop
     adam = tinker.AdamParams(learning_rate=args.learning_rate)
     rng = random.Random(args.seed)
