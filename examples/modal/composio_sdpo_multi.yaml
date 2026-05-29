@@ -1,0 +1,59 @@
+# Composio multi-arm SDPO — small validation knobs.
+#
+# This YAML is the human-readable declaration of the experiment. It is read
+# both by composio_sdpo_multi.py (validation/launch driver) and by anything
+# downstream that wants to record what was run. Tweak values here and pass
+# them via `modal run ... --max-steps N --rank R`.
+
+name: composio_sdpo_multi_validation
+
+# Model + data
+model: Qwen/Qwen3-4B-Instruct-2507
+data_path: /data/composio/sft_train_4000.jsonl  # mounted from `trajectory-data` modal volume
+
+# Arms: each gets its own LoRA adapter trained with a different teacher
+# prompt. Student prompt is identical across arms — only the teacher's
+# "privileged information" differs.
+arms:
+  - name: vanilla
+    description: |
+      Teacher sees the same prompt as the student plus the gold answer as a
+      worked example. No extra information beyond what the student gets.
+      Baseline.
+  - name: desc
+    description: |
+      Teacher additionally sees the FULL descriptions of every tool in the
+      row's toolkit (capped by max_desc_tools), then the gold tool. Tests
+      whether this privileged context produces a sharper top-K signal that
+      the student can absorb without ever seeing the descriptions itself.
+
+# SkyRL multi-LoRA constraint: all adapters share rank + alpha + target_modules.
+lora:
+  rank: 8
+  # alpha = 2 * rank by convention; SkyRL applies it via its tinker create_model.
+  # target_modules / lora_type are fixed server-side in this validation.
+
+# Training knobs (sweep-friendly — keep small for validation)
+train:
+  max_steps: 5         # per arm
+  batch_size: 4        # per arm forward_backward
+  max_tokens: 128      # max completion tokens fed to the teacher per record
+  learning_rate: 1.0e-4
+  topk: 20             # forward-KL distillation over teacher's top-K
+  max_desc_tools: 20   # per-toolkit cap on the `desc` arm priv-info payload
+
+# Modal compute
+modal:
+  gpu: H100:2          # 1 train + 1 infer (proven layout from PR #9)
+  train_gpus: 1
+  infer_gpus: 1
+  timeout_minutes: 60
+
+# Dataset slice — keep tiny for validation; scale up after the loop is proven.
+data:
+  n_rows: 32
+
+# Expected wall + cost (this validation config)
+# ----------------------------------------------
+# Wall time:  ~7 min container ready + ~2-3 min training = ~10 min total
+# Cost:       ~10 min * 2 * H100 hourly ≈ $1.10 - $1.50
