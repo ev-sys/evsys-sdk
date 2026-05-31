@@ -123,6 +123,33 @@ def _cmd_init_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
+    from .benchmark_upload import upload_benchmark
+    from .store import TrajectoryStore
+
+    store = TrajectoryStore(project_id=args.project_id)
+    try:
+        result = upload_benchmark(store, args.path)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    payload = {
+        "benchmark_id": result.benchmark_id,
+        "name": result.name,
+        "version": result.version,
+        "content_hash": result.content_hash,
+        "status": result.status,
+        "n_tasks": result.n_tasks,
+    }
+    print(json.dumps(payload, indent=2))
+    print(f"\n# paste into your experiment config.yaml:")
+    print(f"# metadata.benchmark.id: {result.benchmark_id}")
+    return 0
+
+
 def _cmd_new_experiment(args: argparse.Namespace) -> int:
     from datetime import datetime
 
@@ -172,6 +199,13 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--name", default=None, help="Project name (defaults to dir basename).")
     p_init.add_argument("--force", action="store_true", help="Scaffold into a non-empty dir.")
     p_init.set_defaults(func=_cmd_init_project)
+
+    p_bench = sub.add_parser("benchmark", help="Manage harbor-format benchmarks.")
+    bench_sub = p_bench.add_subparsers(dest="bench_cmd", required=True)
+    p_bup = bench_sub.add_parser("upload", help="Register a local benchmark dir with the dashboard.")
+    p_bup.add_argument("path", help="Path to data/benchmark/<name>/.")
+    p_bup.add_argument("--project-id", default=None, help="Override TRAJECTORY_PROJECT_ID.")
+    p_bup.set_defaults(func=_cmd_benchmark_upload)
 
     p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")
     p_new.add_argument("slug", help="Short kebab/snake name for the experiment.")
