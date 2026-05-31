@@ -111,6 +111,18 @@ def _cmd_eval_model(args: argparse.Namespace) -> int:
     return 0 if rr.get("total_failures", 0) == 0 or not args.fail_on_retries else 2
 
 
+def _cmd_init_project(args: argparse.Namespace) -> int:
+    from .project_init import init_project
+
+    try:
+        path = init_project(args.path, name=args.name, force=args.force)
+    except FileExistsError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(f"OK: scaffolded research project at {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trajex", description="Trajectory experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -133,6 +145,12 @@ def main(argv: list[str] | None = None) -> int:
     p_sch.add_argument("kind", help="One of: algorithm, backend, verifier, metric, transform, data_store, log_store, inference_client")
     p_sch.add_argument("name")
     p_sch.set_defaults(func=_cmd_schema)
+
+    p_init = sub.add_parser("init-project", help="Scaffold a new research-project layout.")
+    p_init.add_argument("path", help="Target directory (created if missing).")
+    p_init.add_argument("--name", default=None, help="Project name (defaults to dir basename).")
+    p_init.add_argument("--force", action="store_true", help="Scaffold into a non-empty dir.")
+    p_init.set_defaults(func=_cmd_init_project)
 
     p_eval = sub.add_parser("eval", help="Run a model eval (alias-aware, retry-wrapped).")
     eval_sub = p_eval.add_subparsers(dest="eval_cmd", required=True)
