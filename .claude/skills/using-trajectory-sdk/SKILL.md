@@ -27,7 +27,87 @@ export TRAJECTORY_API_URL="https://backend-dev-p0tj.onrender.com"
 export TRAJECTORY_API_KEY="sk_..."   # from dashboard → Settings → API keys
 ```
 
-## The 80% case: `ExperimentRun` context manager
+## The 80% case: `Experiment.from_yaml(...).run()`
+
+In a project scaffolded with `trajex init-project`, every experiment lives at
+`experiments/<yyyymmdd>_<slug>/{config.yaml,run.py}`. The script is three
+lines — all knobs live in YAML:
+
+```python
+# experiments/20260531_lora_rank_sweep_4b/run.py
+from trajectory_labs import Experiment
+import scripts  # registers project verifiers / metrics / transforms
+
+Experiment.from_yaml("config.yaml").run()
+```
+
+Config carries the hypothesis, success metric, benchmark, and sweep matrix
+under `metadata` + the usual `RunConfig` blocks:
+
+```yaml
+name: lora_rank_sweep_4b_sft
+output_dir: ./.trajectory/outputs/lora_rank_sweep_4b_sft
+
+metadata:
+  hypothesis: "Higher LoRA rank → higher composio pass@1"
+  tags: [sft, qwen3_4b, lora-rank-sweep]
+  success_metric: pass_rate
+  benchmark:
+    path: data/benchmark/composio_eval_v2
+    id: <paste from `trajex benchmark upload data/benchmark/composio_eval_v2`>
+    breakdown_keys: [toolkit]
+
+matrix:
+  base_run:
+    name: sft_4b_think
+    seed: 42
+    data:
+      source_kind: jsonl
+      path: data/datasets/sft_overdose/v17/train.jsonl
+    model:
+      name: Qwen/Qwen3-4B
+      renderer_name: qwen3_5
+    algorithm:
+      kind: tinker_sft
+      params:
+        learning_rate: 1.0e-4
+        num_epochs: 10
+        batch_size: 32
+        lora_rank: 0          # placeholder — swept below
+    backend:
+      kind: tinker
+  axes:
+    algorithm.params.lora_rank: [1, 4, 16]
+  name_template: "{base}__r{algorithm.params.lora_rank}"
+```
+
+What `Experiment.run()` does for you, so you don't hand-roll it:
+  * creates the experiment record on the dashboard with hypothesis + tags;
+  * expands the matrix and creates one run record per arm;
+  * **isolates per-arm failures** — one raising arm doesn't kill the sweep;
+  * auto-forwards the local `metrics.jsonl` to `store.log_metrics`
+    (no `backfill_step_metrics` call);
+  * scores each completed arm against `metadata.benchmark` and records the
+    eval row;
+  * picks the best arm by `success_metric` and writes a conclusion +
+    `best_score` on the experiment.
+
+Subclass `Experiment` to override `_eval_arm`, `_pick_best`,
+`_build_conclusion`, etc. when a project needs project-specific scoring or
+ranking — the default behavior is the common case.
+
+## Scaffolding new things
+
+```bash
+trajex init-project <name>                       # whole project skeleton
+trajex new-experiment <slug> [--project-root .]  # experiments/<today>_<slug>/
+trajex benchmark upload data/benchmark/<name>    # register a harbor benchmark
+```
+
+## Low-level path: `ExperimentRun` context manager
+
+Use this only when you're doing something `Experiment` doesn't model yet
+(custom rollout loops, manual prediction streaming, post-hoc patching):
 
 ```python
 from trajectory_labs import DashboardClient, ExperimentRun
@@ -68,9 +148,6 @@ with ExperimentRun(
 # best_score + conclusion patched on the experiment.
 # raised exception → both marked failed with the exception message.
 ```
-
-That single block is **all you need for a typical run**. The lower-level
-`DashboardClient` methods exist for non-standard flows.
 
 ## What each field means
 

@@ -45,17 +45,32 @@ parts (compute, conventions, how to actually train and evaluate).
    hyperparameters; **runs** = replicate seeds per group; the **benchmark** to
    evaluate on; the **success metric**. Align to the *current goal* (read-only).
    Present the plan and get approval before spending compute.
-4. **Materialize → run.** On approval:
-   `store.create_experiment(project_id, experiment_name, hypothesis, project_goal_id=<current goal id>)`;
-   `store.create_group(exp_id, name, description=...)` per arm; reuse/`create_dataset`
-   + `create_benchmark`; `Workspace.pull_dataset/pull_benchmark` to local JSONL;
-   write a training script (workspace `scripts/`) that per group×seed calls
-   `store.create_run(...)`, runs training via the project's `train` skill, logs
-   `store.log_metrics(...)`, `store.add_checkpoint(...)`, then evaluates via
-   `benchmark` and records `store.create_eval(...)` / `store.add_prediction(...)`.
-5. **Conclude.** After results, write `store.set_conclusion(exp_id, ...)` — a crisp
-   takeaway (this is what future-you reads first). If you discover a bug in a run,
-   `store.invalidate_experiment(exp_id, reason=...)`.
+4. **Materialize → run.** On approval, prefer the **OOP path**:
+   * `trajex new-experiment <slug>` → `experiments/<yyyymmdd>_<slug>/{config.yaml,run.py}`.
+   * Fill in `config.yaml`:
+     - `name`, `metadata.hypothesis`, `metadata.tags`,
+       `metadata.project_goal_id`, `metadata.success_metric`.
+     - `metadata.benchmark.path` (local) + `metadata.benchmark.id` (from
+       `trajex benchmark upload data/benchmark/<name>` if not yet registered).
+     - Either a single `run:` block or a `matrix:` sweep — one arm per
+       comparison cell (model, hyperparameter, seed).
+   * Place any project-specific verifiers / metrics / transforms in
+     `scripts/{verifiers,metrics,transforms}.py` (registered via the
+     `@register_*` decorators so the YAML's `kind:` lookups resolve).
+   * `python experiments/<dir>/run.py` calls `Experiment.from_yaml(...).run()`,
+     which creates the experiment + per-arm run records, runs training (per
+     arm with failure isolation), auto-forwards local `metrics.jsonl` to the
+     store, scores each arm on the benchmark, and writes a conclusion +
+     `best_score` on the experiment.
+
+   Only drop down to direct `TrajectoryStore` / `ExperimentRun` calls when the
+   project genuinely needs something the `Experiment` class doesn't model
+   (custom rollout loops, post-hoc patching). For SFT/RL sweeps the OOP path
+   is enough.
+5. **Conclude.** `Experiment.run()` writes a default conclusion + `best_score`
+   automatically. Patch over it with `store.set_conclusion(exp_id, ...)` if a
+   richer takeaway is warranted — this is what future-you reads first. If you
+   discover a bug in a run, `store.invalidate_experiment(exp_id, reason=...)`.
 
 ## Hard rules
 

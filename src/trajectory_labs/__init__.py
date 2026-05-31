@@ -1,8 +1,16 @@
 """trajectory_labs — declarative, modular LLM experiment framework.
 
-Public surface (most users only need these):
+Most researcher code only needs the OOP orchestration surface:
+
+    from trajectory_labs import Experiment
+    Experiment.from_yaml("config.yaml").run()
+
+For everything else:
 
     from trajectory_labs import (
+        # OOP orchestration
+        Experiment, ExperimentResult, ArmResult, Sweep,
+        Benchmark, BenchmarkScore, Checkpoint,
         # Config models
         ExperimentConfig, RunConfig, AlgorithmConfig, DataConfig, ModelConfig,
         BackendConfig, EvalConfig, MetricSpec, VerifierSpec,
@@ -13,7 +21,7 @@ Public surface (most users only need these):
         register_backend, register_data_store, register_log_store,
         register_inference, register_transform,
         get_algorithm, get_verifier, get_metric,
-        # Runner
+        # Imperative runner (kept for advanced use; Experiment is the default)
         run_experiment,
     )
 
@@ -75,7 +83,12 @@ from .registry import (
     register_transform,
     register_verifier,
 )
+from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
+from .checkpoint import Checkpoint, find_manifest, read_manifest
+from .experiment import ArmResult, Experiment, ExperimentResult
 from .runner import run_experiment
+from .step_metrics import forward_step_metrics
+from .sweep import Sweep, expand_runs
 from .yaml_loader import dump_yaml, load_yaml, validate_yaml
 from .dashboard_client import (
     DashboardClient,
@@ -216,4 +229,17 @@ __all__ = [
     # Local cache for remote datasets/benchmarks
     "Workspace",
     "MaterializedDataset",
+    # OOP orchestration (researcher-project layout)
+    "ArmResult",
+    "Benchmark",
+    "BenchmarkScore",
+    "BenchmarkTaskResult",
+    "Checkpoint",
+    "Experiment",
+    "ExperimentResult",
+    "Sweep",
+    "expand_runs",
+    "find_manifest",
+    "forward_step_metrics",
+    "read_manifest",
 ]
