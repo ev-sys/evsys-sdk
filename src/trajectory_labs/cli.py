@@ -123,6 +123,27 @@ def _cmd_init_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_new_experiment(args: argparse.Namespace) -> int:
+    from datetime import datetime
+
+    from .new_experiment import new_experiment
+
+    today = None
+    if args.date:
+        try:
+            today = datetime.strptime(args.date, "%Y%m%d").date()
+        except ValueError:
+            print(f"ERROR: --date {args.date!r} is not in YYYYMMDD format", file=sys.stderr)
+            return 1
+    try:
+        path = new_experiment(args.project_root, args.slug, today=today)
+    except (FileExistsError, ValueError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(f"OK: scaffolded experiment at {path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trajex", description="Trajectory experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -151,6 +172,12 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--name", default=None, help="Project name (defaults to dir basename).")
     p_init.add_argument("--force", action="store_true", help="Scaffold into a non-empty dir.")
     p_init.set_defaults(func=_cmd_init_project)
+
+    p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")
+    p_new.add_argument("slug", help="Short kebab/snake name for the experiment.")
+    p_new.add_argument("--project-root", default=".", help="Repo root (default: current dir).")
+    p_new.add_argument("--date", default=None, help="Override the date prefix (YYYYMMDD).")
+    p_new.set_defaults(func=_cmd_new_experiment)
 
     p_eval = sub.add_parser("eval", help="Run a model eval (alias-aware, retry-wrapped).")
     eval_sub = p_eval.add_subparsers(dest="eval_cmd", required=True)
