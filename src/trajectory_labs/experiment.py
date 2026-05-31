@@ -49,6 +49,7 @@ from typing import Any, Callable
 from .benchmark import Benchmark, BenchmarkScore
 from .config import ExperimentConfig, RunConfig
 from .protocols import InferenceClient, RunResult
+from .step_metrics import forward_step_metrics
 from .sweep import expand_runs
 
 logger = logging.getLogger(__name__)
@@ -232,10 +233,30 @@ class Experiment:
         result = results[0]
         arm.run_result = result
         arm.metrics = dict(result.metrics)
+        self._forward_step_metrics(arm)
         if result.status != "completed":
             raise RuntimeError(result.error or f"train_fn status={result.status}")
         arm.status = "completed"
         return arm
+
+    def _forward_step_metrics(self, arm: ArmResult) -> None:
+        """Push the arm's local metrics.jsonl rows to the store.
+
+        Runner-time logging writes locally; this batch-forwards to the
+        dashboard so the script doesn't have to call backfill_step_metrics
+        manually after training.
+        """
+        run_dir = self._resolve_run_dir(arm)
+        forward_step_metrics(self.store, arm.run_id, run_dir)
+
+    def _resolve_run_dir(self, arm: ArmResult) -> Path | None:
+        """Reconstruct the run output dir the runner wrote into."""
+        if arm.run_result is not None:
+            from_artifact = arm.run_result.artifacts.get("run_dir")
+            if from_artifact:
+                return Path(from_artifact)
+        safe_name = arm.run_config.name.replace("/", "_").replace(" ", "_")
+        return Path(self.config.output_dir).expanduser() / safe_name
 
     def _eval_arm(
         self,
