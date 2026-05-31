@@ -6,3 +6,4 @@ SDK reference's "writing extensions" section."""
 
 from .identity import IdentityTransform  # noqa: F401
 from .jsonl_to_chat import JSONLToChatTransform  # noqa: F401
+from .composio import ComposioSFTNoToolsTransform, ComposioDocPairsTransform  # noqa: F401
