@@ -107,3 +107,49 @@ class PassAtK:
             if t.get("answer") in samples[: self.k]:
                 n += 1
         return n / len(predictions)
+
+
+class PassAtKRetrievalConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    k: int = 3
+
+
+@register_metric("pass_at_k_retrieval")
+class PassAtKRetrieval:
+    """Pass@k for retrieval: target tool_slug must appear in top-k candidates.
+
+    Designed for evaluating embedding-based tool retrieval (doc-based format).
+    Each prediction must supply a ranked ``candidates`` list of tool slugs;
+    the target must supply a ``tool_slug`` (or ``answer``) ground-truth.
+
+    Example::
+
+        predictions = [{"candidates": ["OUTLOOK_CREATE_CONTACT", "GMAIL_SEND_EMAIL", ...]}]
+        targets     = [{"tool_slug": "OUTLOOK_CREATE_CONTACT"}]
+        PassAtKRetrieval(k=3).compute(predictions=predictions, targets=targets)
+        # → 1.0  (correct slug is rank-1, within top-3)
+    """
+
+    name: ClassVar[str] = "pass_at_k_retrieval"
+    Config: ClassVar[type] = PassAtKRetrievalConfig
+
+    def __init__(self, *, k: int = 3) -> None:
+        self.k = k
+
+    def compute(
+        self,
+        *,
+        predictions: list[dict[str, Any]],
+        targets: list[dict[str, Any]],
+    ) -> float:
+        if not predictions:
+            return 0.0
+        if len(predictions) != len(targets):
+            raise ValueError("predictions and targets must have the same length")
+        n = 0
+        for p, t in zip(predictions, targets):
+            candidates: list[str] = p.get("candidates") or []
+            target_slug: str = t.get("tool_slug") or t.get("answer", "")
+            if target_slug and target_slug in candidates[: self.k]:
+                n += 1
+        return n / len(predictions)

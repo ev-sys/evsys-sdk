@@ -13,6 +13,10 @@ from .mock_rl import MockRL  # noqa: F401
 from .combo import ComboAlgorithm  # noqa: F401
 from .gepa_prompt import GEPAPromptAlgorithm  # noqa: F401
 
+# Embedding bi-encoder training — optional (needs sentence-transformers).
+# The module imports cleanly; the dependency is only required at .train() time.
+from .embedding_sft import EmbeddingSFT  # noqa: F401
+
 # Tinker recipes — optional.
 try:
     from .tinker_sft import TinkerSFT  # noqa: F401

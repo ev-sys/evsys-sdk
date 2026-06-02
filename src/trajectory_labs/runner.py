@@ -127,10 +127,16 @@ def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]])
         logger.warning("eval inference build failed: %s", e)
         return {}
 
+    # Retrieval-style clients (e.g. embedding_retrieval) expose retrieve();
+    # if present, we capture ranked candidates for retrieval metrics.
+    can_retrieve = hasattr(infer, "retrieve")
+
     predictions: list[dict[str, Any]] = []
     targets: list[dict[str, Any]] = []
     for r in eval_rows:
         prompt = r.get("prompt") or r.get("messages", [{}])[-1].get("content", "")
+        # Prefer the raw query for retrieval clients (no chat templating).
+        query = r.get("anchor") or r.get("query") or prompt
         try:
             text = infer.generate(prompt=prompt, max_tokens=256, temperature=0.0)
         except Exception as e:
@@ -140,9 +146,17 @@ def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]])
         import re
         m = re.search(r"<answer>\s*([\w]+)\s*</answer>", text)
         ans = m.group(1) if m else text.strip()
-        predictions.append({"answer": ans, "raw": text})
+        pred: dict[str, Any] = {"answer": ans, "raw": text}
+        if can_retrieve:
+            try:
+                pred["candidates"] = infer.retrieve(query)
+            except Exception as e:
+                logger.warning("eval retrieve failed: %s", e)
+                pred["candidates"] = []
+        predictions.append(pred)
         targets.append({
             "answer": r.get("tool_slug", r.get("answer", "")),
+            "tool_slug": r.get("tool_slug", r.get("answer", "")),
             "toolkit": r.get("toolkit", ""),
         })
 
