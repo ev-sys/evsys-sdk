@@ -29,6 +29,10 @@ local = [
 supabase = [
     "requests>=2.32",
 ]
+embedding = [
+    "sentence-transformers>=3.0",
+    "datasets>=2.20",
+]
 tensorboard = [
     "tensorboard>=2.16",
 ]

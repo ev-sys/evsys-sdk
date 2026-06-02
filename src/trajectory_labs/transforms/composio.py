@@ -90,6 +90,17 @@ class ComposioDocPairsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     include_parameters: bool = True
     include_toolkit: bool = True
+    humanize_slug: bool = True
+    """Add the slug as readable words (e.g. 'OUTLOOK_CREATE_EVENT' -> 'outlook
+    create event'). Embedding models handle natural words better than UPPER_SNAKE."""
+    include_description: bool = True
+    """Include the row's description in the doc text. Set False when the query is
+    itself derived from the description, to avoid train/eval text leakage."""
+
+
+def _humanize_slug(slug: str) -> str:
+    """OUTLOOK_CREATE_CALENDAR_EVENT -> 'outlook create calendar event'."""
+    return slug.replace("_", " ").lower().strip()
 
 
 @register_transform("composio_doc_pairs")
@@ -98,7 +109,13 @@ class ComposioDocPairsTransform:
 
     Produces (anchor, positive) pairs for contrastive / bi-encoder training:
     * anchor  — the natural-language user query
-    * positive — formatted tool documentation (slug + description + optional params)
+    * positive — the tool's documentation text (readable slug + optional
+      toolkit / description / parameters)
+
+    The positive is built so it is *aligned with but not identical to* the
+    query: it represents the tool's identity, not a copy of the user request.
+    When the query is derived from the row's description, set
+    ``include_description=False`` to keep the doc leakage-free.
 
     Input row fields:
         query (str): natural-language user request  [anchor]
@@ -120,9 +137,13 @@ class ComposioDocPairsTransform:
         *,
         include_parameters: bool = True,
         include_toolkit: bool = True,
+        humanize_slug: bool = True,
+        include_description: bool = True,
     ) -> None:
         self.include_parameters = include_parameters
         self.include_toolkit = include_toolkit
+        self.humanize_slug = humanize_slug
+        self.include_description = include_description
 
     def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
         for row in rows:
@@ -131,7 +152,12 @@ class ComposioDocPairsTransform:
             toolkit = row.get("toolkit", "")
             parameters = row.get("parameters", "")
 
-            parts = [f"{tool_slug}: {description}".strip(": ")]
+            # Core doc text = the tool's identity (readable slug words).
+            core = _humanize_slug(tool_slug) if self.humanize_slug else tool_slug
+            if self.include_description and description:
+                core = f"{core}: {description}"
+
+            parts = [core]
             if self.include_toolkit and toolkit:
                 parts[0] = f"[{toolkit}] {parts[0]}"
             if self.include_parameters and parameters:
