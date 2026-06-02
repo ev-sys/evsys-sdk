@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..registry import register_log_store, get_log_store
+from ..registry import get_log_store, register_log_store
 
 
 class MultiplexLogStoreConfig(BaseModel):
@@ -53,6 +53,16 @@ class MultiplexLogStore:
     def log_artifact(self, name: str, path: str, *, kind: str = "file") -> None:
         for c in self._children:
             c.log_artifact(name, path, kind=kind)
+
+    def log_eval(self, **kwargs: Any) -> None:
+        # Forward only to children that support eval persistence (duck-typed).
+        for c in self._children:
+            fn = getattr(c, "log_eval", None)
+            if callable(fn):
+                try:
+                    fn(**kwargs)
+                except Exception:
+                    pass
 
     def close(self) -> None:
         for c in self._children:

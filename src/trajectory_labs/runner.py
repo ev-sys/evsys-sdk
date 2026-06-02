@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from .config import (
     DataConfig,
+    EvalConfig,
     ExperimentConfig,
     RunConfig,
 )
@@ -105,26 +105,35 @@ def _persist_result(run_dir: Path, result: RunResult, hparams: dict[str, Any]) -
 # ---------------------------------------------------------------------------
 
 
-def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]]) -> dict[str, float]:
-    if not run.eval.enabled or not run.eval.metrics:
-        return {}
+def _collect_evals(run: RunConfig) -> list[EvalConfig]:
+    """Every eval to run after training: the primary ``eval`` plus ``evals``.
 
+    Only enabled evals that declare metrics are kept (a metric-less eval is a
+    no-op, matching the historical behaviour of the default ``eval``).
+    """
+    out: list[EvalConfig] = []
+    for ec in [run.eval, *run.evals]:
+        if ec.enabled and ec.metrics:
+            out.append(ec)
+    return out
+
+
+def _run_one_eval(
+    ec: EvalConfig, ctx: RunContext, train_rows: list[dict[str, Any]]
+) -> dict[str, float]:
+    """Score one eval, returning {metric_kind: value} (no key prefix)."""
     eval_rows = train_rows
-    if run.eval.eval_data is not None:
-        eval_rows = _load_rows(run.eval.eval_data, ctx.data_store)
-        eval_rows = _apply_transforms(eval_rows, run.eval.eval_data)
-    if run.eval.n_samples is not None:
-        eval_rows = eval_rows[: run.eval.n_samples]
-    if not eval_rows:
-        return {}
-
-    inference_spec = run.eval.inference
-    if inference_spec is None:
+    if ec.eval_data is not None:
+        eval_rows = _load_rows(ec.eval_data, ctx.data_store)
+        eval_rows = _apply_transforms(eval_rows, ec.eval_data)
+    if ec.n_samples is not None:
+        eval_rows = eval_rows[: ec.n_samples]
+    if not eval_rows or ec.inference is None:
         return {}
     try:
-        infer = _build_from_spec(get_inference, inference_spec)
+        infer = _build_from_spec(get_inference, ec.inference)
     except Exception as e:
-        logger.warning("eval inference build failed: %s", e)
+        logger.warning("eval %s inference build failed: %s", ec.name, e)
         return {}
 
     predictions: list[dict[str, Any]] = []
@@ -147,14 +156,47 @@ def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]])
         })
 
     metrics: dict[str, float] = {}
-    for ms in run.eval.metrics:
+    for ms in ec.metrics:
         try:
             cls = get_metric(ms.kind)
             inst = cls(**(ms.params or {}))
-            metrics[f"eval/{ms.kind}"] = inst.compute(predictions=predictions, targets=targets)
+            metrics[ms.kind] = inst.compute(predictions=predictions, targets=targets)
         except Exception as e:
-            logger.warning("eval metric %s failed: %s", ms.kind, e)
+            logger.warning("eval %s metric %s failed: %s", ec.name, ms.kind, e)
     return metrics
+
+
+def _run_evals(
+    run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]], *, step: int
+) -> dict[str, float]:
+    """Run every declared eval, log + persist each, and return the merged,
+    namespaced metric map to fold into the RunResult.
+
+    Namespacing keeps the historical single-eval keys intact: the primary
+    ``eval`` emits ``eval/<metric>``; additional evals emit
+    ``eval/<name>/<metric>``.
+    """
+    log_eval = getattr(ctx.log_store, "log_eval", None)
+    merged: dict[str, float] = {}
+    for ec in _collect_evals(run):
+        raw = _run_one_eval(ec, ctx, train_rows)
+        if not raw:
+            continue
+        is_primary = ec is run.eval
+        prefix = "eval" if is_primary else f"eval/{ec.name}"
+        merged.update({f"{prefix}/{k}": v for k, v in raw.items()})
+        # Best-effort persistence as a distinct eval row.
+        if callable(log_eval):
+            try:
+                log_eval(
+                    name=ec.name,
+                    metrics=raw,
+                    step=step,
+                    benchmark_id=ec.benchmark_id,
+                )
+            except Exception:
+                logger.exception("persisting eval %s failed", ec.name)
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +299,15 @@ def _execute_run(
         except Exception:
             logger.exception("backend.teardown raised")
 
-    # Eval (best-effort).
+    # Eval (best-effort). A run may declare several evals; each is computed,
+    # logged and persisted independently.
     if result.status == "completed":
         try:
-            extra = _run_eval(run, ctx, train_rows)
+            step = int(result.metrics.get("total_steps", 0)) or 1
+            extra = _run_evals(run, ctx, train_rows, step=step)
             if extra:
-                # update result metrics + log
                 result.metrics.update(extra)
-                log_store.log_metrics(extra, step=int(result.metrics.get("total_steps", 0)) or 1)
+                log_store.log_metrics(extra, step=step)
         except Exception:
             logger.exception("eval phase raised")
 

@@ -115,9 +115,14 @@ class BackendConfig(_Strict):
 
 
 class EvalConfig(_Strict):
-    """Optional eval pass after training."""
+    """One eval pass after training. A run may declare several (see RunConfig)."""
 
     enabled: bool = True
+    name: str = "default"
+    """Identifies this eval when a run has more than one. Metrics are namespaced
+    by it and it is recorded on the persisted eval row."""
+    benchmark_id: str | None = None
+    """Optional backend benchmark id this eval scores against (for persistence)."""
     metrics: list[MetricSpec] = Field(default_factory=list)
     inference: InferenceSpec | None = None
     """How to query the trained model for eval. Defaults to a backend-native client."""
@@ -142,6 +147,11 @@ class RunConfig(_Strict):
     algorithm: AlgorithmConfig
     backend: BackendConfig = Field(default_factory=BackendConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
+    """The primary eval. Kept for the common single-eval case."""
+    evals: list[EvalConfig] = Field(default_factory=list)
+    """Additional named evals run after training, on top of ``eval``. Each is
+    computed, logged (metrics namespaced by ``eval/<name>/``) and persisted as
+    its own eval row."""
     seed: int = 42
     tags: list[str] = Field(default_factory=list)
 
