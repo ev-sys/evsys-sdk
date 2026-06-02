@@ -12,6 +12,7 @@ from .mock_sft import MockSFT  # noqa: F401
 from .mock_rl import MockRL  # noqa: F401
 from .combo import ComboAlgorithm  # noqa: F401
 from .gepa_prompt import GEPAPromptAlgorithm  # noqa: F401
+from .sdpo import SDPO  # noqa: F401  (tinker imported lazily inside train)
 
 # Tinker recipes — optional.
 try:
