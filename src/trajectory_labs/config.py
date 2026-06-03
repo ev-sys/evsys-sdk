@@ -153,8 +153,10 @@ class ValidationConfig(_Strict):
     enabled: bool = True
     dataset_id: str | None = None
     """Validation-dataset id from ``trajex validation upload`` (remote)."""
+    dataset_name: str | None = None
+    """Validation-dataset name — resolved to the latest version's id, then pulled."""
     path: str | None = None
-    """Local harbor dir (offline / pre-upload). Takes precedence over dataset_id."""
+    """Local harbor dir (offline / pre-upload). Takes precedence over dataset_id/name."""
     eval_for_every: int = 0
     """Run validation every N training steps (0 = disabled)."""
     metrics: list[MetricSpec] = Field(default_factory=list)

@@ -137,7 +137,7 @@ local ``path``), but lives as its own dashboard entity and is declared per-run:
 run:
   # ...
   validation:                       # in-loop — scored every N steps
-    dataset_id: <id from `trajex validation upload`>   # or: dataset_name: <name> (→ latest version); or path: data/validation/<name>
+    dataset_id: <id from `trajex validation upload`>   # or dataset_name: <name> (→ latest version); or path: data/validation/<name>
     eval_for_every: 50              # run validation every 50 training steps
     metrics: [{kind: exact_match}]  # metrics.py kinds applied to predictions
 ```

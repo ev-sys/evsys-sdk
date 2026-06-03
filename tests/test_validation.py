@@ -285,6 +285,56 @@ def test_load_validation_n_samples_caps(val_dir: Path):
     assert out is not None and len(out["tasks"]) == 1
 
 
+def test_validation_accepts_dataset_name():
+    run = RunConfig.model_validate(_run_dict(
+        dataset_name="val_set", eval_for_every=2, metrics=[{"kind": "exact_match"}],
+    ))
+    assert run.validation.dataset_name == "val_set"
+
+
+def test_validation_dataset_id_for_name_picks_latest(tmp_path):
+    from trajectory_labs.workspace import Workspace
+
+    class _S:
+        def list_validation_datasets(self, project_id=None):
+            return [{"id": "v1", "name": "val", "version": 1},
+                    {"id": "v2", "name": "val", "version": 4}]
+
+    ws = Workspace(_S(), root=str(tmp_path))
+    assert ws.validation_dataset_id_for_name("val") == "v2"
+
+
+def test_load_validation_by_dataset_name(tmp_path, monkeypatch):
+    from trajectory_labs import runner
+    from trajectory_labs.workspace import MaterializedDataset
+
+    jsonl = tmp_path / "v.jsonl"
+    jsonl.write_text(json.dumps(_row("t1", "A")) + "\n")
+
+    class _FakeWS:
+        last: str | None = None
+
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        def validation_dataset_id_for_name(self, name: str) -> str:
+            return "vid-resolved"
+
+        def pull_validation_dataset(self, vid: str, *, force: bool = False):
+            _FakeWS.last = vid
+            return MaterializedDataset(str(jsonl), "harbor_task", None, 1, cached=False)
+
+    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeWS)
+    run = RunConfig.model_validate(_run_dict(
+        dataset_name="val_set", eval_for_every=2, metrics=[{"kind": "exact_match"}],
+    ))
+    out = runner._load_validation(run)
+    assert _FakeWS.last == "vid-resolved"          # name → id → pull
+    assert out is not None
+    assert out["dataset_id"] == "vid-resolved"     # resolved id carried for create_eval
+    assert len(out["tasks"]) == 1
+
+
 # ---------------------------------------------------------------------------
 # Split-aware forwarding
 # ---------------------------------------------------------------------------

@@ -171,21 +171,25 @@ def _load_validation(run: RunConfig) -> dict[str, Any] | None:
 
     Returns ``None`` (and the run proceeds without validation) when validation
     is disabled, has no cadence/metrics, or the harbor tasks can't be loaded.
-    Local ``path`` takes precedence over remote ``dataset_id``.
+    Local ``path`` takes precedence over remote ``dataset_id`` / ``dataset_name``
+    (name resolves to the latest version's id).
     """
     v = run.validation
     if not v.enabled or v.eval_for_every <= 0 or not v.metrics:
         return None
 
     tasks = None
+    resolved_id = v.dataset_id
     try:
         if v.path:
             from .benchmark import Benchmark
             tasks = Benchmark.from_dir(v.path).tasks
-        elif v.dataset_id:
+        elif v.dataset_id or v.dataset_name:
             from .data_types import harbor_task_from_dict
             from .workspace import Workspace
-            mat = Workspace().pull_validation_dataset(v.dataset_id)
+            ws = Workspace()
+            resolved_id = v.dataset_id or ws.validation_dataset_id_for_name(v.dataset_name)
+            mat = ws.pull_validation_dataset(resolved_id)
             tasks = []
             for line in Path(mat.path).read_text().splitlines():
                 line = line.strip()
@@ -206,7 +210,7 @@ def _load_validation(run: RunConfig) -> dict[str, Any] | None:
         "eval_for_every": v.eval_for_every,
         "metric_specs": v.metrics,
         "gen": {"max_tokens": v.max_tokens, "temperature": v.temperature},
-        "dataset_id": v.dataset_id,
+        "dataset_id": resolved_id,
     }
 
 
