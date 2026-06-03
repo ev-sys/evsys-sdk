@@ -213,13 +213,58 @@ def block_to_image_src(block: Any) -> str | None:
 
 def has_images(row: ChatMessagesRow) -> bool:
     """True iff any message in the row carries at least one image block."""
-    for m in row.messages:
+    return messages_have_images(row.messages)
+
+
+def messages_have_images(messages: list[dict]) -> bool:
+    """True iff any message in a raw ``[{role, content}]`` list carries an image block.
+
+    Works on the plain message dicts the runner passes around (before they're
+    typed into a ``ChatMessagesRow``). Detects OpenAI ``image_url`` and Anthropic
+    ``image`` blocks via :func:`block_to_image_src`.
+    """
+    for m in messages:
         c = m.get("content") if isinstance(m, dict) else None
         if isinstance(c, list):
             for b in c:
                 if block_to_image_src(b) is not None:
                     return True
     return False
+
+
+def normalize_message_images(messages: list[dict]) -> list[dict]:
+    """Flatten message content to ``{type: 'text'|'image', ...}`` parts for a chat renderer.
+
+    A multimodal chat renderer wants each message's ``content`` to be either a
+    string or a list of simple parts. This maps the SDK's OpenAI/Anthropic-style
+    blocks onto that shape, block by block:
+
+      * image blocks (``image_url`` / Anthropic ``image``) → ``{"type": "image", "image": <url|data-URI>}``
+      * text blocks / bare strings → ``{"type": "text", "text": <str>}``
+
+    String ``content`` is passed through untouched; unknown block types are
+    dropped; all other message keys (role, etc.) are preserved.
+    """
+    out: list[dict] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            out.append(dict(m))
+            continue
+        parts: list[dict] = []
+        for b in content:
+            src = block_to_image_src(b)
+            if src is not None:
+                parts.append({"type": "image", "image": src})
+            elif isinstance(b, str):
+                parts.append({"type": "text", "text": b})
+            elif isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str):
+                parts.append({"type": "text", "text": b["text"]})
+            # else: unknown block → drop
+        out.append({**m, "content": parts})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +370,7 @@ __all__ = [
     "ChatMessagesRow", "HarborTask", "PromptExample",
     "InProcessVerifier", "E2BVerifier", "LLMJudgeVerifier", "VerifierPayload",
     "text_block", "image_url_block", "image_base64_block",
-    "block_to_image_src", "has_images",
+    "block_to_image_src", "has_images", "messages_have_images", "normalize_message_images",
     "detect_format",
     "harbor_task_from_dict", "chat_messages_row_from_dict", "prompt_example_from_dict",
     "from_dict", "to_dict", "iter_jsonl",

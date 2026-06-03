@@ -25,6 +25,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..data_types import messages_have_images, normalize_message_images
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
 
@@ -37,6 +38,11 @@ from tinker_cookbook.supervised.types import (  # noqa: E402
     SupervisedDatasetBuilder,
 )
 from tinker_cookbook.supervised.common import datum_from_model_input_weights  # noqa: E402
+from tinker_cookbook.renderers import (  # noqa: E402
+    TrainOnWhat,
+    get_image_processor,
+    get_renderer,
+)
 from tinker_cookbook.tokenizer_utils import get_tokenizer  # noqa: E402
 
 # A module-level cache so the chz-frozen builder can fetch its rows by id.
@@ -66,60 +72,46 @@ class TinkerSFTConfig(BaseModel):
     """Override model.renderer_name; defaults to it if None."""
 
 
-def _row_to_datum(row: dict[str, Any], tokenizer, max_seq_len: int):
-    """Convert a {messages} row into a tinker Datum, training only on assistant tokens."""
-    messages = row.get("messages") or []
+def _row_to_datum(renderer, row: dict[str, Any], max_seq_len: int):
+    """Convert a ``{messages}`` row into a tinker Datum via the model's renderer.
+
+    The renderer is the single, standardized path for turning a conversation into
+    tokens + per-token training weights — the same code tinker uses at inference,
+    so train/serve stay in distribution. It handles text and (when built with an
+    image_processor) image content uniformly; we never tokenize or mask by hand.
+    Image blocks are flattened to the renderer's part shape via
+    ``normalize_message_images``. Rows with no assistant turn (rl-style) are skipped.
+    """
+    messages = normalize_message_images(row.get("messages") or [])
     if not messages:
         raise ValueError("row has empty messages")
-
-    # Build the full chat-templated string + identify assistant span(s).
-    # We render in two passes to compute the prefix-only token count for masking.
-    full_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-    full_ids = tokenizer.encode(full_text, add_special_tokens=False)
-
-    # If the row has only system+user (rl-style), nothing to learn — skip.
-    has_assistant = any(m.get("role") == "assistant" for m in messages)
-    if not has_assistant:
+    if not any(m.get("role") == "assistant" for m in messages):
         return None
 
-    weights = [0.0] * len(full_ids)
-
-    # Find assistant turns and mark their token spans for training.
-    # Strategy: render up to (and not including) each assistant message, diff
-    # the lengths to derive the assistant span.
-    cursor = 0
-    for i, m in enumerate(messages):
-        if m.get("role") != "assistant":
-            continue
-        prefix_messages = messages[:i]
-        prefix_text = tokenizer.apply_chat_template(
-            prefix_messages, tokenize=False, add_generation_prompt=True
-        )
-        prefix_ids = tokenizer.encode(prefix_text, add_special_tokens=False)
-        # Render through this assistant message.
-        through_text = tokenizer.apply_chat_template(
-            messages[: i + 1], tokenize=False, add_generation_prompt=False
-        )
-        through_ids = tokenizer.encode(through_text, add_special_tokens=False)
-        start = max(cursor, len(prefix_ids))
-        end = min(len(weights), len(through_ids))
-        for j in range(start, end):
-            weights[j] = 1.0
-        cursor = end
-
-    # Truncate to max_seq_len.
-    if len(full_ids) > max_seq_len:
-        full_ids = full_ids[:max_seq_len]
-        weights = weights[:max_seq_len]
-
-    if sum(weights) == 0:
+    # ALL_ASSISTANT_MESSAGES = supervise every assistant turn (multi-turn SFT).
+    model_input, weights = renderer.build_supervised_example(
+        messages, train_on_what=TrainOnWhat.ALL_ASSISTANT_MESSAGES
+    )
+    if float(weights.sum()) == 0.0:
         return None
+    return datum_from_model_input_weights(model_input, weights, max_length=max_seq_len)
 
-    import torch
 
-    model_input = tinker.ModelInput.from_ints(full_ids)
-    weight_tensor = torch.tensor(weights, dtype=torch.float32)
-    return datum_from_model_input_weights(model_input, weight_tensor, max_length=max_seq_len)
+def _build_renderer(model_name: str, renderer_name: str | None, multimodal: bool):
+    """Build the tinker_cookbook renderer for a model.
+
+    ``renderer_name`` is required (e.g. ``qwen3``; a VL renderer like ``qwen3_vl``
+    for image data). An image_processor is loaded only for multimodal datasets —
+    text-only models don't have one.
+    """
+    if not renderer_name:
+        raise ValueError(
+            "tinker_sft needs model.renderer_name (e.g. 'qwen3'; use a vision "
+            "renderer such as 'qwen3_vl' when the dataset contains images)"
+        )
+    tokenizer = get_tokenizer(model_name)
+    image_processor = get_image_processor(model_name) if multimodal else None
+    return get_renderer(renderer_name, tokenizer, image_processor)
 
 
 class _InMemorySupervisedDataset(SupervisedDataset):
@@ -155,13 +147,15 @@ class _RowsBuilder(SupervisedDatasetBuilder):
     model_name: str
     max_seq_len: int
     batch_size: int
+    renderer_name: str
+    multimodal: bool = False
 
     def __call__(self):
         rows = _ROW_CACHE[self.cache_key]
-        tokenizer = get_tokenizer(self.model_name)
+        renderer = _build_renderer(self.model_name, self.renderer_name, self.multimodal)
         data = []
         for r in rows:
-            datum = _row_to_datum(r, tokenizer, self.max_seq_len)
+            datum = _row_to_datum(renderer, r, self.max_seq_len)
             if datum is not None:
                 data.append(datum)
         if not data:
@@ -214,7 +208,6 @@ class TinkerSFT:
         if not model_name:
             raise RuntimeError("model_name not set in backend handles")
 
-        tokenizer = get_tokenizer(model_name)
         n = len(rows)
         steps_per_epoch = max(1, n // self.cfg.batch_size)
         total_steps = (
@@ -239,6 +232,18 @@ class TinkerSFT:
             }
         )
 
+        renderer = self.cfg.renderer_name or handles.get("renderer_name")
+        # Standardized datum building goes through the renderer (see _row_to_datum),
+        # so a renderer is required. If any row carries an image, we need a vision
+        # renderer + image_processor — flagged here and validated in the builder.
+        multimodal = any(messages_have_images(r.get("messages") or []) for r in rows)
+        if not renderer:
+            return RunResult(
+                run_id=ctx.run_id, status="failed",
+                error="tinker_sft requires model.renderer_name (e.g. 'qwen3'; "
+                      "'qwen3_vl' for image data)",
+            )
+
         import uuid as _uuid
         cache_key = f"sft_{ctx.run_id}_{_uuid.uuid4().hex}"
         _ROW_CACHE[cache_key] = list(rows)
@@ -247,9 +252,9 @@ class TinkerSFT:
             model_name=model_name,
             max_seq_len=self.cfg.max_seq_len,
             batch_size=self.cfg.batch_size,
+            renderer_name=renderer,
+            multimodal=multimodal,
         )
-
-        renderer = self.cfg.renderer_name or handles.get("renderer_name")
 
         config = sft_train.Config(
             log_path=log_path,
