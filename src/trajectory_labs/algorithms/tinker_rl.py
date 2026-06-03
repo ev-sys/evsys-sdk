@@ -261,13 +261,20 @@ class TinkerRL:
                 load_checkpoint_path=ref_ckpt,
             )
 
+        # In-loop validation (harbor set scored with metrics.py every N steps);
+        # overrides the plain cfg.eval_every passthrough when configured.
+        from .validation_evaluator import build_validation_evaluator_builders
+        evaluator_builders, val_eval_every = build_validation_evaluator_builders(ctx, tokenizer)
+        eval_every = val_eval_every if val_eval_every is not None else self.cfg.eval_every
+
         config = rl_train.Config(
             learning_rate=self.cfg.learning_rate,
             dataset_builder=builder,
             model_name=model_name,
             max_tokens=self.cfg.max_tokens,
             log_path=log_path,
-            eval_every=self.cfg.eval_every,
+            eval_every=eval_every,
+            evaluator_builders=evaluator_builders,
             save_every=self.cfg.save_every,
             load_checkpoint_path=handles.get("load_checkpoint_path"),
             renderer_name=renderer,

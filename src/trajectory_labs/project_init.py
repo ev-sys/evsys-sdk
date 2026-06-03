@@ -43,6 +43,7 @@ SCAFFOLD_DIRS = (
     "data/process",
     "data/datasets",
     "data/benchmark",
+    "data/validation",
     "scripts",
     "experiments",
 )
@@ -53,6 +54,7 @@ GITKEEP_DIRS = (
     "data/process",
     "data/datasets",
     "data/benchmark",
+    "data/validation",
     "experiments",
 )
 

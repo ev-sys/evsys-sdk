@@ -150,6 +150,33 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_validation_upload(args: argparse.Namespace) -> int:
+    from .store import TrajectoryStore
+    from .validation_upload import upload_validation_dataset
+
+    store = TrajectoryStore(project_id=args.project_id)
+    try:
+        result = upload_validation_dataset(store, args.path)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    payload = {
+        "validation_dataset_id": result.validation_dataset_id,
+        "name": result.name,
+        "version": result.version,
+        "content_hash": result.content_hash,
+        "status": result.status,
+        "n_tasks": result.n_tasks,
+    }
+    print(json.dumps(payload, indent=2))
+    print(f"\n# paste into your experiment config.yaml:")
+    print(f"# run.validation.dataset_id: {result.validation_dataset_id}")
+    return 0
+
+
 def _cmd_new_experiment(args: argparse.Namespace) -> int:
     from datetime import datetime
 
@@ -206,6 +233,13 @@ def main(argv: list[str] | None = None) -> int:
     p_bup.add_argument("path", help="Path to data/benchmark/<name>/.")
     p_bup.add_argument("--project-id", default=None, help="Override TRAJECTORY_PROJECT_ID.")
     p_bup.set_defaults(func=_cmd_benchmark_upload)
+
+    p_valset = sub.add_parser("validation", help="Manage harbor-format validation sets (in-loop eval).")
+    valset_sub = p_valset.add_subparsers(dest="validation_cmd", required=True)
+    p_vup = valset_sub.add_parser("upload", help="Register a local validation dir with the dashboard.")
+    p_vup.add_argument("path", help="Path to data/validation/<name>/.")
+    p_vup.add_argument("--project-id", default=None, help="Override TRAJECTORY_PROJECT_ID.")
+    p_vup.set_defaults(func=_cmd_validation_upload)
 
     p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")
     p_new.add_argument("slug", help="Short kebab/snake name for the experiment.")

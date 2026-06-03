@@ -69,8 +69,10 @@ project with ``trajex init-project <name>``; the tree is:
 │   ├── process/                    # raw → datasets/<name>/v<N>/
 │   ├── datasets/                   # versioned train/test JSONL
 │   │   └── <name>/v1/{train,test}.jsonl + metadata.yaml
-│   └── benchmark/                  # harbor-format eval suites
-│       └── <name>/tasks.jsonl + metadata.yaml [+ images/ + raw/]
+│   ├── benchmark/                  # harbor-format TEST suites (final goal)
+│   │   └── <name>/tasks.jsonl + metadata.yaml [+ images/ + raw/]
+│   └── validation/                 # harbor-format VALIDATION sets (in-loop)
+│       └── <name>/tasks.jsonl + metadata.yaml
 ├── scripts/                        # project-specific SDK extensions
 │   ├── __init__.py                 # imports verifiers/metrics/transforms
 │   ├── verifiers.py                # @register_verifier(_fn) classes/fns
@@ -93,7 +95,7 @@ metadata:
   hypothesis: "Higher LoRA rank improves pass@1"
   tags: [sft, qwen3_4b]
   success_metric: pass_rate
-  benchmark:
+  benchmark:                        # TEST set — scored once, after training
     id: <dashboard benchmark id from `trajex benchmark upload`>   # preferred
     # name: composio_eval_v2     # alt: resolves to the latest version's id
     # path: data/benchmark/composio_eval_v2   # offline / dev fallback
@@ -120,6 +122,31 @@ Same for the benchmark block above (`id` / `name` / `path`). Under the hood
 both go through `Workspace.pull_dataset` / `pull_benchmark`, which cache to
 `.trajectory/<datasets|benchmarks>/<id>.jsonl` (version-immutable, so a given
 id never changes).
+
+### Benchmark (test) vs. validation (in-loop)
+
+A **benchmark** is the *final goal / test set*: scored once after training via
+``Benchmark.score(client)`` and read from ``metadata.benchmark``. Model
+selection must never key off it.
+
+A **validation set** is scored *during* training to drive model selection. It's
+also harbor-format (referenced by id from ``trajex validation upload``, or by a
+local ``path``), but lives as its own dashboard entity and is declared per-run:
+
+```yaml
+run:
+  # ...
+  validation:                       # in-loop — scored every N steps
+    dataset_id: <id from `trajex validation upload`>   # or: dataset_name: <name> (→ latest version); or path: data/validation/<name>
+    eval_for_every: 50              # run validation every 50 training steps
+    metrics: [{kind: exact_match}]  # metrics.py kinds applied to predictions
+```
+
+Every ``eval_for_every`` steps the tinker algorithm (SFT/RL) generates on the
+validation tasks, scores them with the listed ``metrics.py`` metrics, and
+records ``val/<metric>`` curves under ``split="val"`` — separate from the
+post-training benchmark eval. (Recording only for now; automatic
+best-checkpoint selection is a follow-up.)
 
 ## OOP entry points
 

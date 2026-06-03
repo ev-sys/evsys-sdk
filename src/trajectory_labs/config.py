@@ -139,6 +139,32 @@ class EvalConfig(_Strict):
     """Cap on how many examples to eval (None = all)."""
 
 
+class ValidationConfig(_Strict):
+    """In-loop validation set — scored *during* training to drive model selection.
+
+    Distinct from ``metadata.benchmark`` (the final/test set). A validation set
+    is harbor-format (``tasks.jsonl`` + verifier), referenced by id (uploaded
+    via ``trajex validation upload``) or by a local ``path``. Every
+    ``eval_for_every`` training steps the tinker algorithm generates on these
+    tasks and scores them with the configured ``metrics`` (the metrics.py
+    registry); results are recorded with ``split="val"``.
+    """
+
+    enabled: bool = True
+    dataset_id: str | None = None
+    """Validation-dataset id from ``trajex validation upload`` (remote)."""
+    path: str | None = None
+    """Local harbor dir (offline / pre-upload). Takes precedence over dataset_id."""
+    eval_for_every: int = 0
+    """Run validation every N training steps (0 = disabled)."""
+    metrics: list[MetricSpec] = Field(default_factory=list)
+    """metrics.py kinds applied to predictions vs. targets each eval."""
+    max_tokens: int = 256
+    temperature: float = 0.0
+    n_samples: int | None = None
+    """Cap on how many validation tasks to score per eval (None = all)."""
+
+
 # ---------------------------------------------------------------------------
 # RunConfig — one training run.
 # ---------------------------------------------------------------------------
@@ -154,6 +180,7 @@ class RunConfig(_Strict):
     algorithm: AlgorithmConfig
     backend: BackendConfig = Field(default_factory=BackendConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
     seed: int = 42
     tags: list[str] = Field(default_factory=list)
 

@@ -66,9 +66,21 @@ def forward_step_metrics(
         metrics = row.get("metrics")
         if step is None or not isinstance(metrics, dict) or not metrics:
             continue
+        # ``val/``-prefixed keys are in-loop validation metrics — forward them
+        # under split="val" so the dashboard separates the validation curve from
+        # training. Everything else stays on the default (train) split, with the
+        # original call signature preserved for back-compat.
+        val_metrics = {k: v for k, v in metrics.items() if k.startswith("val/")}
+        train_metrics = {k: v for k, v in metrics.items() if not k.startswith("val/")}
         try:
-            store.log_metrics(run_id=run_id, step=int(step), metrics=dict(metrics))
-            sent += 1
+            if train_metrics:
+                store.log_metrics(run_id=run_id, step=int(step), metrics=dict(train_metrics))
+                sent += 1
+            if val_metrics:
+                store.log_metrics(
+                    run_id=run_id, step=int(step), metrics=dict(val_metrics), split="val"
+                )
+                sent += 1
         except Exception:
             logger.exception(
                 "step_metrics: store.log_metrics failed for run %r step %s",

@@ -166,6 +166,50 @@ def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]])
     return metrics
 
 
+def _load_validation(run: RunConfig) -> dict[str, Any] | None:
+    """Resolve the run's in-loop validation set into a plumbable extras dict.
+
+    Returns ``None`` (and the run proceeds without validation) when validation
+    is disabled, has no cadence/metrics, or the harbor tasks can't be loaded.
+    Local ``path`` takes precedence over remote ``dataset_id``.
+    """
+    v = run.validation
+    if not v.enabled or v.eval_for_every <= 0 or not v.metrics:
+        return None
+
+    tasks = None
+    try:
+        if v.path:
+            from .benchmark import Benchmark
+            tasks = Benchmark.from_dir(v.path).tasks
+        elif v.dataset_id:
+            from .data_types import harbor_task_from_dict
+            from .workspace import Workspace
+            mat = Workspace().pull_validation_dataset(v.dataset_id)
+            tasks = []
+            for line in Path(mat.path).read_text().splitlines():
+                line = line.strip()
+                if line:
+                    tasks.append(harbor_task_from_dict(json.loads(line)))
+    except Exception:
+        logger.exception("failed to load validation set for run %r; skipping val", run.name)
+        return None
+
+    if not tasks:
+        logger.warning("validation enabled for run %r but no tasks loaded; skipping", run.name)
+        return None
+    if v.n_samples is not None:
+        tasks = tasks[: v.n_samples]
+
+    return {
+        "tasks": tasks,
+        "eval_for_every": v.eval_for_every,
+        "metric_specs": v.metrics,
+        "gen": {"max_tokens": v.max_tokens, "temperature": v.temperature},
+        "dataset_id": v.dataset_id,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Per-run orchestration
 # ---------------------------------------------------------------------------
@@ -229,6 +273,17 @@ def _execute_run(
         _persist_result(run_dir, result, hparams=run.model_dump())
         return result
 
+    extras: dict[str, Any] = {
+        "train_rows": train_rows,
+        "n_train_rows": len(train_rows),
+        "backend_handles": handles,
+        "model_name": run.model.name,
+        "tags": run.tags,
+    }
+    validation = _load_validation(run)
+    if validation is not None:
+        extras["validation"] = validation
+
     ctx = RunContext(
         run_id=safe_name,
         output_dir=str(run_dir),
@@ -236,13 +291,7 @@ def _execute_run(
         data_store=data_store,
         log_store=log_store,
         backend=backend,
-        extras={
-            "train_rows": train_rows,
-            "n_train_rows": len(train_rows),
-            "backend_handles": handles,
-            "model_name": run.model.name,
-            "tags": run.tags,
-        },
+        extras=extras,
     )
 
     log_store.log_hyperparams(

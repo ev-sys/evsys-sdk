@@ -177,7 +177,14 @@ scripts — one at a time, each as its own PR if possible.
 
   * `trajex new-experiment <slug>` for every subsequent experiment.
   * `trajex benchmark upload data/benchmark/<name>` whenever a benchmark
-    changes content (idempotent re-upload returns "unchanged").
+    (the TEST set, scored after training) changes content (idempotent
+    re-upload returns "unchanged").
+  * `trajex validation upload data/validation/<name>` for an in-loop
+    VALIDATION set — scored every N steps during training to drive model
+    selection. Paste the printed id into the run's `validation.dataset_id`
+    and set `validation.eval_for_every` + `validation.metrics` (metrics.py
+    kinds). Benchmark = final test; validation = model selection. Keep them
+    separate so selection never keys off the test set.
   * `using-trajectory-sdk` skill for the day-to-day patterns
     (`Experiment.from_yaml(...).run()`, sweep / matrix syntax, scoring).
   * `getting-experiment-context` skill if they want to recall prior results
