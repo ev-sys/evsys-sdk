@@ -94,10 +94,32 @@ metadata:
   tags: [sft, qwen3_4b]
   success_metric: pass_rate
   benchmark:
-    path: data/benchmark/composio_eval_v2
-    id: <dashboard benchmark id from `trajex benchmark upload`>
+    id: <dashboard benchmark id from `trajex benchmark upload`>   # preferred
+    # name: composio_eval_v2     # alt: resolves to the latest version's id
+    # path: data/benchmark/composio_eval_v2   # offline / dev fallback
     breakdown_keys: [toolkit]
 ```
+
+### Referencing data by id / name (preferred over local paths)
+
+Stored experiment scripts should reference data by **dashboard id** (or
+**name**, which resolves to the latest version's id) rather than a local path.
+The SDK pulls the rows once into the local `.trajectory/` workspace cache and
+trains/scores from there, so a committed script is portable and doesn't depend
+on anyone's local file layout. `path` stays as an offline / dev fallback.
+
+```yaml
+run:
+  data:
+    dataset_id: <dashboard dataset id>     # or: dataset_name: sft_overdose
+    transforms: [...]                       # applied to the pulled rows
+    # source_kind/path are ignored when dataset_id/name is set
+```
+
+Same for the benchmark block above (`id` / `name` / `path`). Under the hood
+both go through `Workspace.pull_dataset` / `pull_benchmark`, which cache to
+`.trajectory/<datasets|benchmarks>/<id>.jsonl` (version-immutable, so a given
+id never changes).
 
 ## OOP entry points
 

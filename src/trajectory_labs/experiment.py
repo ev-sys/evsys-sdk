@@ -183,9 +183,21 @@ class Experiment:
         if self._benchmark_override is not None:
             return self._benchmark_override
         path = spec.get("path")
-        if not path:
+        if path:
+            return Benchmark.from_dir(path)
+        # Preferred: a dashboard benchmark by id (or name → latest version's
+        # id), pulled into the local .trajectory/ workspace. path is the
+        # offline / dev fallback above.
+        bid, name = spec.get("id"), spec.get("name")
+        if not (bid or name):
             return None
-        return Benchmark.from_dir(path)
+        from .data_types import harbor_task_from_dict
+        from .workspace import Workspace, read_jsonl_rows
+        ws = Workspace(self.store) if self.store is not None else Workspace()
+        resolved = str(bid) if bid else ws.benchmark_id_for_name(str(name))
+        mat = ws.pull_benchmark(resolved)
+        tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
+        return Benchmark.from_iterable(name or "benchmark", tasks)
 
     def _create_experiment(
         self, hypothesis: str | None, tags: list[str], meta: dict
