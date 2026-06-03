@@ -123,6 +123,28 @@ The legacy ``run_experiment(cfg)`` is still the inner runner that
 ``Experiment`` calls per arm — bypass ``Experiment`` only when you need to do
 training without dashboard bookkeeping.
 
+## Image / multimodal SFT
+
+`tinker_sft` builds every training example through the model's **renderer**
+(`tinker_cookbook.renderers`) — the same code path tinker uses at inference, so
+train and serve stay in distribution. There is no hand-rolled tokenization or
+loss masking; the renderer returns the `ModelInput` (text **and** image chunks)
+plus per-token weights, and we wrap it as a `Datum`.
+
+Because of that, **image SFT needs no new config** — just:
+
+* `model.renderer_name`: a vision renderer (e.g. `qwen3_vl`, `qwen3_vl_instruct`).
+  `renderer_name` is required for `tinker_sft` (text renderers like `qwen3` too).
+* image-bearing training rows: message `content` as a list of blocks
+  (OpenAI `image_url` / Anthropic `image`, via `image_url_block` /
+  `image_base64_block`).
+
+The runner **auto-detects** image rows (`messages_have_images`) and, only then,
+loads an `AutoImageProcessor` for the model and flattens the image blocks
+(`normalize_message_images`) into the renderer's part shape. Pure-text runs are
+unaffected. RL rollouts and image-based *eval/benchmark* scoring are not wired
+yet (text-only `generate`) — follow-ups that can reuse the same helpers.
+
 ## What's NOT in v0.1
 
 * Supabase adapters (planned: `trajectory_labs.adapters.supabase`).
