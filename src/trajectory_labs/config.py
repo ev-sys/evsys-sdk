@@ -187,6 +187,18 @@ class ExperimentConfig(_Strict):
     runs: list[RunConfig] | None = None
     matrix: MatrixSpec | None = None
 
+    # -- Run groups (variance studies) ---------------------------------------
+    # When ``n_repeats > 1``, each primary RunConfig (from ``run`` / ``runs`` /
+    # ``matrix``) becomes a *group*: it's replicated N times with seeds
+    # ``[base_seed, base_seed+1, ...]`` (or ``[primary.seed, primary.seed+1, ...]``
+    # when ``base_seed`` is None). Replicates share a dashboard ``group_id`` so
+    # mean/stddev across seeds is straightforward. ``n_repeats: 1`` (default)
+    # preserves the original behavior — no groups created.
+    n_repeats: int = 1
+    """How many seeded replicates per primary RunConfig. 1 = no grouping."""
+    base_seed: int | None = None
+    """Starting seed for auto-generated replicates. None → use each primary's own ``seed``."""
+
     parent_experiment_id: str | None = None
     """For evolutionary lineage."""
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -199,6 +211,8 @@ class ExperimentConfig(_Strict):
                 "ExperimentConfig must have exactly one of: run, runs, matrix "
                 f"(found {n})."
             )
+        if self.n_repeats < 1:
+            raise ValueError(f"n_repeats must be >= 1 (got {self.n_repeats}).")
 
 
 class MatrixSpec(_Strict):
