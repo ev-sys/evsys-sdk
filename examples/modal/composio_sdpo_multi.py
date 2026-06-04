@@ -194,8 +194,13 @@ def run_validation(
                 "server_tail": "".join(server_log[-80:])}
     print(">>> [modal] server healthy; launching SDPO arms", flush=True)
 
-    # ---- 2. Spawn N arm subprocesses ----
-    clients = []
+    # ---- 2. Run arm subprocesses SEQUENTIALLY ----
+    # For pure SFT (no rollouts) the GPU-pipelining gain from concurrent arms
+    # is ~10% wall (see SkyRL multi-LoRA notes). Sequential is strictly
+    # simpler: deterministic call order in the server log, one arm crashing
+    # doesn't block the other from being inspected, no startup race between
+    # create_model calls.
+    results: dict = {"status": "completed", "arms": {}}
     for i, arm in enumerate(arms):
         log_path = f"/tmp/sdpo_arm_{arm}"
         cmd = [
@@ -216,17 +221,11 @@ def run_validation(
             "--seed", str(i),
         ]
         log: list[str] = []
-        # We run under tinker-cookbook's venv so the tinker SDK + cookbook
-        # helpers (build_topk_distillation_datums) resolve.
+        print(f">>> [modal] starting arm-{arm} ({i + 1}/{len(arms)})", flush=True)
         p = subprocess.Popen(cmd, cwd=cookbook, env=env, text=True,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         threading.Thread(target=_pump, args=(p.stdout, f"arm-{arm}", log),
                          daemon=True).start()
-        clients.append((arm, p, log, log_path))
-        time.sleep(3)  # stagger to avoid create_model race
-
-    results: dict = {"status": "completed", "arms": {}}
-    for arm, p, log, log_path in clients:
         rc = p.wait()
         # Drain metrics.jsonl if present
         metrics_path = Path(log_path) / "metrics.jsonl"
