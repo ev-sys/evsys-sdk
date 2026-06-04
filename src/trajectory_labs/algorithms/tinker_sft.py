@@ -251,6 +251,14 @@ class TinkerSFT:
 
         renderer = self.cfg.renderer_name or handles.get("renderer_name")
 
+        # In-loop validation: score a harbor val set with metrics.py every N steps
+        # to drive model selection (never the test/benchmark set). See
+        # validation_evaluator.ValidationEvaluator. The cadence overrides the
+        # plain cfg.eval_every passthrough when a validation block is present.
+        from .validation_evaluator import build_validation_evaluator_builders
+        evaluator_builders, val_eval_every = build_validation_evaluator_builders(ctx, tokenizer)
+        eval_every = val_eval_every if val_eval_every is not None else self.cfg.eval_every
+
         config = sft_train.Config(
             log_path=log_path,
             model_name=model_name,
@@ -261,7 +269,8 @@ class TinkerSFT:
             num_epochs=self.cfg.num_epochs,
             lora_rank=self.cfg.lora_rank,
             save_every=save_every,
-            eval_every=self.cfg.eval_every,
+            eval_every=eval_every,
+            evaluator_builders=evaluator_builders,
             max_steps=self.cfg.max_steps,
             wandb_project=self.cfg.wandb_project,
             wandb_name=self.cfg.wandb_name,

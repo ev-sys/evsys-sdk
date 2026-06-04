@@ -65,18 +65,28 @@ confirmed which path.
    ```
    The CLI refuses non-empty dirs unless you pass `--force`. `--force` only
    fills in missing files — it never overwrites a file the user already wrote.
-3. Walk the user through what landed:
+3. Create a `uv`-managed `.venv` and install the project into it:
+   ```bash
+   uv venv                    # creates .venv/ using requires-python from pyproject.toml
+   uv pip install -e .        # installs the project (pulls in trajectory-labs) editable
+   ```
+   `uv venv` is idempotent — if `.venv/` already exists it leaves it alone, so
+   it's safe to run on a repo that's already set up. `trajex init-project`
+   already gitignores `.venv/`, so nothing to add there.
+   Tell the user to activate it with `source .venv/bin/activate` (or just prefix
+   commands with `uv run`, e.g. `uv run trajex new-experiment ...`).
+4. Walk the user through what landed:
    * `data/` lineage convention (raw → fetch → process → datasets/<name>/v<N>/)
    * `scripts/{verifiers,metrics,transforms}.py` with commented examples
    * `pyproject.toml` declaring `scripts` as the importable package
-   * `.gitignore` (`.trajectory/`, `data/raw/`)
-4. Show how to add the first experiment:
+   * `.gitignore` (`.trajectory/`, `data/raw/`, `.venv/`)
+5. Show how to add the first experiment:
    ```bash
    trajex new-experiment first_check
    ```
    Tell the user to edit the generated `config.yaml`, then
-   `python experiments/<dir>/run.py`.
-5. Point them at:
+   `python experiments/<dir>/run.py` (or `uv run python experiments/<dir>/run.py`).
+6. Point them at:
    * `trajectory-labs-sdk/docs/DESIGN.md` — layout rationale.
    * `using-trajectory-sdk` skill — how `Experiment.from_yaml(...).run()` works
      end-to-end (dashboard records, sweep expansion, eval, conclusion).
@@ -110,6 +120,12 @@ before touching anything.
 Run `trajex init-project . --force` to fill in any missing standard files
 without clobbering existing ones. Then create the data subdirs that didn't
 exist yet (`data/datasets/<name>/v1/`, `data/benchmark/<name>/`).
+
+If the project has no `uv`-managed environment yet, create one and install it
+editable — `uv venv && uv pip install -e .`. `uv venv` won't disturb an
+existing `.venv/`, and `uv pip install -e .` reconciles the project's existing
+`pyproject.toml` dependencies (which the migration preserves). Make sure
+`.venv/` is gitignored.
 
 ### Step 3: move files
 
@@ -161,7 +177,14 @@ scripts — one at a time, each as its own PR if possible.
 
   * `trajex new-experiment <slug>` for every subsequent experiment.
   * `trajex benchmark upload data/benchmark/<name>` whenever a benchmark
-    changes content (idempotent re-upload returns "unchanged").
+    (the TEST set, scored after training) changes content (idempotent
+    re-upload returns "unchanged").
+  * `trajex validation upload data/validation/<name>` for an in-loop
+    VALIDATION set — scored every N steps during training to drive model
+    selection. Paste the printed id into the run's `validation.dataset_id`
+    and set `validation.eval_for_every` + `validation.metrics` (metrics.py
+    kinds). Benchmark = final test; validation = model selection. Keep them
+    separate so selection never keys off the test set.
   * `using-trajectory-sdk` skill for the day-to-day patterns
     (`Experiment.from_yaml(...).run()`, sweep / matrix syntax, scoring).
   * `getting-experiment-context` skill if they want to recall prior results
