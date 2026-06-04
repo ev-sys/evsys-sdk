@@ -81,10 +81,22 @@ class LogStoreSpec(_Strict):
 
 
 class DataConfig(_Strict):
-    """Where the training data comes from + how to transform it."""
+    """Where the training data comes from + how to transform it.
+
+    The preferred way to reference a dataset is by ``dataset_id`` (or
+    ``dataset_name``): the SDK pulls it from the dashboard into the local
+    ``.trajectory/`` workspace and trains from that cache — so stored
+    experiment scripts are portable and don't depend on local file layout.
+    ``dataset_id`` / ``dataset_name`` take precedence over ``source_kind`` /
+    ``path``, which remain as an offline / dev fallback.
+    """
 
     source_kind: Literal["jsonl", "json", "in_memory", "hf_dataset"] = "jsonl"
-    """Which built-in source loader to use."""
+    """Which built-in source loader to use (ignored when dataset_id/name set)."""
+    dataset_id: str | None = None
+    """Dashboard dataset id — pulled into .trajectory/ and trained from locally."""
+    dataset_name: str | None = None
+    """Dashboard dataset name — resolved to the latest version's id, then pulled."""
     path: str | None = None
     """For 'jsonl' / 'json': absolute or store-relative path."""
     rows: list[dict[str, Any]] | None = None

@@ -67,6 +67,22 @@ class Workspace:
             get_rows=self.store.get_benchmark_rows,
         )
 
+    # -- name → id resolution (latest version wins) ---------------------------
+
+    def dataset_id_for_name(self, name: str) -> str:
+        return self._id_for_name(self.store.list_datasets, name, "dataset")
+
+    def benchmark_id_for_name(self, name: str) -> str:
+        return self._id_for_name(self.store.list_benchmarks, name, "benchmark")
+
+    def _id_for_name(self, list_fn: Callable[[], list[dict] | None], name: str, kind: str) -> str:
+        """Resolve a name to the highest-version record's id for this project."""
+        records = list_fn() or []
+        matching = [r for r in records if r.get("name") == name]
+        if not matching:
+            raise FileNotFoundError(f"no {kind} named {name!r} in this project")
+        return str(max(matching, key=lambda r: int(r.get("version") or 1))["id"])
+
     def _materialize(self, sub: str, obj_id: str, force: bool, *,
                      get_meta: Callable[[str], dict | None],
                      get_rows: Callable[..., list[dict]]) -> MaterializedDataset:
@@ -123,4 +139,14 @@ class Workspace:
         return str(d)
 
 
-__all__ = ["Workspace", "MaterializedDataset"]
+def read_jsonl_rows(path: str) -> list[dict[str, Any]]:
+    """Read a materialized ``.trajectory/`` JSONL (one payload per line) to dicts."""
+    out: list[dict[str, Any]] = []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+
+
+__all__ = ["Workspace", "MaterializedDataset", "read_jsonl_rows"]
