@@ -39,44 +39,7 @@ from typing import Any
 
 import numpy as np
 import tinker
-import torch
 from tinker_cookbook.distillation.sdft import build_topk_distillation_datums
-
-
-def _argmax_ce_datums(topk_datums: list[tinker.Datum]) -> list[tinker.Datum]:
-    """Unpack (N, K)-shaped distillation datums into standard (N,)-shape CE
-    datums by taking the teacher's argmax token at each completion position.
-
-    The cookbook's :func:`build_topk_distillation_datums` returns datums with
-    ``target_tokens`` shape ``(N, K)`` and per-slot teacher probabilities in
-    ``weights`` (renormalized, 0 at masked positions). SkyRL's
-    ``cross_entropy_loss`` only handles single-target (N,)-shape datums (see
-    skyrl_train_backend.py:_to_training_batch), so we collapse K → argmax
-    here. The teacher's most-probable token becomes the SFT target;
-    ``weights`` becomes a per-position 0/1 loss mask (1 where the teacher
-    contributed a target, 0 at skipped/masked positions).
-    """
-    out: list[tinker.Datum] = []
-    for d in topk_datums:
-        target_NK = d.loss_fn_inputs["target_tokens"].to_torch()  # (N, K) long
-        weights_NK = d.loss_fn_inputs["weights"].to_torch()        # (N, K) float
-        # argmax over K (the cookbook fills slot 0 with the highest-logprob
-        # token for each position, so slot 0 *is* argmax — but defend against
-        # future format changes by picking the K-argmax explicitly).
-        argmax_k = weights_NK.argmax(dim=-1)                       # (N,)
-        target_N = target_NK.gather(1, argmax_k.unsqueeze(-1)).squeeze(-1)
-        # Mask: 1.0 at positions where the teacher contributed any non-zero
-        # weight, else 0.0. Per-position binary mask satisfies SkyRL's
-        # single-target CE.
-        mask_N = (weights_NK.sum(dim=-1) > 0).to(torch.float32)
-        out.append(tinker.Datum(
-            model_input=d.model_input,
-            loss_fn_inputs={
-                "target_tokens": tinker.TensorData.from_torch(target_N.contiguous()),
-                "weights": tinker.TensorData.from_torch(mask_N.contiguous()),
-            },
-        ))
-    return out
 
 
 # Templates: only the teacher diff matters. Student template is shared.
@@ -302,18 +265,18 @@ def main() -> int:
             print(f"[arm={arm}] step {step}: empty batch (skipped)", flush=True)
             continue
 
-        # Use the teacher with topk=1 to get its argmax token at each gold
-        # completion position. We then unpack to single-target (N,)-shape
-        # standard SFT datums (cross_entropy on teacher's argmax). Soft top-K
-        # distillation needs a multi-file SkyRL CE patch (see notes); for
-        # validation, hard SFT preserves the per-arm differentiator (different
-        # teacher prompts → different argmax tokens → different LoRAs).
-        topk_datums, build_m = asyncio.run(build_topk_distillation_datums(
+        # Soft top-K forward-KL distillation. The cookbook builds datums with
+        # (N, K) target_tokens + weights = renormalized teacher top-K probs.
+        # Our SkyRL multi-target CE patch (see patch_skyrl_topk.sh) detects
+        # these shapes and computes
+        #   L = -sum_k weights[N, K] * log p_student(target[N, K])
+        # by re-gathering the student's logprobs K times from the same model
+        # forward.
+        ce_datums, build_m = asyncio.run(build_topk_distillation_datums(
             data_D, meta_D, teacher_client=teacher_client,
             teacher_prompts_P=teacher_prompts, topk=args.topk,
             vocab_size=vocab, skip_first_n_tokens=3,
         ))
-        ce_datums = _argmax_ce_datums(topk_datums)
 
         fb = training_client.forward_backward(ce_datums, "cross_entropy").result()
         training_client.optim_step(adam).result()
