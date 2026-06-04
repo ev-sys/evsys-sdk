@@ -82,6 +82,10 @@ class ArmResult:
     eval_seconds: float | None = None
     run_result: RunResult | None = None
     """Raw underlying ``RunResult`` for advanced consumers."""
+    group_id: str | None = None
+    """Dashboard ``group_id`` when ``n_repeats > 1`` (else None)."""
+    group_name: str | None = None
+    """Primary's name (= the group's name) when grouped; else None."""
 
     def score(self, metric: str) -> float | None:
         """Return ``eval_metrics[metric]`` if present, else ``metrics[metric]``."""
@@ -144,9 +148,24 @@ class Experiment:
 
         experiment_id = self._create_experiment(hypothesis, tags, meta)
 
+        # When n_repeats > 1, register one dashboard group per primary
+        # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
+        # previous behavior — no groups, no group_id on runs.
+        primaries = self._iter_runs()
+        n_repeats = self.config.n_repeats
+        group_id_by_name: dict[str, str | None] = {}
+        if n_repeats > 1:
+            for p in primaries:
+                group_id_by_name[p.name] = self._create_group(experiment_id, p.name)
+
         arms: list[ArmResult] = []
-        for run_cfg in self._iter_runs():
-            arms.append(self._execute_arm(experiment_id, run_cfg, benchmark, meta))
+        for primary in primaries:
+            for arm_cfg, group_name in self._replicates_for(primary):
+                group_id = group_id_by_name.get(group_name) if group_name else None
+                arms.append(self._execute_arm(
+                    experiment_id, arm_cfg, benchmark, meta,
+                    group_id=group_id, group_name=group_name,
+                ))
 
         best_arm = self._pick_best(arms, success_metric) if success_metric else None
         best_score = best_arm.score(success_metric) if (best_arm and success_metric) else None
@@ -169,7 +188,11 @@ class Experiment:
     # -- internals: orchestration steps; safe to override in subclasses ---
 
     def _iter_runs(self) -> list[RunConfig]:
-        """Expand sweep matrix / single-run / multi-run to a flat list."""
+        """Expand sweep matrix / single-run / multi-run to a flat list of primaries.
+
+        Each entry is a "group" when ``n_repeats > 1``. See
+        :meth:`_replicates_for` for the per-primary seeded replicates.
+        """
         cfg = self.config
         if cfg.run is not None:
             return [cfg.run]
@@ -178,6 +201,27 @@ class Experiment:
         if cfg.matrix is not None:
             return expand_runs(cfg.matrix.base_run, cfg.matrix.axes, cfg.matrix.name_template)
         raise RuntimeError(f"experiment {cfg.name!r} has no runs")  # pragma: no cover
+
+    def _replicates_for(self, primary: RunConfig) -> list[tuple[RunConfig, str | None]]:
+        """Per-primary seed replicates.
+
+        For ``n_repeats == 1``: returns ``[(primary, None)]`` — no group.
+        For ``n_repeats > 1``: returns N tuples of
+        ``(<RunConfig with name=primary.name__s<seed> and seed=<seed>>, primary.name)``.
+        Seeds run ``[base_seed, base_seed+1, ...]`` when ``base_seed`` is set,
+        else ``[primary.seed, primary.seed+1, ...]``.
+        """
+        n = self.config.n_repeats
+        if n <= 1:
+            return [(primary, None)]
+        base = self.config.base_seed if self.config.base_seed is not None else primary.seed
+        return [
+            (
+                primary.model_copy(update={"name": f"{primary.name}__s{base + i}", "seed": base + i}),
+                primary.name,
+            )
+            for i in range(n)
+        ]
 
     def _resolve_benchmark(self, spec: dict) -> Benchmark | None:
         if self._benchmark_override is not None:
@@ -218,9 +262,19 @@ class Experiment:
         run_cfg: RunConfig,
         benchmark: Benchmark | None,
         meta: dict,
+        *,
+        group_id: str | None = None,
+        group_name: str | None = None,
     ) -> ArmResult:
-        run_id = self._create_run(experiment_id, run_cfg)
-        arm = ArmResult(name=run_cfg.name, run_config=run_cfg, status="failed", run_id=run_id)
+        run_id = self._create_run(experiment_id, run_cfg, group_id=group_id)
+        arm = ArmResult(
+            name=run_cfg.name,
+            run_config=run_cfg,
+            status="failed",
+            run_id=run_id,
+            group_id=group_id,
+            group_name=group_name,
+        )
         try:
             arm = self._train_arm(arm, run_cfg)
             if arm.status == "completed" and benchmark is not None:
@@ -289,6 +343,7 @@ class Experiment:
             max_tokens=int(bench_meta.get("max_tokens", 512)),
             temperature=float(bench_meta.get("temperature", 0.0)),
             breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+            limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
         )
         arm.eval_seconds = time.time() - t0
         arm.eval_metrics = dict(score.metrics)
@@ -298,11 +353,29 @@ class Experiment:
 
     # -- store passthroughs (each guarded so store=None is fine) ---------
 
-    def _create_run(self, experiment_id: str | None, run_cfg: RunConfig) -> str | None:
+    def _create_group(self, experiment_id: str | None, name: str) -> str | None:
+        """Register a run group for variance studies; returns its id (or None)."""
+        if self.store is None or experiment_id is None:
+            return None
+        try:
+            grp = self.store.create_group(experiment_id, name)
+        except Exception:
+            logger.exception("failed to create group %r", name)
+            return None
+        return grp.get("id") if isinstance(grp, dict) else None
+
+    def _create_run(
+        self,
+        experiment_id: str | None,
+        run_cfg: RunConfig,
+        *,
+        group_id: str | None = None,
+    ) -> str | None:
         if self.store is None or experiment_id is None:
             return None
         run = self.store.create_run(
             experiment_id=experiment_id,
+            group_id=group_id,
             recipe_kind=run_cfg.algorithm.kind,
             run_config=run_cfg.model_dump(),
             seed=run_cfg.seed,

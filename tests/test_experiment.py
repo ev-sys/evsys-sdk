@@ -52,6 +52,12 @@ class _FakeStore:
         self.calls.append(("create_experiment", kw))
         return {"id": self._id(), **kw}
 
+    def create_group(self, experiment_id: str, name: str, *,
+                     description: str | None = None) -> dict:
+        self.calls.append(("create_group", {"experiment_id": experiment_id,
+                                            "name": name, "description": description}))
+        return {"id": self._id(), "experiment_id": experiment_id, "name": name}
+
     def create_run(self, **kw: Any) -> dict:
         self.calls.append(("create_run", kw))
         return {"id": self._id(), **kw}
@@ -470,6 +476,131 @@ def test_arm_result_score_missing_returns_none():
 # ---------------------------------------------------------------------------
 # Conclusion text
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Run groups (n_repeats + base_seed)
+# ---------------------------------------------------------------------------
+
+
+def test_n_repeats_zero_rejected(base_run: RunConfig):
+    with pytest.raises(ValueError, match="n_repeats must be >= 1"):
+        ExperimentConfig(name="x", run=base_run, n_repeats=0)
+
+
+def test_n_repeats_default_one_no_groups(sweep_config: ExperimentConfig):
+    """Backward compat: default n_repeats=1 → no create_group, no group ids."""
+    store = _FakeStore()
+    res = Experiment(sweep_config, store=store, train_fn=_make_train_fn()).run()
+    assert [c[0] for c in store.calls].count("create_group") == 0
+    assert all(a.group_id is None and a.group_name is None for a in res.arms)
+    # create_run still called per arm but without a group_id
+    create_runs = [c[1] for c in store.calls if c[0] == "create_run"]
+    assert all(cr.get("group_id") is None for cr in create_runs)
+
+
+def test_n_repeats_replicates_single_run(base_run: RunConfig):
+    """n_repeats=3 with a single primary → 3 arms with seeds [42, 43, 44]."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=3,
+                           metadata={"success_metric": "reward"})
+    store = _FakeStore()
+    res = Experiment(cfg, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 3
+    assert sorted(a.run_config.seed for a in res.arms) == [42, 43, 44]
+    assert sorted(a.name for a in res.arms) == ["base__s42", "base__s43", "base__s44"]
+    assert all(a.group_name == "base" for a in res.arms)
+    # One group; all three arms share its id.
+    create_groups = [c[1] for c in store.calls if c[0] == "create_group"]
+    assert len(create_groups) == 1 and create_groups[0]["name"] == "base"
+    group_id = next(c[1] for c in store.calls if c[0] == "create_group"
+                    and c[1]["name"] == "base")
+    # group_id_by_arm matches the created group's id
+    expected_id = [c for c in store.calls if c[0] == "create_group"][0]
+    # the fake store returns the assigned id; pull from the create_run calls
+    create_runs = [c[1] for c in store.calls if c[0] == "create_run"]
+    assert len({cr["group_id"] for cr in create_runs}) == 1
+    assert all(a.group_id == create_runs[0]["group_id"] for a in res.arms)
+
+
+def test_n_repeats_with_runs_list_groups_per_entry(base_run: RunConfig):
+    """runs: [A, B] with n_repeats=3 → 2 groups, 6 arms total."""
+    other = base_run.model_copy(update={"name": "other"})
+    cfg = ExperimentConfig(name="x", runs=[base_run, other], n_repeats=3,
+                           metadata={"success_metric": "reward"})
+    store = _FakeStore()
+    res = Experiment(cfg, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 6
+    group_names_seen = {a.group_name for a in res.arms}
+    assert group_names_seen == {"base", "other"}
+    # 2 create_group + 6 create_run
+    kinds = [c[0] for c in store.calls]
+    assert kinds.count("create_group") == 2
+    assert kinds.count("create_run") == 6
+    # each arm's group_id matches its group_name's id
+    grp_by_name = {c[1]["name"]: None for c in store.calls if c[0] == "create_group"}
+    # the fake store assigns ids in order; reverse-engineer mapping from the
+    # arm-side group_id (which came from the create_group return)
+    by_name = {a.group_name: a.group_id for a in res.arms}
+    assert len(by_name) == 2
+    assert all(by_name[a.group_name] == a.group_id for a in res.arms)
+
+
+def test_n_repeats_with_matrix_groups_per_cell(sweep_config: ExperimentConfig):
+    """matrix (3 cells) with n_repeats=2 → 3 groups, 6 arms total."""
+    sweep_config = sweep_config.model_copy(update={"n_repeats": 2})
+    store = _FakeStore()
+    res = Experiment(sweep_config, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 6
+    group_names = {a.group_name for a in res.arms}
+    assert group_names == {"base__lora_rank1", "base__lora_rank4", "base__lora_rank16"}
+    kinds = [c[0] for c in store.calls]
+    assert kinds.count("create_group") == 3
+    assert kinds.count("create_run") == 6
+
+
+def test_base_seed_overrides_primary_seed(base_run: RunConfig):
+    """When base_seed is set, replicate seeds are [base_seed, base_seed+1, ...]."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=3, base_seed=100,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert sorted(a.run_config.seed for a in res.arms) == [100, 101, 102]
+
+
+def test_base_seed_none_uses_primary_seed(base_run: RunConfig):
+    """When base_seed is None, seeds start at primary.seed."""
+    primary = base_run.model_copy(update={"seed": 17})
+    cfg = ExperimentConfig(name="x", run=primary, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert sorted(a.run_config.seed for a in res.arms) == [17, 18]
+
+
+def test_n_repeats_groups_run_offline(base_run: RunConfig):
+    """No store: replication still produces N arms with right seeds; group_id stays None."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 2
+    assert sorted(a.run_config.seed for a in res.arms) == [42, 43]
+    assert all(a.group_id is None for a in res.arms)
+    # group_name is still set so consumers can bucket client-side
+    assert all(a.group_name == "base" for a in res.arms)
+
+
+def test_n_repeats_create_group_failure_does_not_kill_arms(base_run: RunConfig):
+    """If store.create_group throws, arms still run with group_id=None."""
+
+    class _BrokenGroupStore(_FakeStore):
+        def create_group(self, experiment_id, name, *, description=None):
+            raise RuntimeError("group write failed")
+
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, store=_BrokenGroupStore(), train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 2
+    assert all(a.status == "completed" for a in res.arms)
+    assert all(a.group_id is None for a in res.arms)
+    assert all(a.group_name == "base" for a in res.arms)
 
 
 # ---------------------------------------------------------------------------
