@@ -172,6 +172,40 @@ fi
 # ============================================================================
 
 # ----------------------------------------------------------------------------
+# S0) types.py + api.py — TensorData needs a `shape` field. The SDK sends
+#     it via from_numpy(shape=list(array.shape)), but stock SkyRL's
+#     api.py:TensorData and types.py:TensorData only declare `data`, so
+#     Pydantic silently drops the shape on validation.
+# ----------------------------------------------------------------------------
+if ! grep -q "shape: list\[int\] | None = None" "$TYPES"; then
+    python3 - "$TYPES" <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p).read()
+old = 'class TensorData(BaseModel):\n    data: list[int] | list[float]\n'
+new = 'class TensorData(BaseModel):\n    data: list[int] | list[float]\n    shape: list[int] | None = None\n'
+assert old in src, "types.py TensorData not found verbatim."
+src = src.replace(old, new, 1)
+open(p, "w").write(src)
+print("patched types.py: TensorData.shape")
+PY
+fi
+
+if ! grep -q "shape: list\[int\] | None = None" "$API"; then
+    python3 - "$API" <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p).read()
+old = 'class TensorData(BaseModel):\n    data: list[int] | list[float]\n\n    def to_types(self) -> types.TensorData:\n        return types.TensorData(data=self.data)\n'
+new = 'class TensorData(BaseModel):\n    data: list[int] | list[float]\n    shape: list[int] | None = None\n\n    def to_types(self) -> types.TensorData:\n        return types.TensorData(data=self.data, shape=self.shape)\n'
+assert old in src, "api.py TensorData class not found verbatim."
+src = src.replace(old, new, 1)
+open(p, "w").write(src)
+print("patched api.py: TensorData.shape + to_types")
+PY
+fi
+
+# ----------------------------------------------------------------------------
 # S1) types.py — add `all_target_shapes` to PreparedModelPassBatch so the
 #     shape info on TensorData survives the data → batch transition.
 # ----------------------------------------------------------------------------
