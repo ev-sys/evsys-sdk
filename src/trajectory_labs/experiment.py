@@ -343,6 +343,7 @@ class Experiment:
             max_tokens=int(bench_meta.get("max_tokens", 512)),
             temperature=float(bench_meta.get("temperature", 0.0)),
             breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+            limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
         )
         arm.eval_seconds = time.time() - t0
         arm.eval_metrics = dict(score.metrics)

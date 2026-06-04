@@ -149,6 +149,7 @@ class Benchmark:
         stop: list[str] | None = None,
         prompt_builder: "callable | None" = None,
         breakdown_keys: list[str] | None = None,
+        limit: int | None = None,
     ) -> BenchmarkScore:
         """Run each task through `client` and score the completion.
 
@@ -160,12 +161,17 @@ class Benchmark:
 
         `breakdown_keys` are dotted attribute paths into `task.metadata`. Each
         key produces `{value -> {n, mean_reward, pass_rate}}` in the result.
+
+        `limit` caps how many tasks are scored — the first `limit` in
+        `self.tasks` (deterministic, in benchmark order). Useful for fast
+        smoke-runs on large benchmarks. ``None`` means score everything.
         """
         if breakdown_keys is None:
             breakdown_keys = []
+        tasks_iter = self.tasks if limit is None else self.tasks[: max(0, int(limit))]
 
         per_task: list[BenchmarkTaskResult] = []
-        for task in self.tasks:
+        for task in tasks_iter:
             prompt = prompt_builder(task) if prompt_builder else task.instruction
             completion = client.generate(
                 prompt=prompt,
