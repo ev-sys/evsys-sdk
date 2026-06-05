@@ -604,6 +604,47 @@ def test_n_repeats_create_group_failure_does_not_kill_arms(base_run: RunConfig):
 
 
 # ---------------------------------------------------------------------------
+# Default inference-factory resolution (via the registry)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_inference_factory_user_supplied_wins(sweep_config: ExperimentConfig):
+    """When the caller passes inference_factory=…, the registry default is ignored."""
+    sentinel = lambda rr, rc: object()
+    exp = Experiment(sweep_config, inference_factory=sentinel)
+    # Pick any run config to test against; factory is independent of run_cfg.
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is sentinel
+
+
+def test_resolve_inference_factory_falls_back_to_registry(sweep_config: ExperimentConfig, monkeypatch):
+    """When no inference_factory is passed, fall back to the registered default
+    for the run's backend kind. We register a fake for 'mock' to verify the
+    plumbing without needing the tinker module."""
+    from trajectory_labs import registry
+
+    fake = lambda rr, rc: object()
+    monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", fake)
+
+    exp = Experiment(sweep_config)
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is fake
+
+
+def test_resolve_inference_factory_none_when_no_default_registered(sweep_config: ExperimentConfig, monkeypatch):
+    """No user-supplied factory + no registered default → None (eval skipped)."""
+    from trajectory_labs import registry
+
+    monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", None)
+    # explicitly clear instead of None to mimic the "never registered" case
+    monkeypatch.delitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", raising=False)
+
+    exp = Experiment(sweep_config)
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is None
+
+
+# ---------------------------------------------------------------------------
 # Store-flake resilience — store errors don't kill the experiment
 # ---------------------------------------------------------------------------
 

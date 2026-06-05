@@ -49,6 +49,7 @@ from typing import Any, Callable
 from .benchmark import Benchmark, BenchmarkScore
 from .config import ExperimentConfig, RunConfig
 from .protocols import InferenceClient, RunResult
+from .registry import get_default_inference_factory
 from .step_metrics import forward_step_metrics
 from .sweep import expand_runs
 
@@ -324,6 +325,17 @@ class Experiment:
         safe_name = arm.run_config.name.replace("/", "_").replace(" ", "_")
         return Path(self.config.output_dir).expanduser() / safe_name
 
+    def _resolve_inference_factory(self, run_cfg: RunConfig) -> InferenceFactory | None:
+        """User-supplied factory wins; otherwise pick a default by backend kind.
+
+        Falls back to the registry's ``get_default_inference_factory`` so we
+        don't have to import backend-specific inference modules here — e.g.
+        ``tinker`` registers its own default at module load.
+        """
+        if self.inference_factory is not None:
+            return self.inference_factory
+        return get_default_inference_factory(run_cfg.backend.kind)
+
     def _eval_arm(
         self,
         arm: ArmResult,
@@ -331,12 +343,13 @@ class Experiment:
         benchmark: Benchmark,
         meta: dict,
     ) -> ArmResult:
-        if self.inference_factory is None:
+        factory = self._resolve_inference_factory(run_cfg)
+        if factory is None:
             logger.info("no inference_factory; skipping benchmark eval for %r", run_cfg.name)
             return arm
         bench_meta = dict((meta.get("benchmark") or {}))
         assert arm.run_result is not None
-        client = self.inference_factory(arm.run_result, run_cfg)
+        client = factory(arm.run_result, run_cfg)
         t0 = time.time()
         score = benchmark.score(
             client,

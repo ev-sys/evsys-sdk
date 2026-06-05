@@ -7,7 +7,8 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from ..registry import register_inference
+from ..checkpoint import Checkpoint, find_manifest, read_manifest
+from ..registry import register_default_inference_factory, register_inference
 
 import tinker  # noqa: E402
 
@@ -90,3 +91,36 @@ class TinkerInference:
         """Submit all prompts concurrently, then collect results in order."""
         futures = [self._submit(p, max_tokens, temperature, stop) for p in prompts]
         return [self._decode(f) for f in futures]
+
+    @classmethod
+    def from_run_result(cls, run_result: Any, run_cfg: Any, *,
+                        label: str = "final") -> "TinkerInference":
+        """Build a TinkerInference pointing at the run's final sampler checkpoint.
+
+        Reads ``run_result.artifacts["run_dir"]``, locates ``checkpoints.jsonl``
+        via :func:`find_manifest`, picks the checkpoint matching ``label``
+        (default ``"final"``), and instantiates with ``run_cfg.model.name`` +
+        that sampler URI. Raises a clear ``RuntimeError`` for each missing
+        piece so callers can diagnose without spelunking.
+        """
+        artifacts = getattr(run_result, "artifacts", None) or {}
+        run_dir = artifacts.get("run_dir")
+        if not run_dir:
+            raise RuntimeError("run_result.artifacts has no 'run_dir'")
+        manifest = find_manifest(run_dir)
+        if manifest is None:
+            raise RuntimeError(f"no checkpoints.jsonl under {run_dir}")
+        chosen = Checkpoint.pick_final(read_manifest(manifest))
+        if chosen is None or not chosen.sampler_path:
+            raise RuntimeError(
+                f"no usable sampler checkpoint at {label!r} in {manifest}"
+            )
+        return cls(model_name=run_cfg.model.name, checkpoint_path=chosen.sampler_path)
+
+
+# Default factory for `backend.kind: tinker`. Registered at module load so
+# `Experiment._resolve_inference_factory` can look it up without importing
+# this module directly.
+@register_default_inference_factory("tinker")
+def _default_tinker_factory(run_result: Any, run_cfg: Any) -> TinkerInference:
+    return TinkerInference.from_run_result(run_result, run_cfg)

@@ -82,6 +82,13 @@ _backends = Registry("backend")
 _inference = Registry("inference_client")
 _transforms = Registry("transform")
 
+# Default inference factories per backend kind. Lets `Experiment` ask
+# `get_default_inference_factory("tinker")` and get back a callable
+# `(run_result, run_cfg) -> InferenceClient` without having to import the
+# tinker module directly (keeping the tinker package optional for users
+# that only run mock backends).
+_DEFAULT_INFERENCE_FACTORIES: dict[str, Callable[..., Any]] = {}
+
 
 # Public decorators
 def register_algorithm(name: str | None = None):
@@ -116,6 +123,17 @@ def register_transform(name: str | None = None):
     return _transforms.register(name)
 
 
+def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register the default ``(run_result, run_cfg) -> InferenceClient`` for
+    a backend kind. Called by each inference module's import side-effect
+    (e.g. ``inference/tinker.py`` registers ``"tinker"``).
+    """
+    def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
+        _DEFAULT_INFERENCE_FACTORIES[backend_kind] = fn
+        return fn
+    return deco
+
+
 # Public lookups
 def get_algorithm(name: str) -> type:
     return _algorithms.get(name)
@@ -147,6 +165,11 @@ def get_inference(name: str) -> type:
 
 def get_transform(name: str) -> type:
     return _transforms.get(name)
+
+
+def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
+    """Return the registered default factory for ``backend_kind`` or ``None``."""
+    return _DEFAULT_INFERENCE_FACTORIES.get(backend_kind)
 
 
 # Public list functions
