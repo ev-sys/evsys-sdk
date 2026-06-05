@@ -48,6 +48,7 @@ from typing import Any, Callable
 
 from .benchmark import Benchmark, BenchmarkScore
 from .config import ExperimentConfig, RunConfig
+from .inference.chat_templated import ChatTemplatedInference
 from .protocols import InferenceClient, RunResult
 from .registry import get_default_inference_factory
 from .step_metrics import forward_step_metrics
@@ -350,6 +351,12 @@ class Experiment:
         bench_meta = dict((meta.get("benchmark") or {}))
         assert arm.run_result is not None
         client = factory(arm.run_result, run_cfg)
+        # Auto-wrap with chat templating when configured. Lets researchers
+        # declare a system_prompt + user_template in YAML instead of writing
+        # a per-project ChatTemplatedTinker shim in run.py.
+        ct = bench_meta.get("chat_template") or {}
+        if ct:
+            client = ChatTemplatedInference(client, **ct)
         t0 = time.time()
         score = benchmark.score(
             client,

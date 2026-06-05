@@ -604,6 +604,79 @@ def test_n_repeats_create_group_failure_does_not_kill_arms(base_run: RunConfig):
 
 
 # ---------------------------------------------------------------------------
+# Eval auto-wrap with ChatTemplatedInference (config-driven)
+# ---------------------------------------------------------------------------
+
+
+class _TokenizedInference:
+    """Eval client that carries a tokenizer; required by ChatTemplatedInference."""
+
+    name: ClassVar[str] = "tokenized"
+
+    def __init__(self, completion: str) -> None:
+        self._tokenizer = _Tok()
+        self._completion = completion
+
+    def generate(self, *, prompt: str, max_tokens: int = 256,
+                 temperature: float = 0.0, stop: list[str] | None = None) -> str:
+        # When wrapped, prompt will be the tokenizer's templated string.
+        return self._completion
+
+
+class _Tok:
+    """Tokenizer stand-in that returns a sentinel string when templated."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def apply_chat_template(self, messages, *, tokenize=True, add_generation_prompt=False):
+        self.calls.append({"messages": messages})
+        return "<TEMPLATED>"
+
+
+def test_eval_arm_wraps_client_when_chat_template_configured(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """metadata.benchmark.chat_template → ChatTemplatedInference wrapping."""
+    single_run_config.metadata["benchmark"] = {
+        "path": str(benchmark_dir),
+        "chat_template": {
+            "system_prompt": "You answer.",
+            "user_template": "Q: {prompt}",
+        },
+    }
+    client = _TokenizedInference("A")
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: client,
+    ).run()
+    # The wrapped client routed every prompt through the templated path,
+    # leaving its tokenizer with one call per benchmark task.
+    assert res.arms[0].status == "completed"
+    assert len(client._tokenizer.calls) == len(Benchmark.from_dir(benchmark_dir).tasks)
+    # Message shape from the wrapper
+    sample = client._tokenizer.calls[0]["messages"]
+    assert sample[0] == {"role": "system", "content": "You answer."}
+    assert sample[1]["role"] == "user"
+    assert sample[1]["content"].startswith("Q: ")
+
+
+def test_eval_arm_skips_wrap_when_chat_template_absent(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """No chat_template block → client is passed through unwrapped."""
+    single_run_config.metadata["benchmark"] = {"path": str(benchmark_dir)}
+    client = _TokenizedInference("A")
+    Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: client,
+    ).run()
+    # No template call: Benchmark.score handed the raw task.instruction
+    # straight to client.generate without touching the tokenizer.
+    assert client._tokenizer.calls == []
+
+
+# ---------------------------------------------------------------------------
 # Default inference-factory resolution (via the registry)
 # ---------------------------------------------------------------------------
 

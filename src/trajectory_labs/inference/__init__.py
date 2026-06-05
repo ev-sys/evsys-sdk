@@ -1,5 +1,6 @@
 """Built-in inference clients."""
 
+from .chat_templated import ChatTemplatedInference  # noqa: F401
 from .mock import MockInference  # noqa: F401
 
 try:
