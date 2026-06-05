@@ -1,8 +1,18 @@
 """Forward per-step metrics from a local JSONL log to a TrajectoryStore.
 
-Algorithms write ``metrics.jsonl`` rows like::
+Two row shapes are accepted:
 
-    {"ts": 1700000000.0, "step": 50, "metrics": {"loss": 0.42, "lr": 1e-4}}
+  * **Nested** (the SDK's own ``log_store`` output)::
+
+        {"ts": 1700000000.0, "step": 50, "metrics": {"loss": 0.42, "lr": 1e-4}}
+
+  * **Flat** (``tinker_cookbook``'s native ``metrics.jsonl``)::
+
+        {"step": 50, "epoch": 0, "train_mean_nll": 0.42, "learning_rate": 1e-4,
+         "time/get_batch": 3e-06, "time/step": 18.1, ...}
+
+The forwarder normalizes both into a ``dict[str, float]`` via
+:func:`_extract_metrics` before pushing.
 
 Until now researcher scripts have hand-rolled a forwarder loop after each
 training run (see ``composio-bench/training/backfill_step_metrics.py``).
@@ -30,6 +40,30 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_METRICS_FILE = "metrics.jsonl"
+
+# Keys that describe the row itself rather than a metric value. Used to
+# filter the flat (tinker_cookbook) shape, where metric keys sit at the
+# top level alongside these positional fields.
+_FLAT_META_KEYS = frozenset({"step", "epoch", "ts", "timestamp", "progress", "metrics"})
+
+
+def _extract_metrics(row: dict[str, Any]) -> dict[str, float] | None:
+    """Return the metrics dict from a row, normalizing nested + flat shapes.
+
+    Nested rows carry the dict under ``"metrics"``. Flat rows
+    (``tinker_cookbook``) have each metric at the top level alongside ``step``;
+    we collect every non-meta numeric value and coerce to float. Returns
+    ``None`` when no usable metrics can be extracted.
+    """
+    nested = row.get("metrics")
+    if isinstance(nested, dict) and nested:
+        out = {k: float(v) for k, v in nested.items() if isinstance(v, (int, float))}
+        return out or None
+    flat = {
+        k: float(v) for k, v in row.items()
+        if k not in _FLAT_META_KEYS and isinstance(v, (int, float))
+    }
+    return flat or None
 
 
 def forward_step_metrics(
@@ -63,8 +97,10 @@ def forward_step_metrics(
             logger.debug("step_metrics: skip malformed row at %s:%d", path, lineno)
             continue
         step = row.get("step")
-        metrics = row.get("metrics")
-        if step is None or not isinstance(metrics, dict) or not metrics:
+        if step is None:
+            continue
+        metrics = _extract_metrics(row)
+        if metrics is None:
             continue
         # ``val/``-prefixed keys are in-loop validation metrics — forward them
         # under split="val" so the dashboard separates the validation curve from
