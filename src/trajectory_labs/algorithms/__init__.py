@@ -24,6 +24,11 @@ try:
 except ImportError:
     pass
 
+try:
+    from .tinker_sdft import TinkerSDFT  # noqa: F401
+except ImportError:
+    pass
+
 # Local TRL — optional.
 try:
     from .local_sft import LocalSFT  # noqa: F401
