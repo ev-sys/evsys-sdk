@@ -74,6 +74,27 @@ parts (compute, conventions, how to actually train and evaluate).
 
 ## Hard rules
 
+- **🚨 NEVER let any information from a benchmark / eval set leak into training.**
+  This is non-negotiable. Concretely you MUST NOT:
+    * Open, read, sample, summarize, or derive features from any benchmark
+      jsonl, eval queries file, or eval-side metadata when building training
+      data or training-time prompts.
+    * Use a benchmark's task list, slug coverage, expected answers, or any
+      file derived from those (e.g. `eval_queries_v2.json`,
+      `benchmark/<name>/tasks.jsonl`) as a source for things shown to the
+      model at train time — including in-context tool lists, candidate sets,
+      few-shot exemplars, system prompts, or augmentations.
+    * Build "toolkit → candidate list" / "schema → fields" / "category →
+      items" maps from the benchmark for use during training. If you need
+      such a map, derive it from a training-time source (the model
+      provider's full tool catalog, the dataset's own metadata, a separate
+      project-supplied registry) — never from the eval suite.
+  Even partial overlap is contamination: if 50% of your training rows
+  show the model a list whose contents come from the benchmark, the post-
+  training pass-rate is meaningless because the model has implicitly
+  memorized the benchmark's coverage. **An invalid eval is worse than no eval.**
+  If you find yourself reaching for a benchmark file to fill a training-side
+  field, STOP and ask the user for a benchmark-independent source.
 - **Never change the project goal** (`store.set_goal`) unless the user *explicitly*
   asks to update it. Goals are read-only context for you.
 - **Don't spend compute without approval** — propose the plan first (Phase 3),
