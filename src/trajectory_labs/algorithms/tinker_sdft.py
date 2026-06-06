@@ -38,12 +38,73 @@ from ..registry import register_algorithm
 # `mock_sdft` (not yet implemented) instead.
 import chz  # noqa: E402  (used implicitly via sdft.Config)
 import tinker  # noqa: E402
+import torch as _torch  # noqa: E402
 from tinker_cookbook import renderers  # noqa: E402
 from tinker_cookbook.distillation import sdft  # noqa: E402
 from tinker_cookbook.recipes.sdft.datasets import SDFTDataset  # noqa: E402
 from tinker_cookbook.tokenizer_utils import get_tokenizer  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Per-step loss logging
+# ---------------------------------------------------------------------------
+# The cookbook's `sdft.main` loop calls
+# ``tinker_cookbook.rl.train.train_step`` and only merges
+# ``optim_result.metrics`` (typically empty for SDFT's cross_entropy path)
+# into the per-step metrics dict — so ``metrics.jsonl`` ends up without any
+# loss field. We wrap the function so the per-position student logprobs it
+# returns get aggregated into ``train/mean_loss`` (negative of mean logprob
+# over the loss-mask positions) and ``train/mean_logprob`` for inspection.
+#
+# Patching ``sdft.train_step`` (the binding that the cookbook's ``sdft.main``
+# looks up by name) is the lightest-touch way to do this without forking
+# the whole 200-line training loop.
+
+_orig_sdft_train_step = sdft.train_step
+
+
+async def _sdft_train_step_with_loss(
+    data_D,
+    training_client,
+    learning_rate,
+    num_substeps,
+    loss_fn,
+    loss_fn_config=None,
+    metrics=None,
+):
+    """Wrap cookbook ``train_step`` to record per-step training loss."""
+    training_logprobs_D = await _orig_sdft_train_step(
+        data_D=data_D,
+        training_client=training_client,
+        learning_rate=learning_rate,
+        num_substeps=num_substeps,
+        loss_fn=loss_fn,
+        loss_fn_config=loss_fn_config,
+        metrics=metrics,
+    )
+    if metrics is not None and training_logprobs_D:
+        try:
+            flat = _torch.cat([
+                lp.detach().flatten().float() for lp in training_logprobs_D
+            ])
+            # Non-loss-mask positions are written as 0 by the forward pass;
+            # ignore them in the aggregate so the metric reflects only the
+            # tokens that actually contributed to the loss.
+            valid = flat[flat != 0]
+            n = int(valid.numel())
+            if n > 0:
+                mean_lp = float(valid.sum().item() / n)
+                metrics["train/mean_logprob"] = mean_lp
+                metrics["train/mean_loss"] = -mean_lp
+                metrics["train/loss_n_tokens"] = float(n)
+        except Exception:  # pragma: no cover  — purely additive; never block
+            logger.exception("TinkerSDFT: failed to compute per-step loss metric")
+    return training_logprobs_D
+
+
+sdft.train_step = _sdft_train_step_with_loss
 
 
 class _RepeatingSDFTProvider:

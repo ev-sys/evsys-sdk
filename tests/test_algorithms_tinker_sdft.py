@@ -223,6 +223,70 @@ class _BaseProvider:
         return (f"builders_{i}", [f"q_{i}"], [f"a_{i}"])
 
 
+def test_train_step_loss_hook_writes_train_mean_loss(monkeypatch):
+    """Importing tinker_sdft monkey-patches sdft.train_step so each call
+    writes ``train/mean_loss`` and ``train/mean_logprob`` into the metrics
+    dict, derived from the per-position training logprobs."""
+    import asyncio
+    import torch
+    from trajectory_labs.algorithms import tinker_sdft as mod
+
+    # Replace the underlying upstream call with a stub returning a known
+    # logprob tensor: [-1.0, -2.0, 0.0, -3.0]. Mean over non-zero = -2.0.
+    async def fake_upstream(*, data_D, training_client, learning_rate,
+                            num_substeps, loss_fn, loss_fn_config=None,
+                            metrics=None):
+        return [torch.tensor([-1.0, -2.0, 0.0, -3.0])]
+
+    monkeypatch.setattr(mod, "_orig_sdft_train_step", fake_upstream)
+
+    metrics: dict = {}
+    asyncio.run(mod._sdft_train_step_with_loss(
+        data_D=[], training_client=None, learning_rate=1e-4, num_substeps=1,
+        loss_fn="cross_entropy", metrics=metrics,
+    ))
+    assert metrics["train/mean_logprob"] == pytest.approx(-2.0)
+    assert metrics["train/mean_loss"] == pytest.approx(2.0)
+    assert metrics["train/loss_n_tokens"] == 3  # zero-valued position filtered
+
+
+def test_train_step_loss_hook_no_op_when_metrics_is_none(monkeypatch):
+    """A bare call without metrics dict must not raise."""
+    import asyncio
+    import torch
+    from trajectory_labs.algorithms import tinker_sdft as mod
+
+    async def fake_upstream(**kw):
+        return [torch.tensor([-1.0])]
+
+    monkeypatch.setattr(mod, "_orig_sdft_train_step", fake_upstream)
+
+    # Should silently return without exception
+    asyncio.run(mod._sdft_train_step_with_loss(
+        data_D=[], training_client=None, learning_rate=1e-4, num_substeps=1,
+        loss_fn="cross_entropy", metrics=None,
+    ))
+
+
+def test_train_step_loss_hook_no_op_when_all_zero_logprobs(monkeypatch):
+    """All-zero logprobs → no valid tokens → no metric written."""
+    import asyncio
+    import torch
+    from trajectory_labs.algorithms import tinker_sdft as mod
+
+    async def fake_upstream(**kw):
+        return [torch.zeros(8)]
+
+    monkeypatch.setattr(mod, "_orig_sdft_train_step", fake_upstream)
+
+    metrics: dict = {}
+    asyncio.run(mod._sdft_train_step_with_loss(
+        data_D=[], training_client=None, learning_rate=1e-4, num_substeps=1,
+        loss_fn="cross_entropy", metrics=metrics,
+    ))
+    assert "train/mean_loss" not in metrics
+
+
 def test_resolve_save_every_uses_gcd_of_fraction_marks():
     """save_at_fractions should land on save boundaries, not be spread evenly."""
     algo = TinkerSDFT(save_at_fractions=[0.2, 0.4, 0.6, 0.8])
