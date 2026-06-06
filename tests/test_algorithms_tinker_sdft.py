@@ -203,6 +203,87 @@ def test_train_failure_returns_failed_run_result(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# _RepeatingSDFTProvider — lets max_steps extend past a single dataset epoch
+# ---------------------------------------------------------------------------
+
+
+class _BaseProvider:
+    """Tiny SDFTBatchProvider stand-in for testing the repeating wrapper."""
+
+    def __init__(self, n: int) -> None:
+        self._n = n
+        self.calls: list[int] = []
+
+    def __len__(self) -> int:
+        return self._n
+
+    def get_batch(self, i: int):
+        self.calls.append(i)
+        return (f"builders_{i}", [f"q_{i}"], [f"a_{i}"])
+
+
+def test_repeating_provider_modulo_wraps_indices():
+    from trajectory_labs.algorithms.tinker_sdft import _RepeatingSDFTProvider
+
+    base = _BaseProvider(3)
+    proxy = _RepeatingSDFTProvider(base, target_length=8)
+    assert len(proxy) == 8
+    # Drive 8 calls; each should be modulo 3
+    for i in range(8):
+        proxy.get_batch(i)
+    assert base.calls == [0, 1, 2, 0, 1, 2, 0, 1]
+
+
+def test_repeating_provider_rejects_empty_base():
+    from trajectory_labs.algorithms.tinker_sdft import _RepeatingSDFTProvider
+
+    with pytest.raises(ValueError, match="zero length"):
+        _RepeatingSDFTProvider(_BaseProvider(0), target_length=5)
+
+
+def test_train_wraps_provider_when_max_steps_exceeds_epoch(tmp_path: Path, monkeypatch):
+    """max_steps > len(dataset) → provider is wrapped so num_batches = max_steps."""
+    captured: dict[str, Any] = {}
+
+    async def fake_main(cfg, sdft_dataset, test_dataset=None):
+        captured["cfg_max_steps"] = cfg.max_steps
+        captured["provider_len"] = len(sdft_dataset)
+        captured["provider_class"] = type(sdft_dataset).__name__
+
+    from trajectory_labs.algorithms import tinker_sdft as mod
+    monkeypatch.setattr(mod.sdft, "main", fake_main)
+    monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
+    monkeypatch.setattr(mod.renderers, "get_renderer", lambda n, *, tokenizer: object())
+
+    # 16 rows, batch_size 16 → 1 batch per epoch. max_steps=5 → must wrap.
+    algo = TinkerSDFT(batch_size=16, max_steps=5)
+    algo.train(_Ctx(tmp_path, rows=_good_rows(16)))
+
+    assert captured["provider_class"] == "_RepeatingSDFTProvider"
+    assert captured["provider_len"] == 5
+    assert captured["cfg_max_steps"] == 5
+
+
+def test_train_no_wrap_when_max_steps_fits_in_one_epoch(tmp_path: Path, monkeypatch):
+    """max_steps <= len(dataset) → use the base SDFTDataset directly."""
+    captured: dict[str, Any] = {}
+
+    async def fake_main(cfg, sdft_dataset, test_dataset=None):
+        captured["provider_class"] = type(sdft_dataset).__name__
+
+    from trajectory_labs.algorithms import tinker_sdft as mod
+    monkeypatch.setattr(mod.sdft, "main", fake_main)
+    monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
+    monkeypatch.setattr(mod.renderers, "get_renderer", lambda n, *, tokenizer: object())
+
+    # 100 rows, batch_size 16 → 7 batches per epoch. max_steps=4 → no wrap.
+    algo = TinkerSDFT(batch_size=16, max_steps=4)
+    algo.train(_Ctx(tmp_path, rows=_good_rows(100)))
+
+    assert captured["provider_class"] == "SDFTDataset"
+
+
 def test_checkpoint_manifest_harvested_into_artifacts(tmp_path: Path, monkeypatch):
     """A `checkpoints.jsonl` left by the cookbook is parsed into artifacts."""
     async def fake_main(cfg, sdft_dataset, test_dataset=None):

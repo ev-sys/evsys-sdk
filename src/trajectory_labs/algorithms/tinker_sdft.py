@@ -46,6 +46,34 @@ from tinker_cookbook.tokenizer_utils import get_tokenizer  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
+class _RepeatingSDFTProvider:
+    """Wrap an ``SDFTDataset`` so it serves a target step count by wrapping
+    around (modulo the underlying length).
+
+    ``tinker_cookbook.distillation.sdft.main`` does
+    ``num_batches = min(cfg.max_steps, len(sdft_dataset))`` — so a small
+    dataset caps training even when ``max_steps`` is much larger. This
+    proxy lets ``max_steps`` extend training past a single epoch by
+    repeating ``get_batch`` indices.
+
+    The proxy is a no-op when ``target_length <= len(base)`` — used in that
+    case we just return the base.
+    """
+
+    def __init__(self, base: Any, target_length: int) -> None:
+        self._base = base
+        self._target_length = int(target_length)
+        self._base_length = len(base)
+        if self._base_length <= 0:
+            raise ValueError("base SDFT provider has zero length")
+
+    def __len__(self) -> int:
+        return self._target_length
+
+    def get_batch(self, index: int) -> Any:
+        return self._base.get_batch(index % self._base_length)
+
+
 class TinkerSDFTConfig(BaseModel):
     """Config for :class:`TinkerSDFT`.
 
@@ -152,7 +180,7 @@ class TinkerSDFT:
         questions = [r["question"] for r in rows]
         golden_answers = [r["golden_answer"] for r in rows]
 
-        provider = SDFTDataset(
+        provider: Any = SDFTDataset(
             questions=questions,
             golden_answers=golden_answers,
             batch_size=self.cfg.batch_size,
@@ -168,6 +196,12 @@ class TinkerSDFT:
             if self.cfg.max_steps is not None
             else steps_per_epoch * self.cfg.num_epochs
         )
+        # Wrap the provider when the target step count exceeds one epoch so
+        # the cookbook's ``num_batches = min(max_steps, len(provider))`` cap
+        # doesn't truncate training. The proxy serves indices modulo the
+        # underlying length, giving us multi-epoch training transparently.
+        if total_steps > steps_per_epoch:
+            provider = _RepeatingSDFTProvider(provider, target_length=total_steps)
         save_every = self._resolve_save_every(total_steps)
 
         out = Path(ctx.output_dir)
@@ -198,7 +232,7 @@ class TinkerSDFT:
             system_prompt=self.cfg.system_prompt,
             eval_every=self.cfg.eval_every,
             save_every=save_every,
-            max_steps=self.cfg.max_steps,
+            max_steps=total_steps,  # honors num_epochs when max_steps unset
             log_path=log_path,
             wandb_project=self.cfg.wandb_project,
             wandb_name=self.cfg.wandb_name,
