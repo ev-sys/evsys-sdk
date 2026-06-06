@@ -132,15 +132,22 @@ class TinkerSDFT:
     def _resolve_save_every(self, total_steps: int) -> int:
         if self.cfg.save_every:
             return self.cfg.save_every
-        # Same heuristic as TinkerSFT: ensure each desired fraction lands
-        # within ~5% of a saved checkpoint.
+        # Each requested fraction f → its target step ``round(f * total_steps)``.
+        # The cookbook only saves when ``(step + 1) % save_every == 0``, so we
+        # pick the largest save_every that divides every target — the GCD of
+        # the mark set. That way save_at_fractions=[0.2, 0.4, 0.6, 0.8] with
+        # total_steps=1000 → marks={200, 400, 600, 800} → save_every=200 →
+        # checkpoints land exactly at steps 200, 400, 600, 800, 1000.
         marks = sorted({
             max(1, int(round(f * total_steps))) for f in self.cfg.save_at_fractions
         })
         if not marks:
             return max(1, total_steps)
-        # save every floor(total / N) with N = number of distinct marks
-        return max(1, total_steps // max(1, len(marks)))
+        from math import gcd
+        g = marks[0]
+        for m in marks[1:]:
+            g = gcd(g, m)
+        return max(1, g)
 
     def train(self, ctx: RunContext) -> RunResult:
         if ctx.backend.name != "tinker":

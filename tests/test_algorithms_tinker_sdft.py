@@ -223,6 +223,32 @@ class _BaseProvider:
         return (f"builders_{i}", [f"q_{i}"], [f"a_{i}"])
 
 
+def test_resolve_save_every_uses_gcd_of_fraction_marks():
+    """save_at_fractions should land on save boundaries, not be spread evenly."""
+    algo = TinkerSDFT(save_at_fractions=[0.2, 0.4, 0.6, 0.8])
+    # marks at 200/400/600/800 → gcd = 200 → save every 200 steps catches all
+    assert algo._resolve_save_every(1000) == 200
+
+
+def test_resolve_save_every_with_single_fraction():
+    algo = TinkerSDFT(save_at_fractions=[1.0])
+    assert algo._resolve_save_every(5000) == 5000  # save only at end
+
+
+def test_resolve_save_every_explicit_save_every_wins():
+    algo = TinkerSDFT(save_every=100, save_at_fractions=[0.2, 0.4])
+    assert algo._resolve_save_every(1000) == 100
+
+
+def test_resolve_save_every_non_divisible_fractions():
+    """Fractions that don't share a clean GCD fall back to gcd=1 (every step)
+    when the rounded marks are coprime — surfaces that the user picked
+    pathological fractions."""
+    algo = TinkerSDFT(save_at_fractions=[0.13, 0.7])
+    # 1000 * 0.13 = 130, 1000 * 0.7 = 700; gcd(130, 700) = 10
+    assert algo._resolve_save_every(1000) == 10
+
+
 def test_repeating_provider_modulo_wraps_indices():
     from trajectory_labs.algorithms.tinker_sdft import _RepeatingSDFTProvider
 
