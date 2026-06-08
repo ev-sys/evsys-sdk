@@ -34,6 +34,7 @@ class ChatTemplatedInference:
         *,
         system_prompt: str,
         user_template: str = "{prompt}",
+        enable_thinking: bool | None = None,
     ) -> None:
         if not hasattr(base, "_tokenizer"):
             raise TypeError(
@@ -44,6 +45,9 @@ class ChatTemplatedInference:
         self._base = base
         self.system_prompt = system_prompt
         self.user_template = user_template
+        # Forwarded to ``apply_chat_template`` only when set, so non-Qwen
+        # tokenizers (which don't accept the kwarg) keep working unchanged.
+        self.enable_thinking = enable_thinking
 
     def generate(
         self,
@@ -54,13 +58,18 @@ class ChatTemplatedInference:
         stop: list[str] | None = None,
     ) -> str:
         user_content = self.user_template.format(prompt=prompt)
+        template_kwargs: dict[str, Any] = {
+            "tokenize": False,
+            "add_generation_prompt": True,
+        }
+        if self.enable_thinking is not None:
+            template_kwargs["enable_thinking"] = self.enable_thinking
         templated = self._base._tokenizer.apply_chat_template(
             [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            tokenize=False,
-            add_generation_prompt=True,
+            **template_kwargs,
         )
         return self._base.generate(
             prompt=templated,

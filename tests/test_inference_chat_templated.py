@@ -33,11 +33,13 @@ class _FakeTokenizer:
         *,
         tokenize: bool = True,
         add_generation_prompt: bool = False,
+        **extra: Any,
     ) -> str:
         self.calls.append({
             "messages": messages,
             "tokenize": tokenize,
             "add_generation_prompt": add_generation_prompt,
+            **extra,
         })
         return self.return_value
 
@@ -132,6 +134,36 @@ def test_passes_through_generation_params():
     assert call["max_tokens"] == 42
     assert call["temperature"] == 0.7
     assert call["stop"] == ["</end>"]
+
+
+def test_enable_thinking_default_none_omits_kwarg():
+    """No enable_thinking passed → kwarg is NOT forwarded (preserves
+    tokenizer default; non-Qwen tokenizers don't accept the kwarg)."""
+    tok = _FakeTokenizer()
+    w = ChatTemplatedInference(_FakeBase(tokenizer=tok), system_prompt="s")
+    w.generate(prompt="hi")
+    assert "enable_thinking" not in tok.calls[0]
+
+
+def test_enable_thinking_false_is_forwarded():
+    """enable_thinking=False must reach apply_chat_template — that's the
+    whole point: Qwen3.5 then renders a closed empty <think></think>
+    block and the model generates straight into the answer."""
+    tok = _FakeTokenizer()
+    w = ChatTemplatedInference(
+        _FakeBase(tokenizer=tok), system_prompt="s", enable_thinking=False
+    )
+    w.generate(prompt="hi")
+    assert tok.calls[0]["enable_thinking"] is False
+
+
+def test_enable_thinking_true_is_forwarded():
+    tok = _FakeTokenizer()
+    w = ChatTemplatedInference(
+        _FakeBase(tokenizer=tok), system_prompt="s", enable_thinking=True
+    )
+    w.generate(prompt="hi")
+    assert tok.calls[0]["enable_thinking"] is True
 
 
 def test_forwarded_prompt_is_the_templated_string():

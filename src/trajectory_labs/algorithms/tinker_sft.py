@@ -64,9 +64,28 @@ class TinkerSFTConfig(BaseModel):
     wandb_name: str | None = None
     renderer_name: str | None = None
     """Override model.renderer_name; defaults to it if None."""
+    enable_thinking: bool | None = None
+    """Forwarded to ``tokenizer.apply_chat_template`` (Qwen3.5 supports it).
+    None → tokenizer default. False → assistant prefix uses an already-closed
+    empty ``<think></think>`` block, so the loss targets begin with
+    ``<answer>...`` and the model is trained to skip reasoning entirely.
+    """
 
 
-def _row_to_datum(row: dict[str, Any], tokenizer, max_seq_len: int):
+def _apply_template(tokenizer, messages, *, add_generation_prompt: bool,
+                    enable_thinking: bool | None):
+    """Call ``apply_chat_template`` with ``enable_thinking`` forwarded only when set."""
+    kwargs: dict[str, Any] = {
+        "tokenize": False,
+        "add_generation_prompt": add_generation_prompt,
+    }
+    if enable_thinking is not None:
+        kwargs["enable_thinking"] = enable_thinking
+    return tokenizer.apply_chat_template(messages, **kwargs)
+
+
+def _row_to_datum(row: dict[str, Any], tokenizer, max_seq_len: int,
+                  enable_thinking: bool | None = None):
     """Convert a {messages} row into a tinker Datum, training only on assistant tokens."""
     messages = row.get("messages") or []
     if not messages:
@@ -74,7 +93,10 @@ def _row_to_datum(row: dict[str, Any], tokenizer, max_seq_len: int):
 
     # Build the full chat-templated string + identify assistant span(s).
     # We render in two passes to compute the prefix-only token count for masking.
-    full_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+    full_text = _apply_template(
+        tokenizer, messages, add_generation_prompt=False,
+        enable_thinking=enable_thinking,
+    )
     full_ids = tokenizer.encode(full_text, add_special_tokens=False)
 
     # If the row has only system+user (rl-style), nothing to learn — skip.
@@ -92,13 +114,15 @@ def _row_to_datum(row: dict[str, Any], tokenizer, max_seq_len: int):
         if m.get("role") != "assistant":
             continue
         prefix_messages = messages[:i]
-        prefix_text = tokenizer.apply_chat_template(
-            prefix_messages, tokenize=False, add_generation_prompt=True
+        prefix_text = _apply_template(
+            tokenizer, prefix_messages, add_generation_prompt=True,
+            enable_thinking=enable_thinking,
         )
         prefix_ids = tokenizer.encode(prefix_text, add_special_tokens=False)
         # Render through this assistant message.
-        through_text = tokenizer.apply_chat_template(
-            messages[: i + 1], tokenize=False, add_generation_prompt=False
+        through_text = _apply_template(
+            tokenizer, messages[: i + 1], add_generation_prompt=False,
+            enable_thinking=enable_thinking,
         )
         through_ids = tokenizer.encode(through_text, add_special_tokens=False)
         start = max(cursor, len(prefix_ids))
@@ -155,13 +179,20 @@ class _RowsBuilder(SupervisedDatasetBuilder):
     model_name: str
     max_seq_len: int
     batch_size: int
+    # 0 → tokenizer default; 1 → enable_thinking=True; -1 → enable_thinking=False.
+    # chz rejects bool|None, so we use an int sentinel and decode at render time.
+    enable_thinking_int: int = 0
 
     def __call__(self):
         rows = _ROW_CACHE[self.cache_key]
         tokenizer = get_tokenizer(self.model_name)
+        et: bool | None = (
+            None if self.enable_thinking_int == 0
+            else (self.enable_thinking_int > 0)
+        )
         data = []
         for r in rows:
-            datum = _row_to_datum(r, tokenizer, self.max_seq_len)
+            datum = _row_to_datum(r, tokenizer, self.max_seq_len, enable_thinking=et)
             if datum is not None:
                 data.append(datum)
         if not data:
@@ -242,11 +273,16 @@ class TinkerSFT:
         import uuid as _uuid
         cache_key = f"sft_{ctx.run_id}_{_uuid.uuid4().hex}"
         _ROW_CACHE[cache_key] = list(rows)
+        et_int = (
+            0 if self.cfg.enable_thinking is None
+            else (1 if self.cfg.enable_thinking else -1)
+        )
         builder = _RowsBuilder(
             cache_key=cache_key,
             model_name=model_name,
             max_seq_len=self.cfg.max_seq_len,
             batch_size=self.cfg.batch_size,
+            enable_thinking_int=et_int,
         )
 
         renderer = self.cfg.renderer_name or handles.get("renderer_name")
