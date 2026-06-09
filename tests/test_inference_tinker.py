@@ -1,4 +1,4 @@
-"""Tests for ``trajectory_labs.inference.tinker.TinkerInference.from_run_result``
+"""Tests for ``evsys_sdk.inference.tinker.TinkerInference.from_run_result``
 and its registered default-factory.
 
 The classmethod reads ``run_result.artifacts["run_dir"]``, locates the
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.registry import get_default_inference_factory
+from evsys_sdk.registry import get_default_inference_factory
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ class _RunCfg:
 def _stub_init(monkeypatch, captured: dict) -> None:
     """Replace ``TinkerInference.__init__`` with a capture-only stub so we
     can exercise ``from_run_result`` without making any real Tinker calls."""
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
 
     def fake_init(self, *, model_name: str, checkpoint_path: str | None = None,
                   api_key_env: str = "TINKER_API_KEY") -> None:
@@ -73,7 +73,7 @@ def test_from_run_result_happy_path(tmp_path: Path, monkeypatch):
     captured: dict = {}
     _stub_init(monkeypatch, captured)
 
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
     inst = TinkerInference.from_run_result(_Res(str(tmp_path)), _RunCfg())
     assert isinstance(inst, TinkerInference)
     assert captured["model_name"] == "Qwen/Qwen3.5-4B"
@@ -88,7 +88,7 @@ def test_from_run_result_threads_run_cfg_model_name(tmp_path: Path, monkeypatch)
     captured: dict = {}
     _stub_init(monkeypatch, captured)
 
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
     TinkerInference.from_run_result(_Res(str(tmp_path)),
                                     _RunCfg("Qwen/Qwen3.5-9B"))
     assert captured["model_name"] == "Qwen/Qwen3.5-9B"
@@ -104,7 +104,7 @@ def test_from_run_result_missing_run_dir_raises(monkeypatch):
     captured: dict = {}
     _stub_init(monkeypatch, captured)
 
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
     with pytest.raises(RuntimeError, match="no 'run_dir'"):
         TinkerInference.from_run_result(_Res(None), _RunCfg())
 
@@ -114,7 +114,7 @@ def test_from_run_result_missing_manifest_raises(tmp_path: Path, monkeypatch):
     captured: dict = {}
     _stub_init(monkeypatch, captured)
 
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
     with pytest.raises(RuntimeError, match="no checkpoints.jsonl"):
         TinkerInference.from_run_result(_Res(str(tmp_path)), _RunCfg())
 
@@ -127,7 +127,7 @@ def test_from_run_result_no_sampler_path_raises(tmp_path: Path, monkeypatch):
     captured: dict = {}
     _stub_init(monkeypatch, captured)
 
-    from trajectory_labs.inference.tinker import TinkerInference
+    from evsys_sdk.inference.tinker import TinkerInference
     with pytest.raises(RuntimeError, match="no usable sampler checkpoint"):
         TinkerInference.from_run_result(_Res(str(tmp_path)), _RunCfg())
 
@@ -140,7 +140,7 @@ def test_from_run_result_no_sampler_path_raises(tmp_path: Path, monkeypatch):
 def test_default_factory_registered_for_tinker():
     """Importing inference.tinker registers a default factory keyed 'tinker'."""
     # Ensure the import side-effect fires
-    from trajectory_labs.inference.tinker import TinkerInference  # noqa: F401
+    from evsys_sdk.inference.tinker import TinkerInference  # noqa: F401
 
     fac = get_default_inference_factory("tinker")
     assert fac is not None and callable(fac)

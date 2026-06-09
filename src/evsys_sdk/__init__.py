@@ -1,13 +1,13 @@
-"""trajectory_labs — declarative, modular LLM experiment framework.
+"""evsys_sdk — declarative, modular LLM experiment framework.
 
 Most researcher code only needs the OOP orchestration surface:
 
-    from trajectory_labs import Experiment
+    from evsys_sdk import Experiment
     Experiment.from_yaml("config.yaml").run()
 
 For everything else:
 
-    from trajectory_labs import (
+    from evsys_sdk import (
         # OOP orchestration
         Experiment, ExperimentResult, ArmResult, Sweep,
         Benchmark, BenchmarkScore, Checkpoint,
@@ -27,7 +27,7 @@ For everything else:
 
 Built-in extensions live in subpackages and self-register on import.
 External packages can extend any registry via Python entry points
-(group: ``trajectory_labs.<plural>`` — see docs/cookbook.md).
+(group: ``evsys_sdk.<plural>`` — see docs/cookbook.md).
 """
 
 from .config import (
@@ -94,10 +94,10 @@ from .dashboard_client import (
     DashboardClient,
     DashboardClientError,
     ExperimentRun,
-    TrajectoryAuthError,
+    EvsysAuthError,
 )
 from .logger import configure_logger, get_logger, set_level
-from .store import TrajectoryStore, TrajectoryStoreError
+from .store import EvsysStore, EvsysStoreError
 from .workspace import MaterializedDataset, Workspace
 from .data_types import (
     TargetFormat,
@@ -214,18 +214,18 @@ __all__ = [
     "from_dict",
     "to_dict",
     "iter_jsonl",
-    # Dashboard client (push runs to the trajectory dashboard)
+    # Dashboard client (push runs to the EvolvingSystems dashboard)
     "DashboardClient",
     "DashboardClientError",
-    "TrajectoryAuthError",
+    "EvsysAuthError",
     "ExperimentRun",
     # Logging
     "configure_logger",
     "get_logger",
     "set_level",
     # Backend-routed data-access (project → … → runs → evals/metrics)
-    "TrajectoryStore",
-    "TrajectoryStoreError",
+    "EvsysStore",
+    "EvsysStoreError",
     # Local cache for remote datasets/benchmarks
     "Workspace",
     "MaterializedDataset",

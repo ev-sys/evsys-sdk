@@ -1,4 +1,4 @@
-"""Tests for ``trajectory_labs.algorithms.tinker_sft`` chat-template
+"""Tests for ``evsys_sdk.algorithms.tinker_sft`` chat-template
 plumbing — specifically that ``enable_thinking`` is forwarded to the
 tokenizer when set, and omitted when None (so non-Qwen tokenizers that
 don't accept the kwarg keep working).
@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.algorithms.tinker_sft import (
+from evsys_sdk.algorithms.tinker_sft import (
     TinkerSFTConfig,
     _apply_template,
 )

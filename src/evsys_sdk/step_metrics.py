@@ -1,4 +1,4 @@
-"""Forward per-step metrics from a local JSONL log to a TrajectoryStore.
+"""Forward per-step metrics from a local JSONL log to a EvsysStore.
 
 Two row shapes are accepted:
 

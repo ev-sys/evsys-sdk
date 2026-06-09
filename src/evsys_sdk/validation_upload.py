@@ -5,7 +5,7 @@ like a benchmark — but it's scored *during* training (every N steps) to drive
 model selection, never as the final/test measurement. It lives as its own
 entity so a validation id and a benchmark (test) id can never be confused.
 
-CLI entry point: ``trajex validation upload data/validation/<name>``.
+CLI entry point: ``evsys validation upload data/validation/<name>``.
 Programmatic: ``upload_validation_dataset(store, path)``.
 
 The harbor upload body is shared with ``benchmark_upload`` via

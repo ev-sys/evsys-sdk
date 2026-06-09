@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.experiment.Experiment`.
+"""Tests for `evsys_sdk.experiment.Experiment`.
 
 Experiment is the OOP orchestrator that replaces the manual
 ``create_experiment`` → per-arm ``create_run`` → ``run_experiment`` →
@@ -14,8 +14,8 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from trajectory_labs.benchmark import Benchmark
-from trajectory_labs.config import (
+from evsys_sdk.benchmark import Benchmark
+from evsys_sdk.config import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -24,12 +24,12 @@ from trajectory_labs.config import (
     ModelConfig,
     RunConfig,
 )
-from trajectory_labs.experiment import (
+from evsys_sdk.experiment import (
     ArmResult,
     Experiment,
     ExperimentResult,
 )
-from trajectory_labs.protocols import RunResult
+from evsys_sdk.protocols import RunResult
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ def test_iter_runs_matrix_expands(sweep_config: ExperimentConfig):
 def test_from_yaml_round_trip(tmp_path: Path, base_run: RunConfig):
     yaml_path = tmp_path / "config.yaml"
     cfg = ExperimentConfig(name="from_yaml", run=base_run)
-    from trajectory_labs.yaml_loader import dump_yaml
+    from evsys_sdk.yaml_loader import dump_yaml
     dump_yaml(cfg, path=yaml_path)
     e = Experiment.from_yaml(yaml_path)
     assert e.config.name == "from_yaml"
@@ -694,7 +694,7 @@ def test_resolve_inference_factory_falls_back_to_registry(sweep_config: Experime
     """When no inference_factory is passed, fall back to the registered default
     for the run's backend kind. We register a fake for 'mock' to verify the
     plumbing without needing the tinker module."""
-    from trajectory_labs import registry
+    from evsys_sdk import registry
 
     fake = lambda rr, rc: object()
     monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", fake)
@@ -706,7 +706,7 @@ def test_resolve_inference_factory_falls_back_to_registry(sweep_config: Experime
 
 def test_resolve_inference_factory_none_when_no_default_registered(sweep_config: ExperimentConfig, monkeypatch):
     """No user-supplied factory + no registered default → None (eval skipped)."""
-    from trajectory_labs import registry
+    from evsys_sdk import registry
 
     monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", None)
     # explicitly clear instead of None to mimic the "never registered" case
@@ -793,7 +793,7 @@ def test_default_train_fn_is_used_when_none_passed(single_run_config: Experiment
 
 def test_default_train_fn_routes_to_runner(monkeypatch, single_run_config: ExperimentConfig):
     """The shim imports run_experiment lazily and forwards the config."""
-    from trajectory_labs import experiment as exp_mod
+    from evsys_sdk import experiment as exp_mod
 
     captured: dict = {}
 
@@ -801,7 +801,7 @@ def test_default_train_fn_routes_to_runner(monkeypatch, single_run_config: Exper
         captured["cfg"] = cfg
         return [RunResult(run_id="x", status="completed", metrics={"loss": 0.0})]
 
-    monkeypatch.setattr("trajectory_labs.runner.run_experiment", fake_run_experiment)
+    monkeypatch.setattr("evsys_sdk.runner.run_experiment", fake_run_experiment)
     out = exp_mod._default_train_fn(single_run_config)
     assert captured["cfg"] is single_run_config
     assert out[0].status == "completed"

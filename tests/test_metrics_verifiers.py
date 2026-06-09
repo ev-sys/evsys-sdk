@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_labs.metrics.basic import (
+from evsys_sdk.metrics.basic import (
     ExactMatch,
     MeanReward,
     PassAtK,
     ToolkitMatch,
 )
-from trajectory_labs.verifiers.format_only import FormatOnlyVerifier
+from evsys_sdk.verifiers.format_only import FormatOnlyVerifier
 
 
 def test_exact_match_basic():

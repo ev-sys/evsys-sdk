@@ -1,10 +1,10 @@
 {
-  "name": "trajectory-labs",
-  "description": "Trajectory Labs training tooling: the training-decision agent + SDK usage skills.",
-  "owner": { "name": "Trajectory Labs" },
+  "name": "evsys-sdk",
+  "description": "EvolvingSystems training tooling: the training-decision agent + SDK usage skills.",
+  "owner": { "name": "EvolvingSystems" },
   "plugins": [
     {
-      "name": "trajectory-labs",
+      "name": "evsys-sdk",
       "source": "./",
       "description": "Training-decision agent + SDK skills (the plugin lives at this repo root)."
     }

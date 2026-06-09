@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from trajectory_labs import Workspace
+from evsys_sdk import Workspace
 
 
 class FakeStore:

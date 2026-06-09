@@ -1,7 +1,7 @@
-# trajectory-labs — SDK Reference
+# evsys-sdk — SDK Reference
 
-> Package: `trajectory_labs` · Distribution: `trajectory-labs` · Version: `0.1.0` · Python ≥ 3.12 · License: MIT
-> CLI entry point: `trajex`
+> Package: `evsys_sdk` · Distribution: `evsys-sdk` · Version: `0.1.0` · Python ≥ 3.12 · License: MIT
+> CLI entry point: `evsys`
 
 A declarative, modular framework for LLM training experiments (SFT, RL,
 distillation, prompt tuning). A single YAML file describes a full experiment —
@@ -27,7 +27,7 @@ schema defines the legal mutation space.
 8. [Built-in extensions](#8-built-in-extensions)
 9. [Data shapes (Harbor interchange types)](#9-data-shapes-harbor-interchange-types)
 10. [The registry & writing extensions](#10-the-registry--writing-extensions)
-11. [CLI reference (`trajex`)](#11-cli-reference-trajex)
+11. [CLI reference (`evsys`)](#11-cli-reference-evsys)
 12. [Eval harness](#12-eval-harness)
 13. [Dashboard client](#13-dashboard-client)
 14. [Public API surface](#14-public-api-surface)
@@ -38,7 +38,7 @@ schema defines the legal mutation space.
 ## 1. Install
 
 ```bash
-cd trajectory-labs-sdk
+cd evsys-sdk
 uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[tinker,local,tensorboard]"
 ```
@@ -70,16 +70,16 @@ For real Tinker runs: `export TINKER_API_KEY=...`.
 **From YAML (canonical interface):**
 
 ```bash
-trajex validate config.yaml --deep   # structure + each kind/params block
-trajex run config.yaml                # execute, writes outputs/<run>/run_result.json
-trajex list                           # everything in the registries
-trajex schema algorithm tinker_sft    # JSON schema for one extension's params
+evsys validate config.yaml --deep   # structure + each kind/params block
+evsys run config.yaml                # execute, writes outputs/<run>/run_result.json
+evsys list                           # everything in the registries
+evsys schema algorithm tinker_sft    # JSON schema for one extension's params
 ```
 
 **From Python:**
 
 ```python
-from trajectory_labs import run_experiment, load_yaml
+from evsys_sdk import run_experiment, load_yaml
 
 cfg = load_yaml("config.yaml")        # -> ExperimentConfig (matrix expanded)
 results = run_experiment(cfg)          # -> list[RunResult]
@@ -287,7 +287,7 @@ message content), extracts `<answer>…</answer>` if present, and compares again
 targets (`tool_slug`/`answer` + `toolkit`) using each configured `Metric`.
 
 > Note: validation of `params` against each `.Config` is **lazy** by default
-> (happens at instantiation in the runner). `trajex validate --deep` /
+> (happens at instantiation in the runner). `evsys validate --deep` /
 > `validate_yaml(path, deep=True)` forces it up front so unknown entry-point
 > extensions don't fail prematurely.
 
@@ -334,7 +334,7 @@ implementation (e.g. `tinker_sft` vs `local_sft` vs `mock_sft`).
 
 ## 8. Built-in extensions
 
-All self-register on `import trajectory_labs`.
+All self-register on `import evsys_sdk`.
 
 | Registry | Built-in `kind`s |
 |---|---|
@@ -415,7 +415,7 @@ discriminated by `.kind`:
 ```python
 from typing import ClassVar
 from pydantic import BaseModel
-from trajectory_labs import register_algorithm, RunContext, RunResult
+from evsys_sdk import register_algorithm, RunContext, RunResult
 
 @register_algorithm("cosine_toy")
 class CosineToy:
@@ -453,26 +453,26 @@ legal mutation space.
 No fork needed — declare in your `pyproject.toml`:
 
 ```toml
-[project.entry-points."trajectory_labs.algorithms"]
+[project.entry-points."evsys_sdk.algorithms"]
 my_dpo = "my_pkg.algorithms:MyDPO"
 ```
 
-Groups: `trajectory_labs.{algorithms,verifiers,metrics,backends,inference,transforms,data_stores,log_stores}`.
+Groups: `evsys_sdk.{algorithms,verifiers,metrics,backends,inference,transforms,data_stores,log_stores}`.
 `_entry_points.py` loads every entry point in those groups on import.
 
 ---
 
-## 11. CLI reference (`trajex`)
+## 11. CLI reference (`evsys`)
 
 ```
-trajex validate <path> [--deep]            # parse + (deep) validate kind/params blocks
-trajex run <path> [-o/--output FILE]       # run; prints+writes JSON summary
+evsys validate <path> [--deep]            # parse + (deep) validate kind/params blocks
+evsys run <path> [-o/--output FILE]       # run; prints+writes JSON summary
                                            #   exit 0 if all completed, else 2
-trajex list [--kind algorithms|backends|…] # enumerate registries
-trajex schema <kind> <name>                # JSON schema for one extension's Config
+evsys list [--kind algorithms|backends|…] # enumerate registries
+evsys schema <kind> <name>                # JSON schema for one extension's Config
                                            #   kind ∈ algorithm|backend|verifier|metric|
                                            #          transform|data_store|log_store|inference_client
-trajex eval model ...                      # evaluate a checkpoint over the eval set
+evsys eval model ...                      # evaluate a checkpoint over the eval set
 ```
 
 `eval model` flags: `--dataset --aliases [--secondary-aliases] --output-dir
@@ -484,7 +484,7 @@ trajex eval model ...                      # evaluate a checkpoint over the eval
 
 ## 12. Eval harness
 
-`trajectory_labs.eval` — generic, domain-agnostic eval infra for scoring model
+`evsys_sdk.eval` — generic, domain-agnostic eval infra for scoring model
 outputs (pass@k + alias matching). Every inference call is wrapped in
 `call_with_retry` (exponential backoff); exhausted failures surface via a
 `RetryReport` instead of aborting. Project-specific eval harnesses build on this
@@ -507,30 +507,30 @@ Public surface:
 
 ## 13. Dashboard client
 
-`DashboardClient` (`dashboard_client.py`) pushes runs to the Trajectory backend
+`DashboardClient` (`dashboard_client.py`) pushes runs to the EvolvingSystems backend
 (SDK → Django HTTP → Supabase) **and** always mirrors every write to a local
 folder. It is wandb-offline-style robust: if the backend is unreachable
 (timeout / connection error / 5xx) it logs a warning and keeps going on the
 local mirror; a 4xx raises `DashboardClientError`.
 
 **Auth:** requires an API key + project id by default; missing creds raise
-`TrajectoryAuthError` unless offline mode is on.
+`EvsysAuthError` unless offline mode is on.
 
 **Env vars** (`constants.py`):
 
 | Var | Default | Purpose |
 |---|---|---|
-| `TRAJECTORY_API_URL` | `http://localhost:8000` | Backend base URL |
-| `TRAJECTORY_API_KEY` | — | Issued at dashboard *Settings → API keys* |
-| `TRAJECTORY_PROJECT_ID` | — | Shared per-project id |
-| `TRAJECTORY_LOG_DIR` | `./trajectory_labs` | Local mirror dir |
-| `TRAJECTORY_OFFLINE` | `false` | Local-mirror-only, no auth |
-| `TRAJECTORY_LOGGING_LEVEL` | — | SDK log level |
+| `EVSYS_API_URL` | `http://localhost:8000` | Backend base URL |
+| `EVSYS_API_KEY` | — | Issued at dashboard *Settings → API keys* |
+| `EVSYS_PROJECT_ID` | — | Shared per-project id |
+| `EVSYS_LOG_DIR` | `./evsys_sdk` | Local mirror dir |
+| `EVSYS_OFFLINE` | `false` | Local-mirror-only, no auth |
+| `EVSYS_LOGGING_LEVEL` | — | SDK log level |
 
 **`ExperimentRun`** is a context-manager wrapper for the common flow:
 
 ```python
-from trajectory_labs import DashboardClient, ExperimentRun
+from evsys_sdk import DashboardClient, ExperimentRun
 
 client = DashboardClient()  # reads env vars
 with ExperimentRun(client, experiment_name="sft_run_v9",
@@ -553,7 +553,7 @@ context. SDK write routes live under `API_PREFIX = /api/dashboard/api`
 
 ## 14. Public API surface
 
-Everything importable from `trajectory_labs` (the stable surface;
+Everything importable from `evsys_sdk` (the stable surface;
 anything not re-exported here may move):
 
 - **Config models:** `ExperimentConfig`, `RunConfig`, `AlgorithmConfig`,
@@ -568,7 +568,7 @@ anything not re-exported here may move):
   `PromptExample`, the three verifier specs + `VerifierPayload`, block helpers,
   `detect_format`, `from_dict`, `to_dict`, `iter_jsonl`.
 - **Dashboard:** `DashboardClient`, `ExperimentRun`, `DashboardClientError`,
-  `TrajectoryAuthError`.
+  `EvsysAuthError`.
 - **Logging:** `configure_logger`, `get_logger`, `set_level`.
 
 ---
@@ -593,7 +593,7 @@ stack in `backend/api/experiments/`:
 
 ### Not in v0.1 (per `docs/DESIGN.md`)
 
-Supabase data/log adapters (`trajectory_labs.adapters.supabase`), the
+Supabase data/log adapters (`evsys_sdk.adapters.supabase`), the
 evolutionary loop port, distributed launchers (Modal/Slurm), and checkpoint
 resumption beyond what `tinker_cookbook` provides. All extend the same protocol
 surface and are expected to arrive without breaking the public API.

@@ -1,4 +1,4 @@
-"""Central constants for the trajectory_labs SDK.
+"""Central constants for the evsys_sdk SDK.
 
 Single source of truth for env-var names, defaults, HTTP endpoint paths,
 status strings, and logging config. Change endpoints / defaults here — not
@@ -12,22 +12,22 @@ plumbing.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# Environment variable names (all SDK env vars start with TRAJECTORY_)
+# Environment variable names (all SDK env vars start with EVSYS_)
 # ---------------------------------------------------------------------------
 
-TRAJECTORY_API_URL_ENV = "TRAJECTORY_API_URL"
-TRAJECTORY_API_KEY_ENV = "TRAJECTORY_API_KEY"
-TRAJECTORY_PROJECT_ID_ENV = "TRAJECTORY_PROJECT_ID"
-TRAJECTORY_LOG_DIR_ENV = "TRAJECTORY_LOG_DIR"
-TRAJECTORY_OFFLINE_ENV = "TRAJECTORY_OFFLINE"
-TRAJECTORY_LOGGING_LEVEL_ENV = "TRAJECTORY_LOGGING_LEVEL"
+EVSYS_API_URL_ENV = "EVSYS_API_URL"
+EVSYS_API_KEY_ENV = "EVSYS_API_KEY"
+EVSYS_PROJECT_ID_ENV = "EVSYS_PROJECT_ID"
+EVSYS_LOG_DIR_ENV = "EVSYS_LOG_DIR"
+EVSYS_OFFLINE_ENV = "EVSYS_OFFLINE"
+EVSYS_LOGGING_LEVEL_ENV = "EVSYS_LOGGING_LEVEL"
 
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
 
 DEFAULT_API_URL = "http://localhost:8000"
-DEFAULT_LOG_DIR = "./trajectory_labs"
+DEFAULT_LOG_DIR = "./evsys_sdk"
 DEFAULT_TIMEOUT_S = 30.0
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ DEFAULT_LOG_FORMAT = (
 )
 DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-LOGGER_NAME = "trajectory_labs"
+LOGGER_NAME = "evsys_sdk"
 
 # ---------------------------------------------------------------------------
 # Local mirror layout (always-on, wandb-offline style)

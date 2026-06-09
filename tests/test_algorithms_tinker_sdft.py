@@ -1,4 +1,4 @@
-"""Tests for ``trajectory_labs.algorithms.tinker_sdft.TinkerSDFT``.
+"""Tests for ``evsys_sdk.algorithms.tinker_sdft.TinkerSDFT``.
 
 The wrapper drives ``tinker_cookbook.distillation.sdft.main`` over an
 ``SDFTDataset`` built from ``ctx.extras["train_rows"]``. Tests monkeypatch
@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.algorithms.tinker_sdft import TinkerSDFT, TinkerSDFTConfig
-from trajectory_labs.protocols import RunResult
-from trajectory_labs.registry import get_algorithm
+from evsys_sdk.algorithms.tinker_sdft import TinkerSDFT, TinkerSDFTConfig
+from evsys_sdk.protocols import RunResult
+from evsys_sdk.registry import get_algorithm
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ def test_train_calls_sdft_main_with_right_config(tmp_path: Path, monkeypatch):
         captured["dataset"] = sdft_dataset
         captured["test_dataset"] = test_dataset
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", fake_main)
 
     # Avoid touching the network: tokenizer + renderer are cheap-ish loads
@@ -134,7 +134,7 @@ def test_train_uses_renderer_from_handles_when_cfg_omits_it(tmp_path: Path, monk
     async def fake_main(cfg, sdft_dataset, test_dataset=None):
         captured["renderer_name"] = cfg.renderer_name
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", fake_main)
     monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
     monkeypatch.setattr(mod.renderers, "get_renderer",
@@ -186,7 +186,7 @@ def test_train_failure_returns_failed_run_result(tmp_path: Path, monkeypatch):
     async def boom(cfg, sdft_dataset, test_dataset=None):
         raise RuntimeError("teacher exploded")
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", boom)
     monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
     monkeypatch.setattr(mod.renderers, "get_renderer",
@@ -229,7 +229,7 @@ def test_train_step_loss_hook_writes_train_mean_loss(monkeypatch):
     dict, derived from the per-position training logprobs."""
     import asyncio
     import torch
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
 
     # Replace the underlying upstream call with a stub returning a known
     # logprob tensor: [-1.0, -2.0, 0.0, -3.0]. Mean over non-zero = -2.0.
@@ -254,7 +254,7 @@ def test_train_step_loss_hook_no_op_when_metrics_is_none(monkeypatch):
     """A bare call without metrics dict must not raise."""
     import asyncio
     import torch
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
 
     async def fake_upstream(**kw):
         return [torch.tensor([-1.0])]
@@ -272,7 +272,7 @@ def test_train_step_loss_hook_no_op_when_all_zero_logprobs(monkeypatch):
     """All-zero logprobs → no valid tokens → no metric written."""
     import asyncio
     import torch
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
 
     async def fake_upstream(**kw):
         return [torch.zeros(8)]
@@ -314,7 +314,7 @@ def test_resolve_save_every_non_divisible_fractions():
 
 
 def test_repeating_provider_modulo_wraps_indices():
-    from trajectory_labs.algorithms.tinker_sdft import _RepeatingSDFTProvider
+    from evsys_sdk.algorithms.tinker_sdft import _RepeatingSDFTProvider
 
     base = _BaseProvider(3)
     proxy = _RepeatingSDFTProvider(base, target_length=8)
@@ -326,7 +326,7 @@ def test_repeating_provider_modulo_wraps_indices():
 
 
 def test_repeating_provider_rejects_empty_base():
-    from trajectory_labs.algorithms.tinker_sdft import _RepeatingSDFTProvider
+    from evsys_sdk.algorithms.tinker_sdft import _RepeatingSDFTProvider
 
     with pytest.raises(ValueError, match="zero length"):
         _RepeatingSDFTProvider(_BaseProvider(0), target_length=5)
@@ -341,7 +341,7 @@ def test_train_wraps_provider_when_max_steps_exceeds_epoch(tmp_path: Path, monke
         captured["provider_len"] = len(sdft_dataset)
         captured["provider_class"] = type(sdft_dataset).__name__
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", fake_main)
     monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
     monkeypatch.setattr(mod.renderers, "get_renderer", lambda n, *, tokenizer: object())
@@ -362,7 +362,7 @@ def test_train_no_wrap_when_max_steps_fits_in_one_epoch(tmp_path: Path, monkeypa
     async def fake_main(cfg, sdft_dataset, test_dataset=None):
         captured["provider_class"] = type(sdft_dataset).__name__
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", fake_main)
     monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
     monkeypatch.setattr(mod.renderers, "get_renderer", lambda n, *, tokenizer: object())
@@ -383,7 +383,7 @@ def test_checkpoint_manifest_harvested_into_artifacts(tmp_path: Path, monkeypatc
             '{"name": "final", "state_path": "tinker://abc/final"}\n'
         )
 
-    from trajectory_labs.algorithms import tinker_sdft as mod
+    from evsys_sdk.algorithms import tinker_sdft as mod
     monkeypatch.setattr(mod.sdft, "main", fake_main)
     monkeypatch.setattr(mod, "get_tokenizer", lambda n: object())
     monkeypatch.setattr(mod.renderers, "get_renderer",

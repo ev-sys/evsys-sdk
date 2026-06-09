@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trajectory_labs import (
+from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,

@@ -1,8 +1,8 @@
-"""Reference training data + benchmarks by dashboard id/name (fetched into .trajectory/).
+"""Reference training data + benchmarks by dashboard id/name (fetched into .evsys/).
 
 The preferred way to reference data in a stored experiment script is by
 ``dataset_id`` / ``dataset_name`` (training) or ``metadata.benchmark.id|name``
-(benchmark): the SDK pulls it into the local ``.trajectory/`` workspace and
+(benchmark): the SDK pulls it into the local ``.evsys/`` workspace and
 works from that cache, instead of relying on a local ``path``. Name resolves to
 the latest version's id.
 """
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.config import DataConfig
-from trajectory_labs.workspace import MaterializedDataset, Workspace, read_jsonl_rows
+from evsys_sdk.config import DataConfig
+from evsys_sdk.workspace import MaterializedDataset, Workspace, read_jsonl_rows
 
 
 # ---------------------------------------------------------------------------
@@ -108,14 +108,14 @@ class _FakeWorkspace:
 
 
 def test_load_rows_by_dataset_id(tmp_path, monkeypatch):
-    from trajectory_labs import runner
+    from evsys_sdk import runner
 
     jsonl = tmp_path / "ds.jsonl"
     jsonl.write_text(json.dumps({"messages": [], "target_assistant": "y1"}) + "\n"
                      + json.dumps({"messages": [], "target_assistant": "y2"}) + "\n")
     _FakeWorkspace.jsonl_path = str(jsonl)
     _FakeWorkspace.last_pulled = None
-    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeWorkspace)
+    monkeypatch.setattr("evsys_sdk.workspace.Workspace", _FakeWorkspace)
 
     rows = runner._load_rows(DataConfig(dataset_id="ds-42"), data_store=None)
     assert _FakeWorkspace.last_pulled == "ds-42"
@@ -123,13 +123,13 @@ def test_load_rows_by_dataset_id(tmp_path, monkeypatch):
 
 
 def test_load_rows_by_dataset_name(tmp_path, monkeypatch):
-    from trajectory_labs import runner
+    from evsys_sdk import runner
 
     jsonl = tmp_path / "ds.jsonl"
     jsonl.write_text(json.dumps({"messages": [], "target_assistant": "z"}) + "\n")
     _FakeWorkspace.jsonl_path = str(jsonl)
     _FakeWorkspace.last_pulled = None
-    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeWorkspace)
+    monkeypatch.setattr("evsys_sdk.workspace.Workspace", _FakeWorkspace)
 
     rows = runner._load_rows(DataConfig(dataset_name="sft_overdose"), data_store=None)
     assert _FakeWorkspace.last_pulled == "ds-resolved"  # name → id → pull
@@ -165,14 +165,14 @@ def _harbor_row(task_id: str, expected: str) -> dict:
 
 
 def _experiment(monkeypatch, tmp_path, spec):
-    from trajectory_labs.config import ExperimentConfig
-    from trajectory_labs.experiment import Experiment
+    from evsys_sdk.config import ExperimentConfig
+    from evsys_sdk.experiment import Experiment
 
     jsonl = tmp_path / "bench.jsonl"
     jsonl.write_text("\n".join(json.dumps(_harbor_row(t, "A")) for t in ["t1", "t2"]) + "\n")
     _FakeBenchWorkspace.jsonl_path = str(jsonl)
     _FakeBenchWorkspace.last_pulled = None
-    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeBenchWorkspace)
+    monkeypatch.setattr("evsys_sdk.workspace.Workspace", _FakeBenchWorkspace)
 
     cfg = ExperimentConfig(name="exp", run={
         "name": "r1",
@@ -202,11 +202,11 @@ def test_resolve_benchmark_path_still_wins(tmp_path, monkeypatch):
     root = tmp_path / "b"
     root.mkdir()
     (root / "tasks.jsonl").write_text(json.dumps(_harbor_row("p1", "A")) + "\n")
-    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeBenchWorkspace)
+    monkeypatch.setattr("evsys_sdk.workspace.Workspace", _FakeBenchWorkspace)
     _FakeBenchWorkspace.last_pulled = None
 
-    from trajectory_labs.config import ExperimentConfig
-    from trajectory_labs.experiment import Experiment
+    from evsys_sdk.config import ExperimentConfig
+    from evsys_sdk.experiment import Experiment
     cfg = ExperimentConfig(name="exp", run={
         "name": "r1", "data": {"source_kind": "in_memory", "rows": [{"x": 1}]},
         "model": {"name": "t/f"}, "algorithm": {"kind": "mock_sft"}, "backend": {"kind": "mock"},

@@ -54,7 +54,7 @@ def _build_from_spec(getter, spec) -> Any:
 
 def _load_rows(data: DataConfig, data_store) -> list[dict[str, Any]]:
     # Preferred path: a dashboard dataset referenced by id (or name → latest
-    # version's id). The SDK pulls it into the local .trajectory/ workspace and
+    # version's id). The SDK pulls it into the local .evsys/ workspace and
     # trains from that cache, so stored scripts don't depend on local files.
     if data.dataset_id or data.dataset_name:
         from .workspace import Workspace, read_jsonl_rows

@@ -1,7 +1,7 @@
 """Always-on local mirror of experiment data (wandb-offline style).
 
-Every DashboardClient write is also persisted under ``TRAJECTORY_LOG_DIR``
-(default ``./trajectory_labs``). This guarantees no data is lost even
+Every DashboardClient write is also persisted under ``EVSYS_LOG_DIR``
+(default ``./evsys_sdk``). This guarantees no data is lost even
 when the backend is unreachable, and is the *only* store used in offline mode.
 
 Layout (flat by id, so each call only needs its own id)::
@@ -30,7 +30,7 @@ from .constants import (
     LOCAL_GENERATION_FILE,
     LOCAL_METRICS_FILE,
     LOCAL_PREDICTIONS_FILE,
-    TRAJECTORY_LOG_DIR_ENV,
+    EVSYS_LOG_DIR_ENV,
 )
 from .logger import get_logger
 
@@ -38,8 +38,8 @@ log = get_logger(__name__)
 
 
 def resolve_log_dir(log_dir: str | None = None) -> Path:
-    """Resolve the local mirror directory from arg or TRAJECTORY_LOG_DIR."""
-    raw = log_dir or os.environ.get(TRAJECTORY_LOG_DIR_ENV) or DEFAULT_LOG_DIR
+    """Resolve the local mirror directory from arg or EVSYS_LOG_DIR."""
+    raw = log_dir or os.environ.get(EVSYS_LOG_DIR_ENV) or DEFAULT_LOG_DIR
     return Path(raw).expanduser()
 
 

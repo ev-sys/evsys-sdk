@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.benchmark.Benchmark`.
+"""Tests for `evsys_sdk.benchmark.Benchmark`.
 
 The Benchmark class loads harbor-format eval suites from disk
 (`tasks.jsonl` + optional `metadata.yaml`) and scores a model against
@@ -14,12 +14,12 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from trajectory_labs.benchmark import (
+from evsys_sdk.benchmark import (
     Benchmark,
     BenchmarkScore,
     BenchmarkTaskResult,
 )
-from trajectory_labs.data_types import HarborTask, InProcessVerifier
+from evsys_sdk.data_types import HarborTask, InProcessVerifier
 
 
 # ---------------------------------------------------------------------------

@@ -254,7 +254,7 @@ class TinkerSDFT:
             batch_size=self.cfg.batch_size,
             group_size=self.cfg.group_size,
             renderer=renderer,
-            dataset_name=f"trajectory_labs_sdft__{ctx.run_id}",
+            dataset_name=f"evsys_sdk_sdft__{ctx.run_id}",
         )
 
         n = len(questions)

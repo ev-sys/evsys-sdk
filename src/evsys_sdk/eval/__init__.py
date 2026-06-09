@@ -2,7 +2,7 @@
 
 Public surface:
 
-    from trajectory_labs.eval import (
+    from evsys_sdk.eval import (
         AliasMatcher, ModelEvalConfig,
         evaluate_model, EvalArtifacts, EvalSummary,
         RetryReport, call_with_retry,

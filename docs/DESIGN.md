@@ -1,4 +1,4 @@
-# trajectory-labs — design notes
+# evsys-sdk — design notes
 
 ## Goals
 
@@ -15,7 +15,7 @@
 
 PEP 544 protocols mean any class with the right methods satisfies the contract
 — no inheritance from us. This is critical for third-party extensions: if you
-have to subclass `trajectory_labs.algorithms.BaseAlgorithm`, you've
+have to subclass `evsys_sdk.algorithms.BaseAlgorithm`, you've
 imported the world. With protocols, your `MyDPO` class is just plain Python.
 
 ## Why a registry per kind
@@ -57,7 +57,7 @@ The `matrix:` shorthand is a convenience that expands at load-time into
 
 Every project the training-decider agent bootstraps follows the same shape so
 scripts, benchmarks, and extensions land in predictable places. Scaffold a new
-project with ``trajex init-project <name>``; the tree is:
+project with ``evsys init-project <name>``; the tree is:
 
 ```
 <project>/
@@ -79,10 +79,10 @@ project with ``trajex init-project <name>``; the tree is:
 │   ├── metrics.py                  # @register_metric
 │   └── transforms.py               # @register_transform
 ├── experiments/
-│   └── <yyyymmdd>_<slug>/          # `trajex new-experiment <slug>`
+│   └── <yyyymmdd>_<slug>/          # `evsys new-experiment <slug>`
 │       ├── config.yaml             # ExperimentConfig — model, data, sweep, metadata
 │       └── run.py                  # Experiment.from_yaml("config.yaml").run()
-└── .trajectory/                    # local mirror + checkpoints + log_store output
+└── .evsys/                    # local mirror + checkpoints + log_store output
 ```
 
 Each ``config.yaml`` is **self-contained** — there is no project-root yaml that
@@ -96,7 +96,7 @@ metadata:
   tags: [sft, qwen3_4b]
   success_metric: pass_rate
   benchmark:                        # TEST set — scored once, after training
-    id: <dashboard benchmark id from `trajex benchmark upload`>   # preferred
+    id: <dashboard benchmark id from `evsys benchmark upload`>   # preferred
     # name: composio_eval_v2     # alt: resolves to the latest version's id
     # path: data/benchmark/composio_eval_v2   # offline / dev fallback
     breakdown_keys: [toolkit]
@@ -106,7 +106,7 @@ metadata:
 
 Stored experiment scripts should reference data by **dashboard id** (or
 **name**, which resolves to the latest version's id) rather than a local path.
-The SDK pulls the rows once into the local `.trajectory/` workspace cache and
+The SDK pulls the rows once into the local `.evsys/` workspace cache and
 trains/scores from there, so a committed script is portable and doesn't depend
 on anyone's local file layout. `path` stays as an offline / dev fallback.
 
@@ -120,7 +120,7 @@ run:
 
 Same for the benchmark block above (`id` / `name` / `path`). Under the hood
 both go through `Workspace.pull_dataset` / `pull_benchmark`, which cache to
-`.trajectory/<datasets|benchmarks>/<id>.jsonl` (version-immutable, so a given
+`.evsys/<datasets|benchmarks>/<id>.jsonl` (version-immutable, so a given
 id never changes).
 
 ### Benchmark (test) vs. validation (in-loop)
@@ -130,14 +130,14 @@ A **benchmark** is the *final goal / test set*: scored once after training via
 selection must never key off it.
 
 A **validation set** is scored *during* training to drive model selection. It's
-also harbor-format (referenced by id from ``trajex validation upload``, or by a
+also harbor-format (referenced by id from ``evsys validation upload``, or by a
 local ``path``), but lives as its own dashboard entity and is declared per-run:
 
 ```yaml
 run:
   # ...
   validation:                       # in-loop — scored every N steps
-    dataset_id: <id from `trajex validation upload`>   # or dataset_name: <name> (→ latest version); or path: data/validation/<name>
+    dataset_id: <id from `evsys validation upload`>   # or dataset_name: <name> (→ latest version); or path: data/validation/<name>
     eval_for_every: 50              # run validation every 50 training steps
     metrics: [{kind: exact_match}]  # metrics.py kinds applied to predictions
 ```
@@ -153,7 +153,7 @@ best-checkpoint selection is a follow-up.)
 The high-level path is one class with declarative inputs:
 
 ```python
-from trajectory_labs import Experiment
+from evsys_sdk import Experiment
 import scripts   # registers project verifiers / metrics / transforms
 
 Experiment.from_yaml("config.yaml").run()
@@ -174,7 +174,7 @@ training without dashboard bookkeeping.
 
 ## What's NOT in v0.1
 
-* Supabase adapters (planned: `trajectory_labs.adapters.supabase`).
+* Supabase adapters (planned: `evsys_sdk.adapters.supabase`).
 * Evolutionary loop (kept in `backend/api/experiments/loop.py` for now).
 * Distributed launchers (Modal, Slurm).
 * Streaming / checkpoint resumption beyond what tinker_cookbook provides.
@@ -185,5 +185,5 @@ without breaking changes to the public API.
 ## Backwards compatibility
 
 * `version: 1` in the YAML root is currently advisory; bumped on schema breaks.
-* Public symbols re-exported from `trajectory_labs/__init__.py` are the
+* Public symbols re-exported from `evsys_sdk/__init__.py` are the
   stable surface. Anything else may move.

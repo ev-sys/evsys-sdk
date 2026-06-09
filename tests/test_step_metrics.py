@@ -1,8 +1,8 @@
-"""Tests for `trajectory_labs.step_metrics.forward_step_metrics`.
+"""Tests for `evsys_sdk.step_metrics.forward_step_metrics`.
 
 The forwarder replaces hand-rolled `backfill_step_metrics` loops in
 researcher scripts: it reads a local metrics.jsonl and pushes each row to
-a TrajectoryStore.
+a EvsysStore.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.step_metrics import forward_step_metrics
+from evsys_sdk.step_metrics import forward_step_metrics
 
 
 class _RecordingStore:

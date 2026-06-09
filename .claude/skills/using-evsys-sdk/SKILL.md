@@ -1,14 +1,14 @@
 ---
-name: Using the trajectory-labs SDK
-description: How to push training runs (SFT/RL/distillation) to the Trajectory dashboard. Use when writing experiment scripts that should appear in the dashboard, or when wiring metrics/predictions/conclusions into an existing training loop.
+name: Using the evsys-sdk SDK
+description: How to push training runs (SFT/RL/distillation) to the EvolvingSystems dashboard. Use when writing experiment scripts that should appear in the dashboard, or when wiring metrics/predictions/conclusions into an existing training loop.
 ---
 
-# Using the trajectory-labs SDK
+# Using the evsys-sdk SDK
 
-This SDK is the **write side** of the Trajectory dashboard. It pushes
+This SDK is the **write side** of the EvolvingSystems dashboard. It pushes
 experiments, per-step training metrics, eval runs, predictions, and a final
 conclusion to the backend at `/api/dashboard/api/sdk/...`. The backend persists
-to Supabase; the dashboard at `dev.trajectoryevals.com` reads from there.
+to Supabase; the dashboard at `dev.evolvingsystems.com` reads from there.
 
 If you only need to **read** previous runs (history, prior hypotheses,
 checkpoints), use the `getting-experiment-context` skill instead.
@@ -16,26 +16,26 @@ checkpoints), use the `getting-experiment-context` skill instead.
 ## Quick install
 
 ```bash
-pip install -e /path/to/trajectory-labs-sdk    # local dev
+pip install -e /path/to/evsys-sdk    # local dev
 # or, once published:
-pip install trajectory-labs
+pip install evsys-sdk
 ```
 
 Required env:
 ```bash
-export TRAJECTORY_API_URL="https://backend-dev-p0tj.onrender.com"
-export TRAJECTORY_API_KEY="sk_..."   # from dashboard → Settings → API keys
+export EVSYS_API_URL="https://backend-dev-p0tj.onrender.com"
+export EVSYS_API_KEY="sk_..."   # from dashboard → Settings → API keys
 ```
 
 ## The 80% case: `Experiment.from_yaml(...).run()`
 
-In a project scaffolded with `trajex init-project`, every experiment lives at
+In a project scaffolded with `evsys init-project`, every experiment lives at
 `experiments/<yyyymmdd>_<slug>/{config.yaml,run.py}`. The script is three
 lines — all knobs live in YAML:
 
 ```python
 # experiments/20260531_lora_rank_sweep_4b/run.py
-from trajectory_labs import Experiment
+from evsys_sdk import Experiment
 import scripts  # registers project verifiers / metrics / transforms
 
 Experiment.from_yaml("config.yaml").run()
@@ -46,7 +46,7 @@ under `metadata` + the usual `RunConfig` blocks:
 
 ```yaml
 name: lora_rank_sweep_4b_sft
-output_dir: ./.trajectory/outputs/lora_rank_sweep_4b_sft
+output_dir: ./.evsys/outputs/lora_rank_sweep_4b_sft
 
 metadata:
   hypothesis: "Higher LoRA rank → higher composio pass@1"
@@ -54,7 +54,7 @@ metadata:
   success_metric: pass_rate
   benchmark:
     path: data/benchmark/composio_eval_v2
-    id: <paste from `trajex benchmark upload data/benchmark/composio_eval_v2`>
+    id: <paste from `evsys benchmark upload data/benchmark/composio_eval_v2`>
     breakdown_keys: [toolkit]
 
 matrix:
@@ -99,9 +99,9 @@ ranking — the default behavior is the common case.
 ## Scaffolding new things
 
 ```bash
-trajex init-project <name>                       # whole project skeleton
-trajex new-experiment <slug> [--project-root .]  # experiments/<today>_<slug>/
-trajex benchmark upload data/benchmark/<name>    # register a harbor benchmark
+evsys init-project <name>                       # whole project skeleton
+evsys new-experiment <slug> [--project-root .]  # experiments/<today>_<slug>/
+evsys benchmark upload data/benchmark/<name>    # register a harbor benchmark
 ```
 
 ## Low-level path: `ExperimentRun` context manager
@@ -110,7 +110,7 @@ Use this only when you're doing something `Experiment` doesn't model yet
 (custom rollout loops, manual prediction streaming, post-hoc patching):
 
 ```python
-from trajectory_labs import DashboardClient, ExperimentRun
+from evsys_sdk import DashboardClient, ExperimentRun
 
 client = DashboardClient()  # picks up env vars
 

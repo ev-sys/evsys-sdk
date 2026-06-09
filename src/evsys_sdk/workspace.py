@@ -1,6 +1,6 @@
 """Workspace — local cache for remote datasets/benchmarks.
 
-Remote-first: datasets live in the backend (D20, accessed via ``TrajectoryStore``
+Remote-first: datasets live in the backend (D20, accessed via ``EvsysStore``
 over the gateway). Streaming every row over HTTP during training is slow, so the
 agent materializes a dataset to a local JSONL **once** and trains from the local
 file. On ``pull_dataset`` the local copy is reused if present and complete;
@@ -10,7 +10,7 @@ Safe to cache: datasets are versioned and immutable per version, so a given
 ``dataset_id`` never changes — the only risk is a partial pull, guarded by a
 ``.meta.json`` manifest (atomic rename + ``complete`` flag + n_rows match).
 
-The workspace root (``$TRAJECTORY_WORKSPACE`` or ``./.trajectory``) writes a
+The workspace root (``$EVSYS_WORKSPACE`` or ``./.evsys``) writes a
 self-ignoring ``.gitignore`` (``*``) on init, so nothing in it is ever tracked.
 Rows are written **raw** (D17); ``MaterializedDataset`` carries the dataset's
 ``format`` + ``transform`` so the trainer can render typed rows on read.
@@ -24,10 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .store import TrajectoryStore
+from .store import EvsysStore
 
-_WORKSPACE_ENV = "TRAJECTORY_WORKSPACE"
-_DEFAULT_ROOT = "./.trajectory"
+_WORKSPACE_ENV = "EVSYS_WORKSPACE"
+_DEFAULT_ROOT = "./.evsys"
 _PAGE = 500
 
 
@@ -41,8 +41,8 @@ class MaterializedDataset:
 
 
 class Workspace:
-    def __init__(self, store: TrajectoryStore | None = None, *, root: str | None = None) -> None:
-        self.store = store or TrajectoryStore()
+    def __init__(self, store: EvsysStore | None = None, *, root: str | None = None) -> None:
+        self.store = store or EvsysStore()
         self.root = Path(root or os.environ.get(_WORKSPACE_ENV) or _DEFAULT_ROOT)
         self.root.mkdir(parents=True, exist_ok=True)
         gi = self.root / ".gitignore"
@@ -152,7 +152,7 @@ class Workspace:
 
 
 def read_jsonl_rows(path: str) -> list[dict[str, Any]]:
-    """Read a materialized ``.trajectory/`` JSONL (one payload per line) to dicts."""
+    """Read a materialized ``.evsys/`` JSONL (one payload per line) to dicts."""
     out: list[dict[str, Any]] = []
     for line in Path(path).read_text().splitlines():
         line = line.strip()

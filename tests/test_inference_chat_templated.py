@@ -1,4 +1,4 @@
-"""Tests for ``trajectory_labs.inference.chat_templated.ChatTemplatedInference``.
+"""Tests for ``evsys_sdk.inference.chat_templated.ChatTemplatedInference``.
 
 The wrapper applies a (system + user) chat template to each raw prompt
 before forwarding to the base client, so eval-time inputs match the
@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.inference.chat_templated import ChatTemplatedInference
+from evsys_sdk.inference.chat_templated import ChatTemplatedInference
 
 
 # ---------------------------------------------------------------------------

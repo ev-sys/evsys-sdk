@@ -1,5 +1,5 @@
-"""Tests for `trajectory_labs.project_init.init_project` and the
-`trajex init-project` CLI subcommand.
+"""Tests for `evsys_sdk.project_init.init_project` and the
+`evsys init-project` CLI subcommand.
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.cli import main as cli_main
-from trajectory_labs.project_init import (
+from evsys_sdk.cli import main as cli_main
+from evsys_sdk.project_init import (
     GITKEEP_DIRS,
     SCAFFOLD_DIRS,
     init_project,
@@ -66,15 +66,15 @@ def test_init_project_uses_explicit_name(tmp_path: Path):
 def test_readme_references_layout(tmp_path: Path):
     init_project(tmp_path / "demo")
     readme = (tmp_path / "demo" / "README.md").read_text()
-    for tok in ("data/", "scripts/", "experiments/", "trajex new-experiment",
-                "trajex benchmark upload"):
+    for tok in ("data/", "scripts/", "experiments/", "evsys new-experiment",
+                "evsys benchmark upload"):
         assert tok in readme
 
 
 def test_gitignore_excludes_local_dirs(tmp_path: Path):
     init_project(tmp_path / "demo")
     gi = (tmp_path / "demo" / ".gitignore").read_text()
-    assert ".trajectory/" in gi
+    assert ".evsys/" in gi
     assert "data/raw/" in gi
 
 

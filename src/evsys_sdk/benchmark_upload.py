@@ -5,7 +5,7 @@ benchmark table so experiments can reference it by id. Re-uploading the
 same content is a no-op (we hash ``tasks.jsonl``); re-uploading changed
 content registers a new version.
 
-CLI entry point: ``trajex benchmark upload data/benchmark/<name>``.
+CLI entry point: ``evsys benchmark upload data/benchmark/<name>``.
 Programmatic: ``upload_benchmark(store, path)``.
 
 The harbor upload body is shared with ``validation_upload`` via

@@ -1,20 +1,20 @@
 ---
-name: Getting context from previous Trajectory experiments
-description: How to pull history of past experiments, generations, eval results, predictions, and rendered training data from the Trajectory dashboard backend — so you can build on prior runs instead of starting cold. Use before proposing a new hypothesis or recipe.
+name: Getting context from previous EvolvingSystems experiments
+description: How to pull history of past experiments, generations, eval results, predictions, and rendered training data from the EvolvingSystems dashboard backend — so you can build on prior runs instead of starting cold. Use before proposing a new hypothesis or recipe.
 ---
 
-# Getting context from previous Trajectory experiments
+# Getting context from previous EvolvingSystems experiments
 
 Before proposing a new experiment, **read what already ran**. Skipping
 this is the #1 cause of duplicate work and rediscovered dead-ends.
 
-This skill covers the **read side** of the Trajectory backend. To push
-runs to the dashboard use the `using-trajectory-sdk` skill.
+This skill covers the **read side** of the EvolvingSystems backend. To push
+runs to the dashboard use the `using-evsys-sdk` skill.
 
 ## Endpoints
 
 All endpoints are auth'd via the same Bearer token as the SDK
-(`TRAJECTORY_API_KEY`). Base URL: `TRAJECTORY_API_URL` (dev:
+(`EVSYS_API_KEY`). Base URL: `EVSYS_API_URL` (dev:
 `https://backend-dev-p0tj.onrender.com`).
 
 | Endpoint | Returns |
@@ -35,8 +35,8 @@ All endpoints are auth'd via the same Bearer token as the SDK
 ```python
 import os, requests
 
-API = os.environ["TRAJECTORY_API_URL"]
-H   = {"Authorization": f"Bearer {os.environ['TRAJECTORY_API_KEY']}"}
+API = os.environ["EVSYS_API_URL"]
+H   = {"Authorization": f"Bearer {os.environ['EVSYS_API_KEY']}"}
 
 # 1) What's been tried for this client?
 exps = requests.get(f"{API}/api/dashboard/api/experiments/",

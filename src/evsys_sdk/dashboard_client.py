@@ -1,4 +1,4 @@
-"""DashboardClient — push SDK runs to the Trajectory backend, with a local mirror.
+"""DashboardClient — push SDK runs to the EvolvingSystems backend, with a local mirror.
 
 Architecture: SDK → Django HTTP → Supabase. The user holds an API key (the
 same key the dashboard issues at ``Settings → API keys``) plus a project id
@@ -7,21 +7,21 @@ same key the dashboard issues at ``Settings → API keys``) plus a project id
 the user belongs to the project, and writes Supabase with its service key.
 
 Robustness (wandb-offline style):
-  * Every write is **also** mirrored to a local folder (``TRAJECTORY_LOG_DIR``,
-    default ``./trajectory_labs``). There is no remote-only mode.
+  * Every write is **also** mirrored to a local folder (``EVSYS_LOG_DIR``,
+    default ``./evsys_sdk``). There is no remote-only mode.
   * If the backend is unreachable (connection error / timeout / 5xx) the call
     logs a warning and keeps going with the local mirror — it does not crash.
   * Auth is required by default: without an API key + project id the client
-    raises. Set ``TRAJECTORY_OFFLINE=true`` (or ``offline=True``) to run with no
+    raises. Set ``EVSYS_OFFLINE=true`` (or ``offline=True``) to run with no
     auth, writing only to the local mirror.
 
-Env vars (see constants.py): TRAJECTORY_API_URL, TRAJECTORY_API_KEY,
-TRAJECTORY_PROJECT_ID, TRAJECTORY_LOG_DIR, TRAJECTORY_OFFLINE,
-TRAJECTORY_LOGGING_LEVEL.
+Env vars (see constants.py): EVSYS_API_URL, EVSYS_API_KEY,
+EVSYS_PROJECT_ID, EVSYS_LOG_DIR, EVSYS_OFFLINE,
+EVSYS_LOGGING_LEVEL.
 
 Quick usage::
 
-    from trajectory_labs import DashboardClient, ExperimentRun
+    from evsys_sdk import DashboardClient, ExperimentRun
 
     client = DashboardClient()  # reads env vars
 
@@ -68,10 +68,10 @@ from .constants import (
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_RUNNING,
-    TRAJECTORY_API_KEY_ENV,
-    TRAJECTORY_API_URL_ENV,
-    TRAJECTORY_OFFLINE_ENV,
-    TRAJECTORY_PROJECT_ID_ENV,
+    EVSYS_API_KEY_ENV,
+    EVSYS_API_URL_ENV,
+    EVSYS_OFFLINE_ENV,
+    EVSYS_PROJECT_ID_ENV,
     bearer,
     truthy_env,
 )
@@ -91,7 +91,7 @@ class DashboardClientError(RuntimeError):
         self.path = path
 
 
-class TrajectoryAuthError(RuntimeError):
+class EvsysAuthError(RuntimeError):
     """Raised when credentials are missing and offline mode is not enabled."""
 
 
@@ -100,7 +100,7 @@ def _new_id() -> str:
 
 
 class DashboardClient:
-    """HTTP client for the Trajectory backend's SDK write routes, with a local
+    """HTTP client for the EvolvingSystems backend's SDK write routes, with a local
     mirror and graceful degradation when the backend is unreachable.
     """
 
@@ -114,18 +114,18 @@ class DashboardClient:
         offline: bool | None = None,
         log_dir: str | None = None,
     ) -> None:
-        self.base_url = (base_url or os.environ.get(TRAJECTORY_API_URL_ENV) or DEFAULT_API_URL).rstrip("/")
-        self.api_key = api_key or os.environ.get(TRAJECTORY_API_KEY_ENV)
-        self.project_id = project_id or os.environ.get(TRAJECTORY_PROJECT_ID_ENV)
+        self.base_url = (base_url or os.environ.get(EVSYS_API_URL_ENV) or DEFAULT_API_URL).rstrip("/")
+        self.api_key = api_key or os.environ.get(EVSYS_API_KEY_ENV)
+        self.project_id = project_id or os.environ.get(EVSYS_PROJECT_ID_ENV)
         self.timeout_s = timeout_s
-        self.offline = offline if offline is not None else truthy_env(os.environ.get(TRAJECTORY_OFFLINE_ENV))
+        self.offline = offline if offline is not None else truthy_env(os.environ.get(EVSYS_OFFLINE_ENV))
 
         # Always-on local mirror.
         self.local = LocalExperimentStore(log_dir=log_dir)
 
         if self.offline:
             log.info(
-                "trajectory_labs running in OFFLINE mode — writing only to %s",
+                "evsys_sdk running in OFFLINE mode — writing only to %s",
                 self.local.root,
             )
             self._session = None
@@ -134,16 +134,16 @@ class DashboardClient:
         # Online mode requires credentials.
         missing = []
         if not self.api_key:
-            missing.append(TRAJECTORY_API_KEY_ENV)
+            missing.append(EVSYS_API_KEY_ENV)
         if not self.project_id:
-            missing.append(TRAJECTORY_PROJECT_ID_ENV)
+            missing.append(EVSYS_PROJECT_ID_ENV)
         if missing:
-            raise TrajectoryAuthError(
+            raise EvsysAuthError(
                 "DashboardClient is not authenticated: missing "
                 + " and ".join(missing)
                 + ". Set them (the API key from the dashboard at Settings → API keys, "
                 "and the project id shared by your project), or run offline with "
-                f"{TRAJECTORY_OFFLINE_ENV}=true to log locally without auth."
+                f"{EVSYS_OFFLINE_ENV}=true to log locally without auth."
             )
 
         self._session = requests.Session()
@@ -522,4 +522,4 @@ class ExperimentRun:
         self.client.update_experiment(self.experiment_id, **patch)
 
 
-__all__ = ["DashboardClient", "DashboardClientError", "TrajectoryAuthError", "ExperimentRun"]
+__all__ = ["DashboardClient", "DashboardClientError", "EvsysAuthError", "ExperimentRun"]

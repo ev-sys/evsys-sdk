@@ -1,12 +1,12 @@
-"""Configurable logging for the trajectory_labs SDK.
+"""Configurable logging for the evsys_sdk SDK.
 
-Mirrors the level-based, env-driven logger from the older `trajectory` SDK.
-Level is read from TRAJECTORY_LOGGING_LEVEL (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+Mirrors the level-based, env-driven logger from the older `trajectory` SDK (pre-rebrand).
+Level is read from EVSYS_LOGGING_LEVEL (DEBUG/INFO/WARNING/ERROR/CRITICAL)
 and can be overridden at runtime via ``configure_logger(level=...)``.
 
 Usage::
 
-    from trajectory_labs.logger import get_logger
+    from evsys_sdk.logger import get_logger
     log = get_logger(__name__)
     log.info("hello")
 """
@@ -23,7 +23,7 @@ from .constants import (
     DEFAULT_LOGGING_LEVEL,
     LOGGER_NAME,
     SUPPORTED_LOGGING_LEVELS,
-    TRAJECTORY_LOGGING_LEVEL_ENV,
+    EVSYS_LOGGING_LEVEL_ENV,
 )
 
 RESET = "\033[0m"
@@ -57,12 +57,12 @@ class ColorFormatter(logging.Formatter):
 
 
 def _resolve_level(level: str | None) -> str:
-    candidate = (level or os.getenv(TRAJECTORY_LOGGING_LEVEL_ENV, DEFAULT_LOGGING_LEVEL)).upper()
+    candidate = (level or os.getenv(EVSYS_LOGGING_LEVEL_ENV, DEFAULT_LOGGING_LEVEL)).upper()
     if candidate in SUPPORTED_LOGGING_LEVELS:
         return candidate
     print(
         f"Warning: invalid logging level '{candidate}' "
-        f"(set {TRAJECTORY_LOGGING_LEVEL_ENV} to one of {SUPPORTED_LOGGING_LEVELS}). "
+        f"(set {EVSYS_LOGGING_LEVEL_ENV} to one of {SUPPORTED_LOGGING_LEVELS}). "
         f"Using default {DEFAULT_LOGGING_LEVEL}."
     )
     return DEFAULT_LOGGING_LEVEL
@@ -77,7 +77,7 @@ def configure_logger(
 ) -> logging.Logger:
     """(Re)configure the root SDK logger. Returns the configured logger.
 
-    The SDK root logger is named ``trajectory_labs``; per-module loggers
+    The SDK root logger is named ``evsys_sdk``; per-module loggers
     obtained via :func:`get_logger` propagate to it.
     """
     resolved = _resolve_level(level)
@@ -101,7 +101,7 @@ def configure_logger(
     logger.addHandler(handler)
     # Don't double-emit through the root logger's handlers.
     logger.propagate = False
-    logger.debug("trajectory_labs logger configured | level=%s color=%s", resolved, color)
+    logger.debug("evsys_sdk logger configured | level=%s color=%s", resolved, color)
     return logger
 
 

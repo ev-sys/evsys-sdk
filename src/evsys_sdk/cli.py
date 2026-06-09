@@ -1,4 +1,4 @@
-"""trajex CLI."""
+"""evsys CLI."""
 
 from __future__ import annotations
 
@@ -125,9 +125,9 @@ def _cmd_init_project(args: argparse.Namespace) -> int:
 
 def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
     from .benchmark_upload import upload_benchmark
-    from .store import TrajectoryStore
+    from .store import EvsysStore
 
-    store = TrajectoryStore(project_id=args.project_id)
+    store = EvsysStore(project_id=args.project_id)
     try:
         result = upload_benchmark(store, args.path)
     except FileNotFoundError as e:
@@ -151,10 +151,10 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
 
 
 def _cmd_validation_upload(args: argparse.Namespace) -> int:
-    from .store import TrajectoryStore
+    from .store import EvsysStore
     from .validation_upload import upload_validation_dataset
 
-    store = TrajectoryStore(project_id=args.project_id)
+    store = EvsysStore(project_id=args.project_id)
     try:
         result = upload_validation_dataset(store, args.path)
     except FileNotFoundError as e:
@@ -199,7 +199,7 @@ def _cmd_new_experiment(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="trajex", description="Trajectory experiments CLI.")
+    parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_val = sub.add_parser("validate", help="Validate a YAML experiment file.")
@@ -231,14 +231,14 @@ def main(argv: list[str] | None = None) -> int:
     bench_sub = p_bench.add_subparsers(dest="bench_cmd", required=True)
     p_bup = bench_sub.add_parser("upload", help="Register a local benchmark dir with the dashboard.")
     p_bup.add_argument("path", help="Path to data/benchmark/<name>/.")
-    p_bup.add_argument("--project-id", default=None, help="Override TRAJECTORY_PROJECT_ID.")
+    p_bup.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
     p_bup.set_defaults(func=_cmd_benchmark_upload)
 
     p_valset = sub.add_parser("validation", help="Manage harbor-format validation sets (in-loop eval).")
     valset_sub = p_valset.add_subparsers(dest="validation_cmd", required=True)
     p_vup = valset_sub.add_parser("upload", help="Register a local validation dir with the dashboard.")
     p_vup.add_argument("path", help="Path to data/validation/<name>/.")
-    p_vup.add_argument("--project-id", default=None, help="Override TRAJECTORY_PROJECT_ID.")
+    p_vup.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
     p_vup.set_defaults(func=_cmd_validation_upload)
 
     p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")

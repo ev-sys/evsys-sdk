@@ -16,10 +16,10 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.algorithms import ComboAlgorithm, GEPAPromptAlgorithm
-from trajectory_labs.log_stores.jsonl import JSONLLogStore
-from trajectory_labs.protocols import RunContext
-from trajectory_labs.registry import (
+from evsys_sdk.algorithms import ComboAlgorithm, GEPAPromptAlgorithm
+from evsys_sdk.log_stores.jsonl import JSONLLogStore
+from evsys_sdk.protocols import RunContext
+from evsys_sdk.registry import (
     get_algorithm,
     register_algorithm,
 )
@@ -85,7 +85,7 @@ class TestComboAlgorithm:
             def __init__(self, **kwargs): pass
             def train(self, ctx):
                 seen["init"] = ctx.extras.get("init_checkpoint")
-                from trajectory_labs.protocols import RunResult
+                from evsys_sdk.protocols import RunResult
                 return RunResult(run_id=ctx.run_id, status="completed",
                                  metrics={"ok": 1.0}, artifacts={"final_checkpoint": "fake"})
 
@@ -99,7 +99,7 @@ class TestComboAlgorithm:
             assert "phase1_mock_sft" in seen["init"]
         finally:
             # Clean up the test-only registration to avoid leaking into other tests.
-            from trajectory_labs.registry import _algorithms
+            from evsys_sdk.registry import _algorithms
             _algorithms.unregister("_capture_init_ckpt")
 
     def test_fail_fast_aborts(self, tmp_path: Path):
@@ -110,7 +110,7 @@ class TestComboAlgorithm:
 
             def __init__(self, **kwargs): pass
             def train(self, ctx):
-                from trajectory_labs.protocols import RunResult
+                from evsys_sdk.protocols import RunResult
                 return RunResult(run_id=ctx.run_id, status="failed", error="boom")
 
         try:
@@ -123,7 +123,7 @@ class TestComboAlgorithm:
             # Phase 2 should have been skipped.
             assert not (tmp_path / "phase2_mock_sft").exists()
         finally:
-            from trajectory_labs.registry import _algorithms
+            from evsys_sdk.registry import _algorithms
             _algorithms.unregister("_always_fail")
 
     def test_unknown_phase_kind_raises(self, tmp_path: Path):

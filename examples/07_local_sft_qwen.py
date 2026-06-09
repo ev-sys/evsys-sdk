@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from trajectory_labs import (
+from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,

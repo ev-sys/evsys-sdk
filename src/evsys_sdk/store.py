@@ -1,4 +1,4 @@
-"""TrajectoryStore — HTTP client for the project → goals/datasets/benchmarks →
+"""EvsysStore — HTTP client for the project → goals/datasets/benchmarks →
 experiments → groups → runs → checkpoints/evals/metrics hierarchy.
 
 The SDK holds **no Supabase service key**. Every call routes through the
@@ -7,8 +7,8 @@ user's Bearer API key; the backend validates the key, checks the user is a
 member of the relevant project, runs the op with its service key, and returns
 the data. Same method surface as before — only the transport changed.
 
-Env: ``TRAJECTORY_API_URL`` (backend base URL), ``TRAJECTORY_API_KEY`` (Bearer),
-``TRAJECTORY_PROJECT_ID`` (default project for project-scoped ops).
+Env: ``EVSYS_API_URL`` (backend base URL), ``EVSYS_API_KEY`` (Bearer),
+``EVSYS_PROJECT_ID`` (default project for project-scoped ops).
 """
 
 from __future__ import annotations
@@ -22,31 +22,31 @@ from .constants import (
     API_PREFIX,
     DEFAULT_API_URL,
     DEFAULT_TIMEOUT_S,
-    TRAJECTORY_API_KEY_ENV,
-    TRAJECTORY_API_URL_ENV,
-    TRAJECTORY_PROJECT_ID_ENV,
+    EVSYS_API_KEY_ENV,
+    EVSYS_API_URL_ENV,
+    EVSYS_PROJECT_ID_ENV,
     bearer,
 )
 
 _GATEWAY = API_PREFIX + "/sdk/data/"
 
 
-class TrajectoryStoreError(RuntimeError):
+class EvsysStoreError(RuntimeError):
     def __init__(self, status: int, body: str) -> None:
         super().__init__(f"sdk gateway → HTTP {status}: {body[:300]}")
         self.status, self.body = status, body
 
 
-class TrajectoryStore:
+class EvsysStore:
     def __init__(self, *, base_url: str | None = None, api_key: str | None = None,
                  project_id: str | None = None, timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
-        self.base_url = (base_url or os.environ.get(TRAJECTORY_API_URL_ENV)
+        self.base_url = (base_url or os.environ.get(EVSYS_API_URL_ENV)
                          or DEFAULT_API_URL).rstrip("/")
-        self.api_key = api_key or os.environ.get(TRAJECTORY_API_KEY_ENV)
-        self.project_id = project_id or os.environ.get(TRAJECTORY_PROJECT_ID_ENV)
+        self.api_key = api_key or os.environ.get(EVSYS_API_KEY_ENV)
+        self.project_id = project_id or os.environ.get(EVSYS_PROJECT_ID_ENV)
         self.timeout_s = timeout_s
         if not self.api_key:
-            raise TrajectoryStoreError(0, "missing TRAJECTORY_API_KEY")
+            raise EvsysStoreError(0, "missing EVSYS_API_KEY")
         self._endpoint = f"{self.base_url}{_GATEWAY}"
 
     def _call(self, op: str, **args: Any) -> Any:
@@ -58,7 +58,7 @@ class TrajectoryStore:
             timeout=self.timeout_s,
         )
         if r.status_code >= 400:
-            raise TrajectoryStoreError(r.status_code, r.text)
+            raise EvsysStoreError(r.status_code, r.text)
         return (r.json() or {}).get("result")
 
     def _project(self, project_id: str | None) -> str | None:
@@ -287,4 +287,4 @@ class TrajectoryStore:
         return self._call("get_metrics", run_id=run_id, name=name, split=split)
 
 
-__all__ = ["TrajectoryStore", "TrajectoryStoreError"]
+__all__ = ["EvsysStore", "EvsysStoreError"]

@@ -1,7 +1,7 @@
 """Tests for the validation-dataset feature.
 
 Covers: the typed ``run.validation`` config block, ``upload_validation_dataset``
-(+ ``trajex validation upload`` CLI), the pure metrics.py scoring core
+(+ ``evsys validation upload`` CLI), the pure metrics.py scoring core
 (``compute_validation_metrics``), the tinker evaluator-builder bridge, the
 runner's validation loader, and split-aware step-metric forwarding.
 """
@@ -15,15 +15,15 @@ from typing import Any
 import pytest
 import yaml
 
-from trajectory_labs.cli import main as cli_main
-from trajectory_labs.config import MetricSpec, RunConfig, ValidationConfig
-from trajectory_labs.data_types import HarborTask, InProcessVerifier
-from trajectory_labs.algorithms.validation_evaluator import (
+from evsys_sdk.cli import main as cli_main
+from evsys_sdk.config import MetricSpec, RunConfig, ValidationConfig
+from evsys_sdk.data_types import HarborTask, InProcessVerifier
+from evsys_sdk.algorithms.validation_evaluator import (
     build_validation_evaluator_builders,
     compute_validation_metrics,
 )
-from trajectory_labs.step_metrics import forward_step_metrics
-from trajectory_labs.validation_upload import (
+from evsys_sdk.step_metrics import forward_step_metrics
+from evsys_sdk.validation_upload import (
     VALIDATION_FORMAT,
     ValidationUploadResult,
     upload_validation_dataset,
@@ -230,7 +230,7 @@ def test_changed_content_new_version(val_dir: Path):
 
 def test_cli_validation_upload_happy(val_dir: Path, monkeypatch, capsys):
     fake = _FakeStore()
-    monkeypatch.setattr("trajectory_labs.store.TrajectoryStore", lambda *a, **kw: fake)
+    monkeypatch.setattr("evsys_sdk.store.EvsysStore", lambda *a, **kw: fake)
     rc = cli_main(["validation", "upload", str(val_dir)])
     assert rc == 0
     out = capsys.readouterr().out
@@ -246,7 +246,7 @@ def test_cli_validation_upload_happy(val_dir: Path, monkeypatch, capsys):
 
 
 def test_load_validation_from_path(val_dir: Path):
-    from trajectory_labs.runner import _load_validation
+    from evsys_sdk.runner import _load_validation
 
     run = RunConfig.model_validate(_run_dict(
         path=str(val_dir), eval_for_every=2, metrics=[{"kind": "exact_match"}],
@@ -259,7 +259,7 @@ def test_load_validation_from_path(val_dir: Path):
 
 
 def test_load_validation_disabled_returns_none(val_dir: Path):
-    from trajectory_labs.runner import _load_validation
+    from evsys_sdk.runner import _load_validation
 
     # eval_for_every defaults to 0 → disabled
     run = RunConfig.model_validate(_run_dict(path=str(val_dir),
@@ -268,14 +268,14 @@ def test_load_validation_disabled_returns_none(val_dir: Path):
 
 
 def test_load_validation_no_metrics_returns_none(val_dir: Path):
-    from trajectory_labs.runner import _load_validation
+    from evsys_sdk.runner import _load_validation
 
     run = RunConfig.model_validate(_run_dict(path=str(val_dir), eval_for_every=2))
     assert _load_validation(run) is None
 
 
 def test_load_validation_n_samples_caps(val_dir: Path):
-    from trajectory_labs.runner import _load_validation
+    from evsys_sdk.runner import _load_validation
 
     run = RunConfig.model_validate(_run_dict(
         path=str(val_dir), eval_for_every=2, n_samples=1,
@@ -293,7 +293,7 @@ def test_validation_accepts_dataset_name():
 
 
 def test_validation_dataset_id_for_name_picks_latest(tmp_path):
-    from trajectory_labs.workspace import Workspace
+    from evsys_sdk.workspace import Workspace
 
     class _S:
         def list_validation_datasets(self, project_id=None):
@@ -305,8 +305,8 @@ def test_validation_dataset_id_for_name_picks_latest(tmp_path):
 
 
 def test_load_validation_by_dataset_name(tmp_path, monkeypatch):
-    from trajectory_labs import runner
-    from trajectory_labs.workspace import MaterializedDataset
+    from evsys_sdk import runner
+    from evsys_sdk.workspace import MaterializedDataset
 
     jsonl = tmp_path / "v.jsonl"
     jsonl.write_text(json.dumps(_row("t1", "A")) + "\n")
@@ -324,7 +324,7 @@ def test_load_validation_by_dataset_name(tmp_path, monkeypatch):
             _FakeWS.last = vid
             return MaterializedDataset(str(jsonl), "harbor_task", None, 1, cached=False)
 
-    monkeypatch.setattr("trajectory_labs.workspace.Workspace", _FakeWS)
+    monkeypatch.setattr("evsys_sdk.workspace.Workspace", _FakeWS)
     run = RunConfig.model_validate(_run_dict(
         dataset_name="val_set", eval_for_every=2, metrics=[{"kind": "exact_match"}],
     ))

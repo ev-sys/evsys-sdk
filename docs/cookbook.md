@@ -1,11 +1,11 @@
 # Cookbook
 
-Walkthroughs for the most common things you'll do with `trajectory-labs`.
+Walkthroughs for the most common things you'll do with `evsys-sdk`.
 
 ## Setup
 
 ```bash
-cd trajectory-labs
+cd evsys-sdk
 uv venv .venv
 source .venv/bin/activate
 uv pip install -e ".[tinker,local,tensorboard]"
@@ -39,8 +39,8 @@ sugar that produces the same dict tree. This is what an external evolution
 loop should mutate.
 
 ```bash
-trajex validate examples/outputs/02/example.yaml --deep
-trajex run examples/outputs/02/example.yaml
+evsys validate examples/outputs/02/example.yaml --deep
+evsys run examples/outputs/02/example.yaml
 ```
 
 ## 3. Matrix campaigns
@@ -59,18 +59,18 @@ For external packages that should auto-extend the registry, declare an entry
 point in your `pyproject.toml`:
 
 ```toml
-[project.entry-points."trajectory_labs.algorithms"]
+[project.entry-points."evsys_sdk.algorithms"]
 my_dpo = "my_pkg.algorithms:MyDPO"
 ```
 
-When `trajectory_labs` imports, every entry point in that group is
+When `evsys_sdk` imports, every entry point in that group is
 loaded. No fork needed.
 
 ## 5. Adding your own verifier (reward function)
 
 `examples/05_custom_verifier.py` registers a Gaussian length-reward verifier.
 Same pattern as algorithms; entry point group is
-`trajectory_labs.verifiers`.
+`evsys_sdk.verifiers`.
 
 ## 6. Real Tinker SFT
 
@@ -83,11 +83,11 @@ produce a single combined plot.
 ## CLI
 
 ```bash
-trajex list                       # everything in the registries
-trajex list --kind algorithms
-trajex schema algorithm tinker_sft   # print Pydantic JSON schema
-trajex validate config.yaml --deep   # validate top-level + each kind/params block
-trajex run config.yaml            # run an experiment
+evsys list                       # everything in the registries
+evsys list --kind algorithms
+evsys schema algorithm tinker_sft   # print Pydantic JSON schema
+evsys validate config.yaml --deep   # validate top-level + each kind/params block
+evsys run config.yaml            # run an experiment
 ```
 
 ## Architecture map
@@ -114,7 +114,7 @@ entry-point group.
 ## Stores: local vs Supabase
 
 The library defines `DataStore` and `LogStore` as protocols (see
-`src/trajectory_labs/protocols.py`). Built-in implementations:
+`src/evsys_sdk/protocols.py`). Built-in implementations:
 
 * `LocalDataStore` (root-anchored filesystem JSONL/JSON)
 * `InMemoryDataStore` (test-only)
@@ -122,8 +122,8 @@ The library defines `DataStore` and `LogStore` as protocols (see
 * `TensorBoardLogStore` (SummaryWriter)
 * `MultiplexLogStore` (fan-out to N children)
 
-Supabase adapters live in `trajectory_labs.adapters.supabase` (extra:
-`pip install trajectory-labs[supabase]`). They are optional — the core
+Supabase adapters live in `evsys_sdk.adapters.supabase` (extra:
+`pip install evsys-sdk[supabase]`). They are optional — the core
 library imports zero Supabase code.
 
 ## Backends
@@ -136,14 +136,14 @@ Tinker training. Algorithms are routed to the right code path based on
 
 | Extension point | Decorator | Entry point group |
 |---|---|---|
-| Algorithm | `@register_algorithm("name")` | `trajectory_labs.algorithms` |
-| Verifier | `@register_verifier("name")` | `trajectory_labs.verifiers` |
-| Metric | `@register_metric("name")` | `trajectory_labs.metrics` |
-| Backend | `@register_backend("name")` | `trajectory_labs.backends` |
-| InferenceClient | `@register_inference("name")` | `trajectory_labs.inference` |
-| Transform | `@register_transform("name")` | `trajectory_labs.transforms` |
-| DataStore | `@register_data_store("name")` | `trajectory_labs.data_stores` |
-| LogStore | `@register_log_store("name")` | `trajectory_labs.log_stores` |
+| Algorithm | `@register_algorithm("name")` | `evsys_sdk.algorithms` |
+| Verifier | `@register_verifier("name")` | `evsys_sdk.verifiers` |
+| Metric | `@register_metric("name")` | `evsys_sdk.metrics` |
+| Backend | `@register_backend("name")` | `evsys_sdk.backends` |
+| InferenceClient | `@register_inference("name")` | `evsys_sdk.inference` |
+| Transform | `@register_transform("name")` | `evsys_sdk.transforms` |
+| DataStore | `@register_data_store("name")` | `evsys_sdk.data_stores` |
+| LogStore | `@register_log_store("name")` | `evsys_sdk.log_stores` |
 
 Each registered class declares a `Config: ClassVar[type]` Pydantic model that
 defines the legal field space — this is exactly what an evolutionary

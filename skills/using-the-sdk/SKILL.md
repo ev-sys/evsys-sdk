@@ -1,28 +1,28 @@
 ---
 name: using-the-sdk
 description: >
-  How to use the trajectory-labs SDK to read project goals + experiment history
-  and to create/launch experiments: TrajectoryStore (backend-routed data access)
+  How to use the evsys-sdk SDK to read project goals + experiment history
+  and to create/launch experiments: EvsysStore (backend-routed data access)
   and Workspace (local dataset cache). Use when writing code that reads or writes
   experiments/runs/datasets/benchmarks/metrics, or materializes data for training.
 ---
 
-# Using the trajectory-labs SDK
+# Using the evsys-sdk SDK
 
-Two objects. **`TrajectoryStore`** routes every call through the backend gateway
+Two objects. **`EvsysStore`** routes every call through the backend gateway
 with your Bearer API key — **no Supabase key in the SDK**; the backend checks
 project membership and does the DB I/O. **`Workspace`** caches remote datasets to
 local JSONL for fast training.
 
 ```bash
-export TRAJECTORY_API_URL="https://<backend>"   # backend base URL
-export TRAJECTORY_API_KEY="sk_..."               # dashboard → Settings → API keys
-export TRAJECTORY_PROJECT_ID="<uuid>"            # default project for project-scoped calls
+export EVSYS_API_URL="https://<backend>"   # backend base URL
+export EVSYS_API_KEY="sk_..."               # dashboard → Settings → API keys
+export EVSYS_PROJECT_ID="<uuid>"            # default project for project-scoped calls
 ```
 
 ```python
-from trajectory_labs import TrajectoryStore, Workspace
-store = TrajectoryStore()           # reads the env above
+from evsys_sdk import EvsysStore, Workspace
+store = EvsysStore()           # reads the env above
 ```
 
 ## Hierarchy
@@ -74,7 +74,7 @@ store.set_conclusion(exp["id"], "4B matched 9B at half the cost — promote.")
 Remote-first: pull a dataset to local JSONL **once**, then train from the file.
 
 ```python
-ws = Workspace(store)                       # root: $TRAJECTORY_WORKSPACE or ./.trajectory (gitignored)
+ws = Workspace(store)                       # root: $EVSYS_WORKSPACE or ./.evsys (gitignored)
 mat = ws.pull_dataset(dataset_id)           # cache-hit if already local; else fetch+write
 # mat.path  → JSONL of RAW rows (one per line)
 # mat.format, mat.transform → how to render raw → typed (source_kind=jsonl + transform)

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.log_stores.jsonl import JSONLLogStore
-from trajectory_labs.log_stores.multiplex import MultiplexLogStore
+from evsys_sdk.log_stores.jsonl import JSONLLogStore
+from evsys_sdk.log_stores.multiplex import MultiplexLogStore
 
 
 def test_jsonl_log_store_writes_metrics(tmp_path: Path):

@@ -2,10 +2,10 @@
 
 External packages declare extensions in their pyproject.toml:
 
-    [project.entry-points."trajectory_labs.algorithms"]
+    [project.entry-points."evsys_sdk.algorithms"]
     my_dpo = "my_pkg.algorithms:MyDPO"
 
-When trajectory_labs imports, we walk those groups and import each
+When evsys_sdk imports, we walk those groups and import each
 target module — its top-level @register_* decorators run, populating our
 registries. No fork required.
 
@@ -21,14 +21,14 @@ from importlib.metadata import entry_points
 logger = logging.getLogger(__name__)
 
 _GROUPS = (
-    "trajectory_labs.algorithms",
-    "trajectory_labs.verifiers",
-    "trajectory_labs.metrics",
-    "trajectory_labs.data_stores",
-    "trajectory_labs.log_stores",
-    "trajectory_labs.backends",
-    "trajectory_labs.inference",
-    "trajectory_labs.transforms",
+    "evsys_sdk.algorithms",
+    "evsys_sdk.verifiers",
+    "evsys_sdk.metrics",
+    "evsys_sdk.data_stores",
+    "evsys_sdk.log_stores",
+    "evsys_sdk.backends",
+    "evsys_sdk.inference",
+    "evsys_sdk.transforms",
 )
 
 

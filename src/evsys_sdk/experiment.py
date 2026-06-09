@@ -9,7 +9,7 @@ to one declarative ``.run()`` call.
 Usage:
 
     # experiments/<date>_<slug>/run.py
-    from trajectory_labs import Experiment
+    from evsys_sdk import Experiment
     import scripts   # registers custom verifiers/transforms
 
     Experiment.from_yaml("config.yaml").run()
@@ -31,7 +31,7 @@ Config carries the project-shaped fields under ``metadata``:
         breakdown_keys: ["toolkit"]
 
 Dependencies are injectable for testing:
-  * ``store``: TrajectoryStore (None → skip dashboard records, run locally)
+  * ``store``: EvsysStore (None → skip dashboard records, run locally)
   * ``train_fn``: ``(cfg) -> list[RunResult]`` (default: ``runner.run_experiment``)
   * ``benchmark``: ``Benchmark`` (overrides metadata.benchmark.path)
   * ``inference_factory``: ``(RunResult, RunConfig) -> InferenceClient``
@@ -233,7 +233,7 @@ class Experiment:
         if path:
             return Benchmark.from_dir(path)
         # Preferred: a dashboard benchmark by id (or name → latest version's
-        # id), pulled into the local .trajectory/ workspace. path is the
+        # id), pulled into the local .evsys/ workspace. path is the
         # offline / dev fallback above.
         bid, name = spec.get("id"), spec.get("name")
         if not (bid or name):

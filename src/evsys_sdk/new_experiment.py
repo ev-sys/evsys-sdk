@@ -6,12 +6,12 @@ Emits two files:
     hypothesis / success_metric / benchmark live.
   * ``run.py`` — the 3-line declarative entrypoint researchers run:
 
-        from trajectory_labs import Experiment
+        from evsys_sdk import Experiment
         import scripts   # registers project verifiers / metrics / transforms
 
         Experiment.from_yaml("config.yaml").run()
 
-Use via the CLI: ``trajex new-experiment <slug>``. Programmatically:
+Use via the CLI: ``evsys new-experiment <slug>``. Programmatically:
 ``new_experiment(project_root, slug)``.
 """
 
@@ -79,7 +79,7 @@ def _config_yaml(slug: str) -> str:
 # tags, success_metric, benchmark). The rest is a regular ExperimentConfig.
 
 name: {slug}
-output_dir: ./.trajectory/outputs/{slug}
+output_dir: ./.evsys/outputs/{slug}
 
 metadata:
   hypothesis: "TODO: one-line claim this experiment is testing"
@@ -87,7 +87,7 @@ metadata:
   # success_metric: pass_rate          # ranks arms; sets experiment.best_score
   # benchmark:
   #   path: data/benchmark/<name>      # local harbor dir to score against
-  #   id: <dashboard-benchmark-id>     # paste from `trajex benchmark upload`
+  #   id: <dashboard-benchmark-id>     # paste from `evsys benchmark upload`
   #   breakdown_keys: [toolkit]
   #   max_tokens: 512
 
@@ -123,7 +123,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trajectory_labs import Experiment
+from evsys_sdk import Experiment
 import scripts  # noqa: F401 — registers project verifiers / metrics / transforms
 
 

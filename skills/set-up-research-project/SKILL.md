@@ -1,20 +1,20 @@
 ---
 name: Set up research project
-description: Scaffold or migrate a repo to the trajectory-labs research-project layout (data/, scripts/, experiments/, .trajectory/). Use when starting a new project that will use the SDK, or when the user has an existing ad-hoc trajectory-labs project (loose `training/` scripts, scattered data files) they want to bring into the standard shape.
+description: Scaffold or migrate a repo to the evsys-sdk research-project layout (data/, scripts/, experiments/, .evsys/). Use when starting a new project that will use the SDK, or when the user has an existing ad-hoc evsys-sdk project (loose `training/` scripts, scattered data files) they want to bring into the standard shape.
 ---
 
 # Set up research project
 
-This skill stands up a new repo against the trajectory-labs research-project
+This skill stands up a new repo against the evsys-sdk research-project
 layout, or migrates an existing one into it. Use it when:
 
-  * The user is starting a new project that will use `trajectory-labs`.
+  * The user is starting a new project that will use `evsys-sdk`.
   * The user has an existing ad-hoc project (e.g. `composio-bench`-style:
     loose `training/`, scattered `data/`, no `experiments/` or `scripts/`)
     and wants to bring it into the standard shape.
 
 The target layout is the one documented in
-`trajectory-labs-sdk/docs/DESIGN.md` → "Researcher-project layout":
+`evsys-sdk/docs/DESIGN.md` → "Researcher-project layout":
 
 ```
 <project>/
@@ -34,7 +34,7 @@ The target layout is the one documented in
 ├── experiments/<yyyymmdd>_<slug>/
 │   ├── config.yaml                 # ExperimentConfig
 │   └── run.py                      # `Experiment.from_yaml("config.yaml").run()`
-└── .trajectory/                    # gitignored runtime mirror + outputs
+└── .evsys/                    # gitignored runtime mirror + outputs
 ```
 
 ## Decide: new or existing?
@@ -59,36 +59,36 @@ confirmed which path.
 1. Confirm the project name with the user (default to the directory basename).
 2. Run:
    ```bash
-   trajex init-project . --name <project_name>
+   evsys init-project . --name <project_name>
    # or, if scaffolding into a separate dir:
-   trajex init-project <path> --name <project_name>
+   evsys init-project <path> --name <project_name>
    ```
    The CLI refuses non-empty dirs unless you pass `--force`. `--force` only
    fills in missing files — it never overwrites a file the user already wrote.
 3. Create a `uv`-managed `.venv` and install the project into it:
    ```bash
    uv venv                    # creates .venv/ using requires-python from pyproject.toml
-   uv pip install -e .        # installs the project (pulls in trajectory-labs) editable
+   uv pip install -e .        # installs the project (pulls in evsys-sdk) editable
    ```
    `uv venv` is idempotent — if `.venv/` already exists it leaves it alone, so
-   it's safe to run on a repo that's already set up. `trajex init-project`
+   it's safe to run on a repo that's already set up. `evsys init-project`
    already gitignores `.venv/`, so nothing to add there.
    Tell the user to activate it with `source .venv/bin/activate` (or just prefix
-   commands with `uv run`, e.g. `uv run trajex new-experiment ...`).
+   commands with `uv run`, e.g. `uv run evsys new-experiment ...`).
 4. Walk the user through what landed:
    * `data/` lineage convention (raw → fetch → process → datasets/<name>/v<N>/)
    * `scripts/{verifiers,metrics,transforms}.py` with commented examples
    * `pyproject.toml` declaring `scripts` as the importable package
-   * `.gitignore` (`.trajectory/`, `data/raw/`, `.venv/`)
+   * `.gitignore` (`.evsys/`, `data/raw/`, `.venv/`)
 5. Show how to add the first experiment:
    ```bash
-   trajex new-experiment first_check
+   evsys new-experiment first_check
    ```
    Tell the user to edit the generated `config.yaml`, then
    `python experiments/<dir>/run.py` (or `uv run python experiments/<dir>/run.py`).
 6. Point them at:
-   * `trajectory-labs-sdk/docs/DESIGN.md` — layout rationale.
-   * `using-trajectory-sdk` skill — how `Experiment.from_yaml(...).run()` works
+   * `evsys-sdk/docs/DESIGN.md` — layout rationale.
+   * `using-evsys-sdk` skill — how `Experiment.from_yaml(...).run()` works
      end-to-end (dashboard records, sweep expansion, eval, conclusion).
 
 ## Migration path (existing project)
@@ -112,12 +112,12 @@ before touching anything.
 | `training/eval_*.py` (standalone eval scripts) | replace with `metadata.benchmark` block in `config.yaml` + the SDK's `Benchmark` |
 | `data/eval_queries_v2.json` (eval set) | `data/benchmark/composio_eval_v2/tasks.jsonl` (harbor-format JSONL — one task per line) + `metadata.yaml`; convert via a small `data/process/<name>_to_harbor.py` script |
 | `data/sft_overdose_v17_think.jsonl` (training data) | `data/datasets/sft_overdose/v17/train.jsonl` + `metadata.yaml` (source, parent version, row count) |
-| `output/`, `checkpoints/`, scattered log dirs | `.trajectory/` (gitignored) |
+| `output/`, `checkpoints/`, scattered log dirs | `.evsys/` (gitignored) |
 | `analysis/`, `notebooks/` | leave in place; not part of the layout |
 
 ### Step 2: scaffold the target dirs
 
-Run `trajex init-project . --force` to fill in any missing standard files
+Run `evsys init-project . --force` to fill in any missing standard files
 without clobbering existing ones. Then create the data subdirs that didn't
 exist yet (`data/datasets/<name>/v1/`, `data/benchmark/<name>/`).
 
@@ -142,18 +142,18 @@ on anything that:
 After moves:
   * Files that imported `trajectory_ext.verifiers` → import from `scripts`.
   * Scripts that called `backfill_run` → delete the call (Experiment does it).
-  * `from trajectory_labs import …` imports for the OOP path
+  * `from evsys_sdk import …` imports for the OOP path
     (`Experiment`, `Sweep`, `Benchmark`) are now top-level.
 
 ### Step 5: rebuild one experiment as a smoke test
 
 Pick one prior training script and port it end-to-end to the new layout:
-  1. `trajex new-experiment <slug_matching_old_script>`.
+  1. `evsys new-experiment <slug_matching_old_script>`.
   2. Translate the script's hypothesis / hyperparameters / sweep axis into
      the new `config.yaml`'s `metadata` + `matrix:` blocks.
   3. Reduce `run.py` to `Experiment.from_yaml("config.yaml").run()`.
   4. Upload any benchmark it referenced:
-     `trajex benchmark upload data/benchmark/<name>` — paste the printed id
+     `evsys benchmark upload data/benchmark/<name>` — paste the printed id
      into `config.yaml`'s `metadata.benchmark.id`.
   5. Run it with the mock backend first (set `backend.kind: mock`) to
      confirm the wiring works without spending compute.
@@ -175,17 +175,17 @@ scripts — one at a time, each as its own PR if possible.
 
 ## What to point the user at after you're done
 
-  * `trajex new-experiment <slug>` for every subsequent experiment.
-  * `trajex benchmark upload data/benchmark/<name>` whenever a benchmark
+  * `evsys new-experiment <slug>` for every subsequent experiment.
+  * `evsys benchmark upload data/benchmark/<name>` whenever a benchmark
     (the TEST set, scored after training) changes content (idempotent
     re-upload returns "unchanged").
-  * `trajex validation upload data/validation/<name>` for an in-loop
+  * `evsys validation upload data/validation/<name>` for an in-loop
     VALIDATION set — scored every N steps during training to drive model
     selection. Paste the printed id into the run's `validation.dataset_id`
     and set `validation.eval_for_every` + `validation.metrics` (metrics.py
     kinds). Benchmark = final test; validation = model selection. Keep them
     separate so selection never keys off the test set.
-  * `using-trajectory-sdk` skill for the day-to-day patterns
+  * `using-evsys-sdk` skill for the day-to-day patterns
     (`Experiment.from_yaml(...).run()`, sweep / matrix syntax, scoring).
   * `getting-experiment-context` skill if they want to recall prior results
     before designing a new experiment.

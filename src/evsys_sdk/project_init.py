@@ -1,4 +1,4 @@
-"""Scaffold a new Trajectory research project on disk.
+"""Scaffold a new EvolvingSystems research project on disk.
 
 Emits the locked directory layout (see ``docs/DESIGN.md`` — researcher-project
 layout) so every project the training-decider agent bootstraps has the same
@@ -22,7 +22,7 @@ predictable shape:
         transforms.py
       experiments/.gitkeep
 
-Use via the CLI: ``trajex init-project <name>``. Programmatically: call
+Use via the CLI: ``evsys init-project <name>``. Programmatically: call
 ``init_project(path, name=...)``.
 """
 
@@ -113,10 +113,10 @@ def _pyproject_toml(name: str) -> str:
 [project]
 name = "{name}"
 version = "0.1.0"
-description = "Trajectory Labs research project."
+description = "EvolvingSystems research project."
 requires-python = ">=3.11"
 dependencies = [
-  "trajectory-labs",
+  "evsys-sdk",
 ]
 
 [build-system]
@@ -132,7 +132,7 @@ def _readme(name: str) -> str:
     return f'''\
 # {name}
 
-A Trajectory Labs research project.
+A EvolvingSystems research project.
 
 ## Layout
 ```
@@ -143,12 +143,12 @@ experiments/  # one date-prefixed dir per experiment (config.yaml + run.py)
 
 ## Common commands
 ```
-trajex new-experiment <slug>             # scaffold experiments/<today>_<slug>/
-trajex benchmark upload data/benchmark/<name>  # register a benchmark with the dashboard
+evsys new-experiment <slug>             # scaffold experiments/<today>_<slug>/
+evsys benchmark upload data/benchmark/<name>  # register a benchmark with the dashboard
 python experiments/<dir>/run.py          # run an experiment
 ```
 
-See `docs/DESIGN.md` in `trajectory-labs-sdk` for the layout rationale.
+See `docs/DESIGN.md` in `evsys-sdk` for the layout rationale.
 '''
 
 
@@ -159,8 +159,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# Trajectory local mirror + cached datasets, checkpoints, log_store output
-.trajectory/
+# EvolvingSystems local mirror + cached datasets, checkpoints, log_store output
+.evsys/
 
 # Untracked source dumps — usually too large for git
 data/raw/
@@ -181,7 +181,7 @@ Lineage flows top to bottom — never rewrite earlier stages.
               + metadata.yaml (source, parent version, row count, schema hash).
   benchmark/  Harbor-format eval suites. Each is data/benchmark/<name>/tasks.jsonl
               + optional images/ + raw/ + metadata.yaml. Register with
-              `trajex benchmark upload data/benchmark/<name>`.
+              `evsys benchmark upload data/benchmark/<name>`.
 '''
 
 
@@ -214,9 +214,9 @@ verifier-fn (registered via @register_verifier_fn).
 """
 # from typing import Any, ClassVar
 # from pydantic import BaseModel
-# from trajectory_labs.registry import register_verifier
-# from trajectory_labs.protocols import VerificationResult
-# from trajectory_labs.verifiers import register_verifier_fn
+# from evsys_sdk.registry import register_verifier
+# from evsys_sdk.protocols import VerificationResult
+# from evsys_sdk.verifiers import register_verifier_fn
 #
 #
 # @register_verifier_fn("my_match")
@@ -234,7 +234,7 @@ in the SDK. Add custom ones here when those don't fit your benchmark.
 """
 # from typing import Any, ClassVar
 # from pydantic import BaseModel
-# from trajectory_labs.registry import register_metric
+# from evsys_sdk.registry import register_metric
 #
 #
 # @register_metric("my_metric")
@@ -256,7 +256,7 @@ A transform is registered with `@register_transform("name")` and chains in
 """
 # from typing import ClassVar, Iterable
 # from pydantic import BaseModel
-# from trajectory_labs.registry import register_transform
+# from evsys_sdk.registry import register_transform
 #
 #
 # @register_transform("my_transform")
