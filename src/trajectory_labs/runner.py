@@ -254,7 +254,7 @@ def _execute_run(
     backend = _build_from_spec(get_backend, run.backend)
 
     # Data.
-    raw_rows = _load_rows(run.data, data_store)
+    raw_rows = _load_rows(run.data, data_store) # TODO : avoid loading entire dataset into memory
     train_rows = _apply_transforms(raw_rows, run.data)
 
     # Algorithm.
