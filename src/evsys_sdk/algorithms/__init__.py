@@ -30,7 +30,12 @@ except ImportError:
     pass
 
 try:
-    from .tinker_sdft import TinkerSDFT  # noqa: F401
+    from .native_sdft import NativeSDFT  # noqa: F401  — native loop
+except ImportError:
+    pass
+
+try:
+    from .tinker_sdft import TinkerSDFT  # noqa: F401  — deprecated
 except ImportError:
     pass
 
