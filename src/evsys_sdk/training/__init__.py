@@ -38,6 +38,22 @@ from .loop import (
     TrainingBatch,
     TrainingLoop,
 )
+from .sft_data import row_to_datum, sft_tokenize
+from .templates import (
+    Message,
+    apply_template,
+    messages_to_model_input,
+    text_to_model_input,
+)
+
+# TinkerBackend is optional — it imports `tinker_cookbook` lazily for the
+# tokenizer helper. Most tests don't need it; surface it conditionally so
+# `import evsys_sdk.training` doesn't pull the cookbook for a MockBackend run.
+try:  # pragma: no cover  — import-guard for environments without tinker
+    from .tinker_backend import TinkerBackend, TinkerSamplingClient
+except ImportError as _e:  # pragma: no cover
+    TinkerBackend = None  # type: ignore[assignment]
+    TinkerSamplingClient = None  # type: ignore[assignment]
 
 __all__ = [
     "Backend",
@@ -47,11 +63,19 @@ __all__ = [
     "LoopArtifacts",
     "LossCallable",
     "ManifestRow",
+    "Message",
     "MockBackend",
     "MockSamplingClient",
     "OptimStepResult",
     "SamplingClient",
     "StepBuilder",
+    "TinkerBackend",
+    "TinkerSamplingClient",
     "TrainingBatch",
     "TrainingLoop",
+    "apply_template",
+    "messages_to_model_input",
+    "row_to_datum",
+    "sft_tokenize",
+    "text_to_model_input",
 ]
