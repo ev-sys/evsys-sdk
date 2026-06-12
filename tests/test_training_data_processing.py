@@ -7,6 +7,10 @@ async, no tinker session.
 from __future__ import annotations
 
 import pytest
+
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import tinker
 
 from evsys_sdk.training.data_processing import (

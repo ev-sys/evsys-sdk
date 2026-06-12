@@ -9,6 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import torch
 
 from evsys_sdk.training.sft_data import row_to_datum, sft_tokenize

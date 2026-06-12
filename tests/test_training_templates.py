@@ -11,6 +11,9 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 from evsys_sdk.training.templates import (
     apply_template,
     messages_to_model_input,
