@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+
 from evsys_sdk.registry import get_default_inference_factory
 
 

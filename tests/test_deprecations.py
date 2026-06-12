@@ -11,6 +11,12 @@ import warnings
 
 import pytest
 
+# The tinker_* / native_* wrappers import tinker (+ tinker_cookbook / torch),
+# which are optional deps not installed in base CI.
+pytest.importorskip("tinker")
+pytest.importorskip("torch")
+pytest.importorskip("tinker_cookbook")
+
 
 def test_tinker_sft_emits_deprecation():
     from evsys_sdk.algorithms.tinker_sft import TinkerSFT

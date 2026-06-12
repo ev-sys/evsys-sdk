@@ -13,6 +13,10 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+pytest.importorskip("tinker_cookbook")
+
 from evsys_sdk.algorithms.tinker_sdft import TinkerSDFT, TinkerSDFTConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm

@@ -13,6 +13,9 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("tinker_cookbook")
+
 from evsys_sdk.algorithms.tinker_sft import (
     TinkerSFTConfig,
     _apply_template,
