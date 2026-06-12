@@ -883,3 +883,165 @@ def test_step_metrics_no_op_without_local_file(single_run_config: ExperimentConf
     Experiment(single_run_config, store=store, train_fn=_make_train_fn()).run()
     forwarded = [c[1] for c in store.calls if c[0] == "log_metrics"]
     assert forwarded == []
+
+
+# ---------------------------------------------------------------------------
+# Multi-benchmark (list-form) eval — task #39 commit 1
+# ---------------------------------------------------------------------------
+
+
+def _make_bench_dir(tmp_path: Path, name: str, expected_a: str, expected_b: str) -> Path:
+    """Two-task harbor benchmark; lets each ScriptedInference produce 2 strs."""
+    root = tmp_path / name
+    root.mkdir()
+    rows = [
+        {"task_id": f"{name}-t1", "instruction": "Q1",
+         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": expected_a},
+         "metadata": {}},
+        {"task_id": f"{name}-t2", "instruction": "Q2",
+         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": expected_b},
+         "metadata": {}},
+    ]
+    (root / "tasks.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    (root / "metadata.yaml").write_text(yaml.safe_dump({"name": name}))
+    return root
+
+
+def test_single_dict_benchmark_still_works(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """Back-compat: legacy single-dict `metadata.benchmark` keeps producing
+    one EvalResult and mirrors into eval_metrics/eval_breakdowns."""
+    single_run_config.metadata["benchmark"] = {"path": str(benchmark_dir)}
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    arm = res.arms[0]
+    assert len(arm.evals) == 1
+    assert arm.evals[0].step is None
+    assert arm.evals[0].metrics["pass_rate"] == 1.0
+    # Flat back-compat fields mirror the single eval.
+    assert arm.eval_metrics["pass_rate"] == 1.0
+
+
+def test_list_benchmark_runs_each_entry(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """List form: two post-training entries → arm.evals has 2 rows in order,
+    each named and tagged per the spec."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+        {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+    ]
+    store = _FakeStore()
+    completions = iter([["A", "B"], ["A", "X"]])  # val perfect, test 1/2
+    res = Experiment(
+        single_run_config, store=store, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    arm = res.arms[0]
+
+    assert [e.name for e in arm.evals] == ["val_set", "test_set"]
+    assert arm.evals[0].metrics["pass_rate"] == 1.0
+    assert arm.evals[1].metrics["pass_rate"] == 0.5
+    assert arm.evals[0].tags == ["val"]
+    assert arm.evals[1].tags == ["test"]
+    # Each benchmark round-trips to create_eval on the dashboard.
+    eval_calls = [c[1] for c in store.calls if c[0] == "create_eval"]
+    assert len(eval_calls) == 2
+
+
+def test_list_benchmark_primary_mirrors_first_test_tagged(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """eval_metrics mirrors the FIRST `test`-tagged entry, even if it isn't
+    the first overall — that's the post-training metric researchers care about."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+        {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+    ]
+    # val gets 100%, test gets 50% → flat field should mirror test (0.5).
+    completions = iter([["A", "B"], ["A", "X"]])
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    arm = res.arms[0]
+    assert arm.eval_metrics["pass_rate"] == 0.5
+
+
+def test_arm_eval_lookup_by_name(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """arm.eval(name) returns the matching EvalResult; None for misses."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "v", "path": str(val_dir), "tags": ["val"]},
+    ]
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    arm = res.arms[0]
+    assert arm.eval("v") is not None
+    assert arm.eval("v").metrics["pass_rate"] == 1.0
+    assert arm.eval("does_not_exist") is None
+
+
+def test_dotted_success_metric_picks_named_benchmark(
+    tmp_path: Path, base_run: RunConfig
+):
+    """`success_metric: <bench>.pass_rate` ranks arms by the named eval,
+    not by the (mirrored) first-test default."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    cfg = ExperimentConfig(
+        name="dotted",
+        matrix=MatrixSpec(
+            base_run=base_run,
+            axes={"algorithm.params.lora_rank": [1, 4]},
+        ),
+        metadata={
+            "benchmark": [
+                {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+                {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+            ],
+            "success_metric": "test_set.pass_rate",
+        },
+    )
+    # rank=1 gets 100% on val, 0% on test. rank=4 gets 50% on val, 100% on test.
+    # If we ranked by val, rank=1 wins; by test, rank=4 wins.
+    completions = iter([
+        ["A", "B"], ["X", "Y"],   # arm 1: val=100%, test=0%
+        ["A", "X"], ["A", "B"],   # arm 4: val=50%,  test=100%
+    ])
+    res = Experiment(
+        cfg, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    assert res.best_arm.name == "base__lora_rank4"
+    assert res.best_score == pytest.approx(1.0)
+
+
+def test_run_every_entries_are_skipped_post_training(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """Commit 1 surface: an entry with ``run_every`` is parsed and resolves
+    to a Benchmark, but is NOT scored in `_eval_arm` — in-loop scoring is
+    wired by the algorithm wrapper (lands in commit 2). The user sees this
+    via a warning the SDK emits at startup (visual; not asserted here)."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set", "path": str(val_dir), "tags": ["val"], "run_every": 100},
+    ]
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    # `run_every` entry skipped in `_eval_arm` → no EvalResult attached.
+    assert res.arms[0].evals == []

@@ -181,7 +181,10 @@ def _experiment(monkeypatch, tmp_path, spec):
         "algorithm": {"kind": "mock_sft"},
         "backend": {"kind": "mock"},
     })
-    return Experiment(cfg, store=object())._resolve_benchmark(spec)
+    # `_resolve_benchmarks` returns a list of (Benchmark, spec) tuples; the
+    # tests here probe single-spec input so we unwrap the first entry.
+    pairs = Experiment(cfg, store=object())._resolve_benchmarks(spec)
+    return pairs[0][0] if pairs else None
 
 
 def test_resolve_benchmark_by_id(tmp_path, monkeypatch):
@@ -211,6 +214,8 @@ def test_resolve_benchmark_path_still_wins(tmp_path, monkeypatch):
         "name": "r1", "data": {"source_kind": "in_memory", "rows": [{"x": 1}]},
         "model": {"name": "t/f"}, "algorithm": {"kind": "mock_sft"}, "backend": {"kind": "mock"},
     })
-    bench = Experiment(cfg, store=object())._resolve_benchmark({"path": str(root), "id": "ignored"})
+    pairs = Experiment(cfg, store=object())._resolve_benchmarks(
+        {"path": str(root), "id": "ignored"}
+    )
     assert _FakeBenchWorkspace.last_pulled is None  # path used, no pull
-    assert bench is not None and bench.tasks[0].task_id == "p1"
+    assert pairs and pairs[0][0].tasks[0].task_id == "p1"

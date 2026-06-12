@@ -85,7 +85,7 @@ from .registry import (
 )
 from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
 from .checkpoint import Checkpoint, find_manifest, read_manifest
-from .experiment import ArmResult, Experiment, ExperimentResult
+from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
 from .step_metrics import forward_step_metrics
 from .sweep import Sweep, expand_runs
@@ -235,6 +235,7 @@ __all__ = [
     "BenchmarkScore",
     "BenchmarkTaskResult",
     "Checkpoint",
+    "EvalResult",
     "Experiment",
     "ExperimentResult",
     "Sweep",

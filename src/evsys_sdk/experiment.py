@@ -10,7 +10,7 @@ Usage:
 
     # experiments/<date>_<slug>/run.py
     from evsys_sdk import Experiment
-    import scripts   # registers custom verifiers/transforms
+    import src   # registers custom verifiers/transforms
 
     Experiment.from_yaml("config.yaml").run()
 
@@ -67,6 +67,27 @@ InferenceFactory = Callable[[RunResult, RunConfig], InferenceClient]
 
 
 @dataclass
+class EvalResult:
+    """One benchmark scored against one arm at one moment.
+
+    Multiple ``EvalResult`` entries can attach to an ``ArmResult`` when an
+    experiment carries several benchmarks under ``metadata.benchmark``
+    (e.g. a `val` set + a `test` set). The ``step`` field disambiguates
+    in-loop validation rows (with their training-step value) from a
+    single post-training row (``step is None``).
+    """
+
+    name: str
+    benchmark_id: str | None
+    metrics: dict[str, float]
+    breakdowns: dict[str, Any]
+    eval_seconds: float
+    step: int | None = None
+    """``None`` → scored once post-training; int → in-loop at that step."""
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ArmResult:
     """One arm of the experiment (one expanded ``RunConfig``)."""
 
@@ -76,8 +97,12 @@ class ArmResult:
     metrics: dict[str, float] = field(default_factory=dict)
     """Training-side metrics from ``RunResult.metrics``."""
     eval_metrics: dict[str, float] = field(default_factory=dict)
-    """Benchmark eval metrics, if a benchmark was scored."""
+    """Back-compat alias — mirrors ``evals[<primary>].metrics``. ``primary``
+    is the first ``test``-tagged post-training eval, or the first
+    post-training eval, or the first eval overall."""
     eval_breakdowns: dict[str, Any] = field(default_factory=dict)
+    evals: list[EvalResult] = field(default_factory=list)
+    """All benchmarks scored against this arm — see ``EvalResult``."""
     run_id: str | None = None
     error: str | None = None
     train_seconds: float | None = None
@@ -89,8 +114,46 @@ class ArmResult:
     group_name: str | None = None
     """Primary's name (= the group's name) when grouped; else None."""
 
+    def eval(self, name: str, *, step: int | None = None) -> EvalResult | None:
+        """Look up an eval result by benchmark ``name``.
+
+        ``step=None`` (default) → return the post-training row (``step is None``)
+        if present; else the last in-loop row for that benchmark.
+
+        ``step=<int>`` → return the exact in-loop row at that step (or
+        ``None`` if no exact match — callers can do their own nearest-step
+        lookup over ``arm.evals``).
+        """
+        matches = [e for e in self.evals if e.name == name]
+        if not matches:
+            return None
+        if step is None:
+            post = [e for e in matches if e.step is None]
+            if post:
+                return post[0]
+            in_loop = [e for e in matches if e.step is not None]
+            return max(in_loop, key=lambda e: e.step) if in_loop else None
+        return next((e for e in matches if e.step == step), None)
+
     def score(self, metric: str) -> float | None:
-        """Return ``eval_metrics[metric]`` if present, else ``metrics[metric]``."""
+        """Return the metric value for ranking by ``success_metric``.
+
+        Three forms supported:
+
+        * ``"pass_rate"`` (bare) — looked up on ``eval_metrics`` (the
+          primary post-training eval), then ``metrics`` (training-side).
+        * ``"bench.pass_rate"`` (dotted) — looked up on
+          ``arm.eval("bench").metrics["pass_rate"]``. The dotted form wins
+          when an experiment carries multiple named benchmarks and
+          ``success_metric`` picks one explicitly.
+        * Returns ``None`` if neither path resolves.
+        """
+        if "." in metric:
+            bench_name, _, key = metric.partition(".")
+            ev = self.eval(bench_name)
+            if ev is not None and key in ev.metrics:
+                return ev.metrics[key]
+            return None
         if metric in self.eval_metrics:
             return self.eval_metrics[metric]
         return self.metrics.get(metric)
@@ -146,7 +209,19 @@ class Experiment:
         hypothesis = meta.get("hypothesis")
         tags = list(meta.get("tags") or [])
         success_metric = meta.get("success_metric")
-        benchmark = self._resolve_benchmark(meta.get("benchmark") or {})
+        benchmarks = self._resolve_benchmarks(meta.get("benchmark"))
+
+        # Surface the (currently unsupported) in-loop entries so the user
+        # knows why their run_every won't fire yet — full in-loop wiring
+        # ships in the follow-up commit (TinkerSFT / TinkerSDFT path).
+        for _, spec in benchmarks:
+            if spec.get("run_every"):
+                logger.warning(
+                    "metadata.benchmark %r has run_every=%s but in-loop "
+                    "scoring isn't wired yet; this entry will only run "
+                    "post-training. Use run.validation in the meantime.",
+                    spec.get("name"), spec.get("run_every"),
+                )
 
         experiment_id = self._create_experiment(hypothesis, tags, meta)
 
@@ -166,7 +241,7 @@ class Experiment:
             for arm_cfg, group_name in self._replicates_for(primary):
                 group_id = group_id_by_name.get(group_name) if group_name else None
                 arms.append(self._execute_arm(
-                    experiment_id, arm_cfg, benchmark, meta,
+                    experiment_id, arm_cfg, benchmarks, meta,
                     group_id=group_id, group_name=group_name,
                 ))
 
@@ -226,25 +301,61 @@ class Experiment:
             for i in range(n)
         ]
 
-    def _resolve_benchmark(self, spec: dict) -> Benchmark | None:
+    def _resolve_benchmarks(
+        self, raw: dict | list | None
+    ) -> list[tuple[Benchmark, dict]]:
+        """Normalize ``metadata.benchmark`` to a list of ``(Benchmark, spec)``.
+
+        Accepts three shapes:
+
+        * ``None`` / empty → ``[]`` (no eval).
+        * single ``dict`` (legacy single-benchmark form) → wrapped into a
+          one-element list with ``name`` defaulting to ``"benchmark"`` (or
+          the spec's own ``name`` if present).
+        * ``list[dict]`` (new multi-benchmark form) → each entry must carry
+          a ``name`` and may carry ``tags`` and ``run_every``.
+
+        ``self._benchmark_override`` (test seam) bypasses everything and
+        returns a single-entry list.
+        """
         if self._benchmark_override is not None:
-            return self._benchmark_override
+            return [(self._benchmark_override, {"name": "benchmark"})]
+        if not raw:
+            return []
+        specs: list[dict] = [raw] if isinstance(raw, dict) else list(raw)
+        out: list[tuple[Benchmark, dict]] = []
+        for i, spec in enumerate(specs):
+            if not isinstance(spec, dict):
+                raise ValueError(
+                    f"metadata.benchmark[{i}] must be a dict (got {type(spec).__name__})"
+                )
+            bench = self._materialize_benchmark(spec)
+            if bench is None:
+                continue
+            # Default a name when missing — required for list form, harmless for single.
+            spec = dict(spec)
+            spec.setdefault("name", str(spec.get("id") or spec.get("path") or f"benchmark_{i}"))
+            out.append((bench, spec))
+        return out
+
+    def _materialize_benchmark(self, spec: dict) -> Benchmark | None:
+        """Resolve one benchmark spec dict to a ``Benchmark`` (or ``None``)."""
         path = spec.get("path")
         if path:
             return Benchmark.from_dir(path)
         # Preferred: a dashboard benchmark by id (or name → latest version's
         # id), pulled into the local .evsys/ workspace. path is the
         # offline / dev fallback above.
-        bid, name = spec.get("id"), spec.get("name")
-        if not (bid or name):
+        bid, dashboard_name = spec.get("id"), spec.get("name")
+        if not (bid or dashboard_name):
             return None
         from .data_types import harbor_task_from_dict
         from .workspace import Workspace, read_jsonl_rows
         ws = Workspace(self.store) if self.store is not None else Workspace()
-        resolved = str(bid) if bid else ws.benchmark_id_for_name(str(name))
+        resolved = str(bid) if bid else ws.benchmark_id_for_name(str(dashboard_name))
         mat = ws.pull_benchmark(resolved)
         tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
-        return Benchmark.from_iterable(name or "benchmark", tasks)
+        return Benchmark.from_iterable(dashboard_name or "benchmark", tasks)
 
     def _create_experiment(
         self, hypothesis: str | None, tags: list[str], meta: dict
@@ -263,7 +374,7 @@ class Experiment:
         self,
         experiment_id: str | None,
         run_cfg: RunConfig,
-        benchmark: Benchmark | None,
+        benchmarks: list[tuple[Benchmark, dict]],
         meta: dict,
         *,
         group_id: str | None = None,
@@ -280,8 +391,8 @@ class Experiment:
         )
         try:
             arm = self._train_arm(arm, run_cfg)
-            if arm.status == "completed" and benchmark is not None:
-                arm = self._eval_arm(arm, run_cfg, benchmark, meta)
+            if arm.status == "completed" and benchmarks:
+                arm = self._eval_arm(arm, run_cfg, benchmarks, meta)
             self._mark_run_completed(run_id, arm)
         except Exception as e:
             logger.exception("arm %r failed", run_cfg.name)
@@ -342,34 +453,65 @@ class Experiment:
         self,
         arm: ArmResult,
         run_cfg: RunConfig,
-        benchmark: Benchmark,
+        benchmarks: list[tuple[Benchmark, dict]],
         meta: dict,
     ) -> ArmResult:
+        """Score each post-training benchmark and attach an EvalResult per entry.
+
+        Entries flagged with ``run_every`` are in-loop and skipped here (their
+        scoring happens during training in the algorithm wrapper — task
+        commit 2). Entries without ``run_every`` get a single post-training
+        ``EvalResult`` appended to ``arm.evals``.
+
+        After all benchmarks score, the flat back-compat fields
+        (``arm.eval_metrics`` / ``eval_breakdowns`` / ``eval_seconds``)
+        mirror the **primary** eval — the first ``test``-tagged
+        post-training row, else the first post-training row, else nothing.
+        """
         factory = self._resolve_inference_factory(run_cfg)
         if factory is None:
-            logger.info("no inference_factory; skipping benchmark eval for %r", run_cfg.name)
+            logger.info(
+                "no inference_factory; skipping benchmark eval for %r", run_cfg.name
+            )
             return arm
-        bench_meta = dict((meta.get("benchmark") or {}))
         assert arm.run_result is not None
-        client = factory(arm.run_result, run_cfg)
-        # Auto-wrap with chat templating when configured. Lets researchers
-        # declare a system_prompt + user_template in YAML instead of writing
-        # a per-project ChatTemplatedTinker shim in run.py.
-        ct = bench_meta.get("chat_template") or {}
-        if ct:
-            client = ChatTemplatedInference(client, **ct)
-        t0 = time.time()
-        score = benchmark.score(
-            client,
-            max_tokens=int(bench_meta.get("max_tokens", 512)),
-            temperature=float(bench_meta.get("temperature", 0.0)),
-            breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
-            limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
-        )
-        arm.eval_seconds = time.time() - t0
-        arm.eval_metrics = dict(score.metrics)
-        arm.eval_breakdowns = dict(score.breakdowns)
-        self._record_eval(arm, benchmark, bench_meta, score)
+        for bench, bench_meta in benchmarks:
+            if bench_meta.get("run_every"):
+                continue  # in-loop entry — scored by the algorithm wrapper
+            client = factory(arm.run_result, run_cfg)
+            # Auto-wrap with chat templating when configured. Lets researchers
+            # declare a system_prompt + user_template in YAML instead of
+            # writing a per-project ChatTemplatedTinker shim in run.py.
+            ct = bench_meta.get("chat_template") or {}
+            if ct:
+                client = ChatTemplatedInference(client, **ct)
+            t0 = time.time()
+            score = bench.score(
+                client,
+                max_tokens=int(bench_meta.get("max_tokens", 512)),
+                temperature=float(bench_meta.get("temperature", 0.0)),
+                breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+                limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
+            )
+            seconds = time.time() - t0
+            arm.evals.append(EvalResult(
+                name=str(bench_meta.get("name", "benchmark")),
+                benchmark_id=bench_meta.get("id"),
+                metrics=dict(score.metrics),
+                breakdowns=dict(score.breakdowns),
+                eval_seconds=seconds,
+                step=None,
+                tags=list(bench_meta.get("tags") or []),
+            ))
+            self._record_eval(arm, bench, bench_meta, score)
+
+        # Pick the primary post-training eval to mirror into the flat fields.
+        post = [e for e in arm.evals if e.step is None]
+        primary = next((e for e in post if "test" in e.tags), None) or (post[0] if post else None)
+        if primary is not None:
+            arm.eval_metrics = dict(primary.metrics)
+            arm.eval_breakdowns = dict(primary.breakdowns)
+            arm.eval_seconds = primary.eval_seconds
         return arm
 
     # -- store passthroughs (each guarded so store=None is fine) ---------
@@ -497,6 +639,7 @@ def _default_train_fn(cfg: ExperimentConfig) -> list[RunResult]:
 
 __all__ = [
     "ArmResult",
+    "EvalResult",
     "Experiment",
     "ExperimentResult",
     "TrainFn",
