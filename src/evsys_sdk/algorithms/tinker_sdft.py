@@ -182,12 +182,23 @@ class TinkerSDFTConfig(BaseModel):
     wandb_name: str | None = None
 
 
+_DEPRECATION_MSG = (
+    "TinkerSDFT (algorithm.kind: tinker_sdft) delegates to tinker_cookbook "
+    "and is deprecated in favor of `native_sdft`, which runs the loop "
+    "natively in the SDK (no cookbook dep, no monkey-patching of "
+    "sdft.train_step for per-step loss). Flip algorithm.kind to "
+    "'native_sdft' when ready; the YAML surface is identical."
+)
+
+
 @register_algorithm("tinker_sdft")
 class TinkerSDFT:
     name: ClassVar[str] = "tinker_sdft"
     Config: ClassVar[type] = TinkerSDFTConfig
 
     def __init__(self, **kwargs: Any) -> None:
+        import warnings
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         self.cfg = TinkerSDFTConfig.model_validate(kwargs)
 
     def _resolve_save_every(self, total_steps: int) -> int:

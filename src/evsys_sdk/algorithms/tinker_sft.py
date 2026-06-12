@@ -201,12 +201,23 @@ class _RowsBuilder(SupervisedDatasetBuilder):
         return ds, None
 
 
+_DEPRECATION_MSG = (
+    "TinkerSFT (algorithm.kind: tinker_sft) delegates to tinker_cookbook "
+    "and is deprecated in favor of `native_sft`, which runs the training "
+    "loop natively in the SDK and removes the cookbook dependency. Flip "
+    "algorithm.kind in your config to 'native_sft' when ready; the YAML "
+    "field surface is identical modulo cookbook-only knobs."
+)
+
+
 @register_algorithm("tinker_sft")
 class TinkerSFT:
     name: ClassVar[str] = "tinker_sft"
     Config: ClassVar[type] = TinkerSFTConfig
 
     def __init__(self, **kwargs) -> None:
+        import warnings
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         self.cfg = TinkerSFTConfig.model_validate(kwargs)
 
     def _resolve_save_every(self, total_steps: int) -> int:

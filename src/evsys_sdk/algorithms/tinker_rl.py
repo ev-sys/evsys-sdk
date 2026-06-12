@@ -192,12 +192,23 @@ class _RowsRLDatasetBuilder(RLDatasetBuilder):
         return ds, None
 
 
+_DEPRECATION_MSG = (
+    "TinkerRL (algorithm.kind: tinker_rl) delegates to tinker_cookbook "
+    "and is deprecated in favor of `native_rl`, which runs the loop "
+    "natively in the SDK with the new EnvGroupBuilder Protocol "
+    "(single-turn out of the box; multi-turn extends via the same "
+    "Protocol). Flip algorithm.kind to 'native_rl' when ready."
+)
+
+
 @register_algorithm("tinker_rl")
 class TinkerRL:
     name: ClassVar[str] = "tinker_rl"
     Config: ClassVar[type] = TinkerRLConfig
 
     def __init__(self, **kwargs) -> None:
+        import warnings
+        warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         self.cfg = TinkerRLConfig.model_validate(kwargs)
 
     def train(self, ctx: RunContext) -> RunResult:
