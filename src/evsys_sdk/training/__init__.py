@@ -30,6 +30,13 @@ from .backend import (
     OptimStepResult,
     SamplingClient,
 )
+from .callbacks import (
+    Callback,
+    CsvMetricsCallback,
+    EarlyStoppingCallback,
+    LoopState,
+    PrintProgressCallback,
+)
 from .checkpoints import CheckpointManager, ManifestRow
 from .loop import (
     Evaluator,
@@ -77,7 +84,12 @@ except ImportError as _e:  # pragma: no cover
 
 __all__ = [
     "Backend",
+    "Callback",
     "CheckpointManager",
+    "CsvMetricsCallback",
+    "EarlyStoppingCallback",
+    "LoopState",
+    "PrintProgressCallback",
     "Evaluator",
     "ForwardBackwardResult",
     "LoopArtifacts",

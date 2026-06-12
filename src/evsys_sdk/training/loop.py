@@ -32,6 +32,7 @@ from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 import tinker
 
 from .backend import Backend, LossCallable, SamplingClient
+from .callbacks import Callback, LoopState
 from .checkpoints import CheckpointManager, ManifestRow
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,7 @@ class TrainingLoop:
         save_every: int,
         eval_every: int = 0,
         evaluators: list[Evaluator] | None = None,
+        callbacks: list[Callback] | None = None,
         log_prefix: str = "",
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
@@ -190,6 +192,7 @@ class TrainingLoop:
         self.save_every = save_every
         self.eval_every = max(0, int(eval_every))
         self.evaluators: list[Evaluator] = list(evaluators or [])
+        self.callbacks: list[Callback] = list(callbacks or [])
         self.log_prefix = log_prefix
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
@@ -206,27 +209,46 @@ class TrainingLoop:
                 f"start_step={start_step} must be in [0, {num_steps})"
             )
 
+        state = LoopState(
+            step=start_step,
+            num_steps=num_steps,
+            output_dir=self.output_dir,
+            backend=self.backend,
+            log_store=self.log_store,
+            checkpoint_mgr=self.checkpoint_mgr,
+        )
+        self._dispatch("on_train_start", state)
+
         t_start = time.time()
         last_step = start_step
         for step in range(start_step, num_steps):
+            state.step = step
             last_step = step
-            await self._run_one_step(step, num_steps)
+            await self._run_one_step(step, num_steps, state)
+            if state.stop_requested:
+                logger.info(
+                    "TrainingLoop: early-stopped at step %d (callback request)", step,
+                )
+                break
 
         # Always record a final checkpoint, even if `save_every` didn't land
         # on `num_steps - 1`. Downstream eval reads sampler_path off this row.
-        await self._save_checkpoint("final", batch=last_step)
+        await self._save_checkpoint("final", batch=last_step, state=state)
 
-        return LoopArtifacts(
+        artifacts = LoopArtifacts(
             run_dir=self.output_dir,
             manifest_path=self.checkpoint_mgr.manifest_path,
             checkpoints=self.checkpoint_mgr.rows,
             total_steps=num_steps,
             train_seconds=time.time() - t_start,
         )
+        self._dispatch("on_train_end", state, artifacts)
+        return artifacts
 
     # --- per-step machinery -------------------------------------------------
 
-    async def _run_one_step(self, step: int, num_steps: int) -> None:
+    async def _run_one_step(self, step: int, num_steps: int,
+                            state: LoopState | None = None) -> None:
         t0 = time.time()
 
         batch = await self.step_builder.build_batch(step)
@@ -268,14 +290,17 @@ class TrainingLoop:
         metrics[self._keys.finish_batch] = time.time() - t0
 
         self.log_store.log_metrics(metrics, step=step)
+        if state is not None:
+            self._dispatch("on_step_end", state, step, batch, metrics)
 
         if self.checkpoint_mgr.should_save(step):
-            await self._save_checkpoint(f"step_{step + 1}", batch=step)
+            await self._save_checkpoint(f"step_{step + 1}", batch=step, state=state)
 
         if self.eval_every and (step + 1) % self.eval_every == 0 and self.evaluators:
-            await self._run_eval(step)
+            await self._run_eval(step, state)
 
-    async def _save_checkpoint(self, name: str, *, batch: int) -> None:
+    async def _save_checkpoint(self, name: str, *, batch: int,
+                                state: LoopState | None = None) -> None:
         """Snapshot both training state (for resume) and sampler weights
         (for eval), then record one manifest row."""
         state_path = await self.backend.save_full_state(name)
@@ -287,8 +312,10 @@ class TrainingLoop:
             sampler_path=sampler_path,
         )
         self.checkpoint_mgr.record(row)
+        if state is not None:
+            self._dispatch("on_checkpoint", state, row)
 
-    async def _run_eval(self, step: int) -> None:
+    async def _run_eval(self, step: int, state: LoopState | None = None) -> None:
         """Take a sampler snapshot, run every registered evaluator, log
         results under ``val/<eval_name>/<metric>``."""
         sampler = await self.backend.snapshot_sampling_client(
@@ -307,6 +334,24 @@ class TrainingLoop:
                 step=step + 1,
                 split="val",
             )
+            if state is not None:
+                self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))
+
+    # --- callback dispatch -------------------------------------------------
+
+    def _dispatch(self, hook: str, *args: Any) -> None:
+        """Call ``hook`` on every callback. A raising callback NEVER kills
+        the loop; the exception is logged at WARNING and we move on."""
+        for cb in self.callbacks:
+            fn = getattr(cb, hook, None)
+            if fn is None:
+                continue
+            try:
+                fn(*args)
+            except Exception:
+                logger.exception(
+                    "callback %s.%s raised; continuing", type(cb).__name__, hook,
+                )
 
 
 __all__ = [
