@@ -25,7 +25,12 @@ except ImportError:
     pass
 
 try:
-    from .tinker_rl import TinkerRL  # noqa: F401
+    from .native_rl import NativeRL  # noqa: F401  — native loop
+except ImportError:
+    pass
+
+try:
+    from .tinker_rl import TinkerRL  # noqa: F401  — deprecated
 except ImportError:
     pass
 

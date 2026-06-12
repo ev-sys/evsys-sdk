@@ -169,7 +169,7 @@ def _extract_weights(datum: tinker.Datum) -> Any:
     return inputs.get("weights")
 
 
-__all__ = ["SDFTDataset", "SDFTStepBuilder", "SFTStepBuilder"]
+__all__ = ["RLDataset", "RLStepBuilder", "SDFTDataset", "SDFTStepBuilder", "SFTStepBuilder"]
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +429,100 @@ class SDFTStepBuilder:
             add_generation_prompt=True,
             enable_thinking=self.enable_thinking,
         )
+
+
+# ---------------------------------------------------------------------------
+# RL — on-policy rollout + advantages + IS loss
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class RLDataset(Protocol):
+    """Per-step ``Sequence[EnvGroupBuilder]`` source for :class:`RLStepBuilder`.
+
+    The cookbook's ``RLDataset`` Protocol has the same shape — one
+    ``EnvGroupBuilder`` per batch slot, ``batch_size`` builders per step.
+    """
+
+    def __len__(self) -> int: ...
+
+    def get_batch(self, step_idx: int) -> Sequence[Any]:
+        """Return ``batch_size`` :class:`~evsys_sdk.training.env.EnvGroupBuilder` instances."""
+        ...
+
+
+@dataclass
+class RLStepBuilder:
+    """On-policy rollout → group-normalized advantages → IS loss.
+
+    Parameters
+    ----------
+    dataset:
+        Returns ``batch_size`` :class:`~evsys_sdk.training.env.EnvGroupBuilder`
+        instances per step.
+    student_sampler_provider:
+        Async callable returning the latest student sampler (same shape as
+        :class:`SDFTStepBuilder` — composer binds it to
+        ``backend.snapshot_sampling_client``).
+    num_samples:
+        Trajectories per ``EnvGroupBuilder`` (cookbook calls this
+        ``group_size``). >= 2 lets the advantage baseline subtract a
+        within-group mean.
+    drop_constant_reward:
+        When True, groups whose rewards are all equal contribute no
+        gradient under IS, so we drop them before training. Matches the
+        cookbook's ``do_group_rollout_and_filter_constant_reward``.
+    """
+
+    dataset: "RLDataset"
+    student_sampler_provider: SamplerProvider
+    num_samples: int = 1
+    max_tokens: int = 256
+    temperature: float = 1.0
+    drop_constant_reward: bool = False
+
+    @property
+    def steps_per_epoch(self) -> int:
+        return len(self.dataset)
+
+    async def build_batch(self, step_idx: int) -> TrainingBatch:
+        from .data_processing import (
+            assemble_training_data,
+            compute_advantages,
+            compute_trajectory_metrics,
+        )
+        from .rollouts import do_group_rollouts
+
+        builders = list(self.dataset.get_batch(step_idx))
+        sampler = await self.student_sampler_provider()
+        groups = await do_group_rollouts(
+            sampler=sampler, builders=builders,
+            num_samples=self.num_samples,
+            max_tokens=self.max_tokens, temperature=self.temperature,
+            drop_constant_reward=self.drop_constant_reward,
+        )
+        if not groups:
+            # No usable groups — emit an empty batch + a zeroed metric row so
+            # the loop's step counter advances cleanly.
+            return TrainingBatch(
+                data=[], loss_fn="importance_sampling",
+                metrics={"reward/n_trajectories": 0.0},
+            )
+
+        advantages = compute_advantages(groups)
+        datums, _meta = assemble_training_data(groups, advantages)
+        metrics = compute_trajectory_metrics(groups)
+        return TrainingBatch(
+            data=datums, loss_fn="importance_sampling", metrics=metrics,
+        )
+
+    def step_metrics(
+        self, step_idx: int, batch: TrainingBatch, fb_result: Any,
+    ) -> dict[str, float]:
+        # Reward stats already merged from batch.metrics by the loop; nothing
+        # to add from the fb_result for IS (the loss is summed server-side and
+        # bubbled through optim_result.metrics anyway).
+        return {}
 
 
 def _extract_completion_tokens_from_response(response: Any) -> list[int]:

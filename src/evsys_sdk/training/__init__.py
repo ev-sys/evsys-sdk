@@ -38,8 +38,27 @@ from .loop import (
     TrainingBatch,
     TrainingLoop,
 )
+from .data_processing import (
+    DatumMetadata,
+    assemble_training_data,
+    compute_advantages,
+    compute_trajectory_metrics,
+)
+from .env import (
+    EnvGroupBuilder,
+    Observation,
+    SingleTurnEnv,
+    StepResult,
+    Trajectory,
+    TrajectoryGroup,
+    VerifierFn,
+)
+from .rollouts import do_group_rollout, do_group_rollouts
 from .sft_data import row_to_datum, sft_tokenize
-from .step_builder import SFTStepBuilder
+from .step_builder import (
+    RLDataset, RLStepBuilder, SDFTDataset, SDFTStepBuilder,
+    SFTStepBuilder, SimpleSDFTDataset,
+)
 from .templates import (
     Message,
     apply_template,
@@ -68,9 +87,27 @@ __all__ = [
     "MockBackend",
     "MockSamplingClient",
     "OptimStepResult",
+    "DatumMetadata",
+    "EnvGroupBuilder",
+    "Observation",
+    "RLDataset",
+    "RLStepBuilder",
+    "SDFTDataset",
+    "SDFTStepBuilder",
     "SFTStepBuilder",
     "SamplingClient",
+    "SimpleSDFTDataset",
+    "SingleTurnEnv",
     "StepBuilder",
+    "StepResult",
+    "Trajectory",
+    "TrajectoryGroup",
+    "VerifierFn",
+    "assemble_training_data",
+    "compute_advantages",
+    "compute_trajectory_metrics",
+    "do_group_rollout",
+    "do_group_rollouts",
     "TinkerBackend",
     "TinkerSamplingClient",
     "TrainingBatch",
