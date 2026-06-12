@@ -39,6 +39,7 @@ from .loop import (
     TrainingLoop,
 )
 from .sft_data import row_to_datum, sft_tokenize
+from .step_builder import SFTStepBuilder
 from .templates import (
     Message,
     apply_template,
@@ -67,6 +68,7 @@ __all__ = [
     "MockBackend",
     "MockSamplingClient",
     "OptimStepResult",
+    "SFTStepBuilder",
     "SamplingClient",
     "StepBuilder",
     "TinkerBackend",
