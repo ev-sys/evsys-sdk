@@ -1,6 +1,6 @@
 ---
 name: Set up research project
-description: Scaffold or migrate a repo to the evsys-sdk research-project layout (data/, scripts/, experiments/, .evsys/). Use when starting a new project that will use the SDK, or when the user has an existing ad-hoc evsys-sdk project (loose `training/` scripts, scattered data files) they want to bring into the standard shape.
+description: Scaffold or migrate a repo to the evsys-sdk research-project layout (data/, src/, experiments/, .evsys/). Use when starting a new project that will use the SDK, or when the user has an existing ad-hoc evsys-sdk project (loose `training/` scripts, scattered data files) they want to bring into the standard shape.
 ---
 
 # Set up research project
@@ -10,7 +10,7 @@ layout, or migrates an existing one into it. Use it when:
 
   * The user is starting a new project that will use `evsys-sdk`.
   * The user has an existing ad-hoc project (e.g. `composio-bench`-style:
-    loose `training/`, scattered `data/`, no `experiments/` or `scripts/`)
+    loose `training/`, scattered `data/`, no `experiments/` or `src/`)
     and wants to bring it into the standard shape.
 
 The target layout is the one documented in
@@ -18,7 +18,7 @@ The target layout is the one documented in
 
 ```
 <project>/
-├── pyproject.toml                  # declares scripts/ as importable
+├── pyproject.toml                  # declares src/ as importable
 ├── README.md
 ├── data/
 │   ├── raw/                        # untouched source dumps (gitignored)
@@ -26,7 +26,7 @@ The target layout is the one documented in
 │   ├── process/                    # raw → datasets/<name>/v<N>/
 │   ├── datasets/<name>/v1/{train,test}.jsonl + metadata.yaml
 │   └── benchmark/<name>/tasks.jsonl + metadata.yaml [+ images/ + raw/]
-├── scripts/                        # project-specific SDK extensions
+├── src/                        # project-specific SDK extensions
 │   ├── __init__.py                 # imports verifiers/metrics/transforms
 │   ├── verifiers.py
 │   ├── metrics.py
@@ -77,8 +77,8 @@ confirmed which path.
    commands with `uv run`, e.g. `uv run evsys new-experiment ...`).
 4. Walk the user through what landed:
    * `data/` lineage convention (raw → fetch → process → datasets/<name>/v<N>/)
-   * `scripts/{verifiers,metrics,transforms}.py` with commented examples
-   * `pyproject.toml` declaring `scripts` as the importable package
+   * `src/{verifiers,metrics,transforms}.py` with commented examples
+   * `pyproject.toml` declaring `src` as the importable package
    * `.gitignore` (`.evsys/`, `data/raw/`, `.venv/`)
 5. Show how to add the first experiment:
    ```bash
@@ -104,9 +104,9 @@ before touching anything.
 | Current shape | Target |
 |---|---|
 | `training/run_*.py` (one-off sweep scripts) | `experiments/<yyyymmdd>_<slug>/{config.yaml,run.py}` per script — extract the inline hypothesis + hyperparameters into `config.yaml`, replace the per-arm Python loop with a `matrix:` block, leave the OOP entrypoint in `run.py`. |
-| `training/trajectory_ext/verifiers.py` | `scripts/verifiers.py` |
-| `training/trajectory_ext/transforms.py` | `scripts/transforms.py` |
-| `training/trajectory_ext/__init__.py` | merge into `scripts/__init__.py` |
+| `training/trajectory_ext/verifiers.py` | `src/verifiers.py` |
+| `training/trajectory_ext/transforms.py` | `src/transforms.py` |
+| `training/trajectory_ext/__init__.py` | merge into `src/__init__.py` |
 | `training/backfill_step_metrics.py` | **delete** — `Experiment` auto-forwards step metrics |
 | `training/_chunked_generate` / `_score` helpers | folded into `Benchmark.score()` — drop |
 | `training/eval_*.py` (standalone eval scripts) | replace with `metadata.benchmark` block in `config.yaml` + the SDK's `Benchmark` |
@@ -140,7 +140,7 @@ on anything that:
 ### Step 4: rewrite imports
 
 After moves:
-  * Files that imported `trajectory_ext.verifiers` → import from `scripts`.
+  * Files that imported `trajectory_ext.verifiers` → import from `src`.
   * Scripts that called `backfill_run` → delete the call (Experiment does it).
   * `from evsys_sdk import …` imports for the OOP path
     (`Experiment`, `Sweep`, `Benchmark`) are now top-level.

@@ -7,7 +7,7 @@ Emits two files:
   * ``run.py`` — the 3-line declarative entrypoint researchers run:
 
         from evsys_sdk import Experiment
-        import scripts   # registers project verifiers / metrics / transforms
+        import src   # registers project verifiers / metrics / transforms
 
         Experiment.from_yaml("config.yaml").run()
 
@@ -117,14 +117,14 @@ def _run_py() -> str:
 """Entrypoint for this experiment.
 
 This file is intentionally tiny: all knobs live in config.yaml, all
-project-specific verifiers / metrics / transforms live in scripts/.
+project-specific verifiers / metrics / transforms live in src/.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from evsys_sdk import Experiment
-import scripts  # noqa: F401 — registers project verifiers / metrics / transforms
+import src  # noqa: F401 — registers project verifiers / metrics / transforms
 
 
 if __name__ == "__main__":

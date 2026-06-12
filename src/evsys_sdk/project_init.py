@@ -15,7 +15,7 @@ predictable shape:
         process/.gitkeep
         datasets/.gitkeep
         benchmark/.gitkeep
-      scripts/
+      src/
         __init__.py
         verifiers.py
         metrics.py
@@ -44,7 +44,7 @@ SCAFFOLD_DIRS = (
     "data/datasets",
     "data/benchmark",
     "data/validation",
-    "scripts",
+    "src",
     "experiments",
 )
 
@@ -87,10 +87,10 @@ def init_project(target: str | Path, *, name: str | None = None, force: bool = F
     _write(project_path / "README.md", _readme(project_name))
     _write(project_path / ".gitignore", _gitignore())
     _write(project_path / "data" / "README.md", _data_readme())
-    _write(project_path / "scripts" / "__init__.py", _scripts_init(project_name))
-    _write(project_path / "scripts" / "verifiers.py", _scripts_verifiers())
-    _write(project_path / "scripts" / "metrics.py", _scripts_metrics())
-    _write(project_path / "scripts" / "transforms.py", _scripts_transforms())
+    _write(project_path / "src" / "__init__.py", _src_init(project_name))
+    _write(project_path / "src" / "verifiers.py", _src_verifiers())
+    _write(project_path / "src" / "metrics.py", _src_metrics())
+    _write(project_path / "src" / "transforms.py", _src_transforms())
 
     return project_path
 
@@ -124,7 +124,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["scripts"]
+packages = ["src"]
 '''
 
 
@@ -137,7 +137,7 @@ A EvolvingSystems research project.
 ## Layout
 ```
 data/         # raw → processed → versioned datasets; harbor-format benchmarks
-scripts/      # project-specific SDK extensions (verifiers, metrics, transforms)
+src/          # project-specific SDK extensions (verifiers, metrics, transforms)
 experiments/  # one date-prefixed dir per experiment (config.yaml + run.py)
 ```
 
@@ -185,13 +185,13 @@ Lineage flows top to bottom — never rewrite earlier stages.
 '''
 
 
-def _scripts_init(name: str) -> str:
+def _src_init(name: str) -> str:
     return f'''\
 """Project-specific SDK extensions for {name}.
 
 Importing this package registers all custom verifiers / metrics / transforms
 with the SDK registries so YAML configs and the Experiment runner can find
-them by name. Experiment `run.py` scripts do ``import scripts`` so the
+them by name. Experiment `run.py` scripts do ``import src`` so the
 decorators fire at startup.
 """
 from . import verifiers  # noqa: F401
@@ -200,7 +200,7 @@ from . import transforms # noqa: F401
 '''
 
 
-def _scripts_verifiers() -> str:
+def _src_verifiers() -> str:
     return '''\
 """Project-specific verifiers.
 
@@ -225,7 +225,7 @@ verifier-fn (registered via @register_verifier_fn).
 '''
 
 
-def _scripts_metrics() -> str:
+def _src_metrics() -> str:
     return '''\
 """Project-specific metric aggregators.
 
@@ -247,7 +247,7 @@ in the SDK. Add custom ones here when those don't fit your benchmark.
 '''
 
 
-def _scripts_transforms() -> str:
+def _src_transforms() -> str:
     return '''\
 """Project-specific data transforms — convert raw rows to algorithm-ready rows.
 

@@ -61,7 +61,7 @@ project with ``evsys init-project <name>``; the tree is:
 
 ```
 <project>/
-├── pyproject.toml                  # declares scripts/ as an importable pkg
+├── pyproject.toml                  # declares src/ as an importable pkg
 ├── README.md
 ├── data/
 │   ├── raw/                        # untouched source dumps (gitignored)
@@ -73,7 +73,7 @@ project with ``evsys init-project <name>``; the tree is:
 │   │   └── <name>/tasks.jsonl + metadata.yaml [+ images/ + raw/]
 │   └── validation/                 # harbor-format VALIDATION sets (in-loop)
 │       └── <name>/tasks.jsonl + metadata.yaml
-├── scripts/                        # project-specific SDK extensions
+├── src/                        # project-specific SDK extensions
 │   ├── __init__.py                 # imports verifiers/metrics/transforms
 │   ├── verifiers.py                # @register_verifier(_fn) classes/fns
 │   ├── metrics.py                  # @register_metric
@@ -154,7 +154,7 @@ The high-level path is one class with declarative inputs:
 
 ```python
 from evsys_sdk import Experiment
-import scripts   # registers project verifiers / metrics / transforms
+import src   # registers project verifiers / metrics / transforms
 
 Experiment.from_yaml("config.yaml").run()
 ```

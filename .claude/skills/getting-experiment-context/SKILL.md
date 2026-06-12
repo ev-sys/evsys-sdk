@@ -103,7 +103,7 @@ The dashboard will thread these via `parent_experiment_id` if you pass it.
 
 ## CLI shortcut
 
-In the parent repo, `scripts/exp_query.py` wraps these endpoints with
+In the parent repo, `src/exp_query.py` wraps these endpoints with
 shell-friendly subcommands (`list`, `show`, `preds`, `failures`). Prefer
 it for ad-hoc exploration; use the Python flow above when feeding context
 into an agent loop.

@@ -122,11 +122,11 @@ def test_run_py_is_syntactically_valid(tmp_path: Path):
     ast.parse(src)  # raises SyntaxError if invalid
 
 
-def test_run_py_imports_experiment_and_scripts(tmp_path: Path):
+def test_run_py_imports_experiment_and_src(tmp_path: Path):
     path = new_experiment(tmp_path, "valid", today=date(2026, 1, 1))
     src = (path / "run.py").read_text()
     assert "from evsys_sdk import Experiment" in src
-    assert "import scripts" in src
+    assert "import src" in src
     assert "Experiment.from_yaml" in src
     assert ".run()" in src
 

@@ -36,7 +36,7 @@ lines — all knobs live in YAML:
 ```python
 # experiments/20260531_lora_rank_sweep_4b/run.py
 from evsys_sdk import Experiment
-import scripts  # registers project verifiers / metrics / transforms
+import src  # registers project verifiers / metrics / transforms
 
 Experiment.from_yaml("config.yaml").run()
 ```
