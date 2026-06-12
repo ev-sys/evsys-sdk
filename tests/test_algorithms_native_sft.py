@@ -13,6 +13,9 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import evsys_sdk.algorithms.native_sft as native_sft_module
 from evsys_sdk.algorithms.native_sft import NativeSFT, NativeSFTConfig
 from evsys_sdk.protocols import RunContext, RunResult

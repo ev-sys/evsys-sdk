@@ -13,6 +13,10 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+pytest.importorskip("tinker_cookbook")
+
 import evsys_sdk.training.tinker_backend as tb_module
 from evsys_sdk.training.tinker_backend import TinkerBackend, TinkerSamplingClient
 

@@ -16,6 +16,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import tinker
 import torch
 

@@ -14,6 +14,9 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import evsys_sdk.algorithms.native_rl as native_rl_module
 from evsys_sdk.algorithms.native_rl import NativeRL, NativeRLConfig
 from evsys_sdk.protocols import RunResult
