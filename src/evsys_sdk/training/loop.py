@@ -102,12 +102,19 @@ class Evaluator(Protocol):
     """Periodic in-loop evaluator.
 
     Each evaluator owns one metric source (a Benchmark, a custom probe,
-    etc.). The loop runs every registered Evaluator at every
-    ``eval_every`` boundary, after taking a sampler snapshot.
+    etc.). The loop checks each Evaluator's own ``run_every`` per step;
+    when ``run_every == 0`` the evaluator inherits the loop's global
+    ``eval_every`` cadence. This lets a single training run mix a fast
+    val benchmark (``run_every: 50``) with a heavier test benchmark
+    (``run_every: 500``).
     """
 
     name: str
     """Short name; used to prefix the metric keys (``val/<name>/<key>``)."""
+
+    run_every: int
+    """Per-evaluator step cadence. ``0`` → inherit the loop's
+    ``eval_every``. Positive → fire when ``(step + 1) % run_every == 0``."""
 
     async def evaluate(self, sampler: SamplingClient) -> dict[str, float]:
         ...
@@ -296,8 +303,9 @@ class TrainingLoop:
         if self.checkpoint_mgr.should_save(step):
             await self._save_checkpoint(f"step_{step + 1}", batch=step, state=state)
 
-        if self.eval_every and (step + 1) % self.eval_every == 0 and self.evaluators:
-            await self._run_eval(step, state)
+        due = [ev for ev in self.evaluators if self._is_due(ev, step)]
+        if due:
+            await self._run_eval(step, due, state)
 
     async def _save_checkpoint(self, name: str, *, batch: int,
                                 state: LoopState | None = None) -> None:
@@ -315,13 +323,25 @@ class TrainingLoop:
         if state is not None:
             self._dispatch("on_checkpoint", state, row)
 
-    async def _run_eval(self, step: int, state: LoopState | None = None) -> None:
-        """Take a sampler snapshot, run every registered evaluator, log
-        results under ``val/<eval_name>/<metric>``."""
+    def _is_due(self, ev: Evaluator, step: int) -> bool:
+        """Per-evaluator cadence check. An evaluator with its own
+        ``run_every > 0`` ignores the loop-level ``eval_every`` entirely;
+        otherwise it inherits ``eval_every`` (0 = never)."""
+        per_ev = int(getattr(ev, "run_every", 0) or 0)
+        cadence = per_ev if per_ev > 0 else self.eval_every
+        if cadence <= 0:
+            return False
+        return (step + 1) % cadence == 0
+
+    async def _run_eval(
+        self, step: int, due: list[Evaluator], state: LoopState | None = None,
+    ) -> None:
+        """Take ONE sampler snapshot for the step, run each due evaluator,
+        log results under ``val/<eval_name>/<metric>``."""
         sampler = await self.backend.snapshot_sampling_client(
             name=f"eval_{step + 1}"
         )
-        for ev in self.evaluators:
+        for ev in due:
             try:
                 ev_metrics = await ev.evaluate(sampler)
             except Exception:

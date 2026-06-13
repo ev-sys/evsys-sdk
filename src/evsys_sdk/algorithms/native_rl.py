@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
 from ..training.env import EnvGroupBuilder, SingleTurnEnv, VerifierFn
+from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingLoop
 from ..training.step_builder import RLStepBuilder
 from ..training.templates import messages_to_model_input
@@ -174,6 +175,11 @@ class NativeRL:
             drop_constant_reward=self.cfg.drop_constant_reward,
         )
 
+        evaluators = build_in_loop_evaluators(
+            ctx.config.metadata if hasattr(ctx, "config") else None,
+            tokenizer=backend.get_tokenizer(),
+            store=getattr(ctx, "store", None) or ctx.extras.get("store"),
+        )
         loop = TrainingLoop(
             backend=backend, step_builder=step_builder,
             log_store=ctx.log_store, output_dir=Path(ctx.output_dir),
@@ -184,7 +190,7 @@ class NativeRL:
                 eps=self.cfg.adam_eps,
             ),
             save_every=save_every, eval_every=self.cfg.eval_every,
-            evaluators=[],
+            evaluators=evaluators,
         )
         artifacts = await loop.run(num_steps=total_steps)
 

@@ -211,17 +211,11 @@ class Experiment:
         success_metric = meta.get("success_metric")
         benchmarks = self._resolve_benchmarks(meta.get("benchmark"))
 
-        # Surface the (currently unsupported) in-loop entries so the user
-        # knows why their run_every won't fire yet — full in-loop wiring
-        # ships in the follow-up commit (TinkerSFT / TinkerSDFT path).
-        for _, spec in benchmarks:
-            if spec.get("run_every"):
-                logger.warning(
-                    "metadata.benchmark %r has run_every=%s but in-loop "
-                    "scoring isn't wired yet; this entry will only run "
-                    "post-training. Use run.validation in the meantime.",
-                    spec.get("name"), spec.get("run_every"),
-                )
+        # In-loop entries (run_every > 0) are picked up by the algorithm
+        # composer via build_in_loop_evaluators (training/evaluators.py),
+        # which reads ctx.config.metadata directly. The list returned here
+        # still contains them so the test for "is there ANY benchmark?"
+        # works; _eval_arm skips them at post-training time.
 
         experiment_id = self._create_experiment(hypothesis, tags, meta)
 
