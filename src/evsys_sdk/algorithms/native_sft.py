@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
+from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingLoop
 from ..training.sft_data import sft_tokenize
 from ..training.step_builder import SFTStepBuilder
@@ -151,6 +152,11 @@ class NativeSFT:
         })
 
         # 5. compose the loop and run
+        evaluators = build_in_loop_evaluators(
+            ctx.config.metadata if hasattr(ctx, "config") else None,
+            tokenizer=backend.get_tokenizer(),
+            store=getattr(ctx, "store", None) or ctx.extras.get("store"),
+        )
         loop = TrainingLoop(
             backend=backend,
             step_builder=SFTStepBuilder(
@@ -166,7 +172,7 @@ class NativeSFT:
             ),
             save_every=save_every,
             eval_every=self.cfg.eval_every,
-            evaluators=[],   # in-loop benchmark wiring lands in a follow-up
+            evaluators=evaluators,
         )
         artifacts = await loop.run(num_steps=total_steps)
 

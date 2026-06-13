@@ -45,6 +45,7 @@ from .loop import (
     TrainingBatch,
     TrainingLoop,
 )
+from .evaluators import BenchmarkEvaluator, build_in_loop_evaluators
 from .data_processing import (
     DatumMetadata,
     assemble_training_data,
@@ -84,6 +85,7 @@ except ImportError as _e:  # pragma: no cover
 
 __all__ = [
     "Backend",
+    "BenchmarkEvaluator",
     "Callback",
     "CheckpointManager",
     "CsvMetricsCallback",
@@ -116,6 +118,7 @@ __all__ = [
     "TrajectoryGroup",
     "VerifierFn",
     "assemble_training_data",
+    "build_in_loop_evaluators",
     "compute_advantages",
     "compute_trajectory_metrics",
     "do_group_rollout",

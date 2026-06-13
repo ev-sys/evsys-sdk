@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
+from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingLoop
 from ..training.sdft_data import DEFAULT_DEMO_TEMPLATE
 from ..training.step_builder import SDFTStepBuilder, SimpleSDFTDataset
@@ -166,6 +167,11 @@ class NativeSDFT:
             skip_first_n=self.cfg.skip_first_n_tokens,
         )
 
+        evaluators = build_in_loop_evaluators(
+            ctx.config.metadata if hasattr(ctx, "config") else None,
+            tokenizer=backend.get_tokenizer(),
+            store=getattr(ctx, "store", None) or ctx.extras.get("store"),
+        )
         loop = TrainingLoop(
             backend=backend, step_builder=step_builder,
             log_store=ctx.log_store, output_dir=Path(ctx.output_dir),
@@ -177,7 +183,7 @@ class NativeSDFT:
             ),
             save_every=save_every,
             eval_every=self.cfg.eval_every,
-            evaluators=[],
+            evaluators=evaluators,
         )
         artifacts = await loop.run(num_steps=total_steps)
 

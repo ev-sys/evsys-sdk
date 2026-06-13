@@ -1031,10 +1031,10 @@ def test_dotted_success_metric_picks_named_benchmark(
 def test_run_every_entries_are_skipped_post_training(
     tmp_path: Path, single_run_config: ExperimentConfig
 ):
-    """Commit 1 surface: an entry with ``run_every`` is parsed and resolves
-    to a Benchmark, but is NOT scored in `_eval_arm` — in-loop scoring is
-    wired by the algorithm wrapper (lands in commit 2). The user sees this
-    via a warning the SDK emits at startup (visual; not asserted here)."""
+    """Entries with ``run_every`` are picked up by the algorithm composer
+    (via ``training.evaluators.build_in_loop_evaluators``) and scored
+    during training, NOT here in ``_eval_arm``. Confirm ``arm.evals`` stays
+    empty when the only configured benchmark is an in-loop one."""
     val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
     single_run_config.metadata["benchmark"] = [
         {"name": "val_set", "path": str(val_dir), "tags": ["val"], "run_every": 100},
@@ -1043,5 +1043,6 @@ def test_run_every_entries_are_skipped_post_training(
         single_run_config, train_fn=_make_train_fn(),
         inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
     ).run()
-    # `run_every` entry skipped in `_eval_arm` → no EvalResult attached.
+    # in-loop entry is the algorithm composer's job; _eval_arm does NOT
+    # attach an EvalResult for it.
     assert res.arms[0].evals == []
