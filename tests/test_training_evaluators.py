@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+pytest.importorskip("tinker")  # optional dep; not installed in base CI
+pytest.importorskip("torch")
+
 import yaml
 
 from evsys_sdk.benchmark import Benchmark
