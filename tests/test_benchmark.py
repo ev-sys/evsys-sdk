@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.benchmark.Benchmark`.
+"""Tests for `evsys_sdk.benchmark.Benchmark`.
 
 The Benchmark class loads harbor-format eval suites from disk
 (`tasks.jsonl` + optional `metadata.yaml`) and scores a model against
@@ -14,12 +14,12 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from trajectory_labs.benchmark import (
+from evsys_sdk.benchmark import (
     Benchmark,
     BenchmarkScore,
     BenchmarkTaskResult,
 )
-from trajectory_labs.data_types import HarborTask, InProcessVerifier
+from evsys_sdk.data_types import HarborTask, InProcessVerifier
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +271,41 @@ def test_score_passes_generation_params(benchmark_dir: Path):
     assert client.calls[0]["max_tokens"] == 42
     assert client.calls[0]["temperature"] == 0.7
     assert client.calls[0]["stop"] == ["</end>"]
+
+
+def test_score_limit_caps_n_tasks(benchmark_dir: Path):
+    """`limit=N` scores only the first N tasks (deterministic order)."""
+    bench = Benchmark.from_dir(benchmark_dir)
+    assert len(bench.tasks) >= 3, "fixture should expose at least 3 tasks"
+    client = _ScriptedInference(["A"] * 10)
+    out = bench.score(client, limit=2)
+    assert out.metrics["n_tasks"] == 2.0
+    assert len(out.per_task) == 2
+    assert [r.task_id for r in out.per_task] == [t.task_id for t in bench.tasks[:2]]
+    # client only invoked twice — the rest of self.tasks weren't sampled
+    assert len(client.calls) == 2
+
+
+def test_score_limit_none_scores_all(benchmark_dir: Path):
+    bench = Benchmark.from_dir(benchmark_dir)
+    out = bench.score(_ScriptedInference(["A"] * 10), limit=None)
+    assert out.metrics["n_tasks"] == float(len(bench.tasks))
+
+
+def test_score_limit_zero_yields_empty(benchmark_dir: Path):
+    """`limit=0` is a no-op score: no client calls, empty per_task."""
+    bench = Benchmark.from_dir(benchmark_dir)
+    client = _ScriptedInference([])
+    out = bench.score(client, limit=0)
+    assert out.metrics["n_tasks"] == 0.0
+    assert out.per_task == []
+    assert client.calls == []
+
+
+def test_score_limit_larger_than_n_tasks_scores_all(benchmark_dir: Path):
+    bench = Benchmark.from_dir(benchmark_dir)
+    out = bench.score(_ScriptedInference(["A"] * 10), limit=999)
+    assert out.metrics["n_tasks"] == float(len(bench.tasks))
 
 
 def test_score_unknown_fn_name(tmp_path: Path):

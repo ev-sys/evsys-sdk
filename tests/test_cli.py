@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from trajectory_labs.cli import main as cli_main
+from evsys_sdk.cli import main as cli_main
 
 
 def _make_cfg_dict(tmp_path: Path) -> dict:

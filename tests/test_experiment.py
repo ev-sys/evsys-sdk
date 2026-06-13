@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.experiment.Experiment`.
+"""Tests for `evsys_sdk.experiment.Experiment`.
 
 Experiment is the OOP orchestrator that replaces the manual
 ``create_experiment`` → per-arm ``create_run`` → ``run_experiment`` →
@@ -14,8 +14,8 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 
-from trajectory_labs.benchmark import Benchmark
-from trajectory_labs.config import (
+from evsys_sdk.benchmark import Benchmark
+from evsys_sdk.config import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -24,12 +24,12 @@ from trajectory_labs.config import (
     ModelConfig,
     RunConfig,
 )
-from trajectory_labs.experiment import (
+from evsys_sdk.experiment import (
     ArmResult,
     Experiment,
     ExperimentResult,
 )
-from trajectory_labs.protocols import RunResult
+from evsys_sdk.protocols import RunResult
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,12 @@ class _FakeStore:
     def create_experiment(self, **kw: Any) -> dict:
         self.calls.append(("create_experiment", kw))
         return {"id": self._id(), **kw}
+
+    def create_group(self, experiment_id: str, name: str, *,
+                     description: str | None = None) -> dict:
+        self.calls.append(("create_group", {"experiment_id": experiment_id,
+                                            "name": name, "description": description}))
+        return {"id": self._id(), "experiment_id": experiment_id, "name": name}
 
     def create_run(self, **kw: Any) -> dict:
         self.calls.append(("create_run", kw))
@@ -191,7 +197,7 @@ def test_iter_runs_matrix_expands(sweep_config: ExperimentConfig):
 def test_from_yaml_round_trip(tmp_path: Path, base_run: RunConfig):
     yaml_path = tmp_path / "config.yaml"
     cfg = ExperimentConfig(name="from_yaml", run=base_run)
-    from trajectory_labs.yaml_loader import dump_yaml
+    from evsys_sdk.yaml_loader import dump_yaml
     dump_yaml(cfg, path=yaml_path)
     e = Experiment.from_yaml(yaml_path)
     assert e.config.name == "from_yaml"
@@ -473,6 +479,245 @@ def test_arm_result_score_missing_returns_none():
 
 
 # ---------------------------------------------------------------------------
+# Run groups (n_repeats + base_seed)
+# ---------------------------------------------------------------------------
+
+
+def test_n_repeats_zero_rejected(base_run: RunConfig):
+    with pytest.raises(ValueError, match="n_repeats must be >= 1"):
+        ExperimentConfig(name="x", run=base_run, n_repeats=0)
+
+
+def test_n_repeats_default_one_no_groups(sweep_config: ExperimentConfig):
+    """Backward compat: default n_repeats=1 → no create_group, no group ids."""
+    store = _FakeStore()
+    res = Experiment(sweep_config, store=store, train_fn=_make_train_fn()).run()
+    assert [c[0] for c in store.calls].count("create_group") == 0
+    assert all(a.group_id is None and a.group_name is None for a in res.arms)
+    # create_run still called per arm but without a group_id
+    create_runs = [c[1] for c in store.calls if c[0] == "create_run"]
+    assert all(cr.get("group_id") is None for cr in create_runs)
+
+
+def test_n_repeats_replicates_single_run(base_run: RunConfig):
+    """n_repeats=3 with a single primary → 3 arms with seeds [42, 43, 44]."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=3,
+                           metadata={"success_metric": "reward"})
+    store = _FakeStore()
+    res = Experiment(cfg, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 3
+    assert sorted(a.run_config.seed for a in res.arms) == [42, 43, 44]
+    assert sorted(a.name for a in res.arms) == ["base__s42", "base__s43", "base__s44"]
+    assert all(a.group_name == "base" for a in res.arms)
+    # One group; all three arms share its id.
+    create_groups = [c[1] for c in store.calls if c[0] == "create_group"]
+    assert len(create_groups) == 1 and create_groups[0]["name"] == "base"
+    group_id = next(c[1] for c in store.calls if c[0] == "create_group"
+                    and c[1]["name"] == "base")
+    # group_id_by_arm matches the created group's id
+    expected_id = [c for c in store.calls if c[0] == "create_group"][0]
+    # the fake store returns the assigned id; pull from the create_run calls
+    create_runs = [c[1] for c in store.calls if c[0] == "create_run"]
+    assert len({cr["group_id"] for cr in create_runs}) == 1
+    assert all(a.group_id == create_runs[0]["group_id"] for a in res.arms)
+
+
+def test_n_repeats_with_runs_list_groups_per_entry(base_run: RunConfig):
+    """runs: [A, B] with n_repeats=3 → 2 groups, 6 arms total."""
+    other = base_run.model_copy(update={"name": "other"})
+    cfg = ExperimentConfig(name="x", runs=[base_run, other], n_repeats=3,
+                           metadata={"success_metric": "reward"})
+    store = _FakeStore()
+    res = Experiment(cfg, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 6
+    group_names_seen = {a.group_name for a in res.arms}
+    assert group_names_seen == {"base", "other"}
+    # 2 create_group + 6 create_run
+    kinds = [c[0] for c in store.calls]
+    assert kinds.count("create_group") == 2
+    assert kinds.count("create_run") == 6
+    # each arm's group_id matches its group_name's id
+    grp_by_name = {c[1]["name"]: None for c in store.calls if c[0] == "create_group"}
+    # the fake store assigns ids in order; reverse-engineer mapping from the
+    # arm-side group_id (which came from the create_group return)
+    by_name = {a.group_name: a.group_id for a in res.arms}
+    assert len(by_name) == 2
+    assert all(by_name[a.group_name] == a.group_id for a in res.arms)
+
+
+def test_n_repeats_with_matrix_groups_per_cell(sweep_config: ExperimentConfig):
+    """matrix (3 cells) with n_repeats=2 → 3 groups, 6 arms total."""
+    sweep_config = sweep_config.model_copy(update={"n_repeats": 2})
+    store = _FakeStore()
+    res = Experiment(sweep_config, store=store, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 6
+    group_names = {a.group_name for a in res.arms}
+    assert group_names == {"base__lora_rank1", "base__lora_rank4", "base__lora_rank16"}
+    kinds = [c[0] for c in store.calls]
+    assert kinds.count("create_group") == 3
+    assert kinds.count("create_run") == 6
+
+
+def test_base_seed_overrides_primary_seed(base_run: RunConfig):
+    """When base_seed is set, replicate seeds are [base_seed, base_seed+1, ...]."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=3, base_seed=100,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert sorted(a.run_config.seed for a in res.arms) == [100, 101, 102]
+
+
+def test_base_seed_none_uses_primary_seed(base_run: RunConfig):
+    """When base_seed is None, seeds start at primary.seed."""
+    primary = base_run.model_copy(update={"seed": 17})
+    cfg = ExperimentConfig(name="x", run=primary, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert sorted(a.run_config.seed for a in res.arms) == [17, 18]
+
+
+def test_n_repeats_groups_run_offline(base_run: RunConfig):
+    """No store: replication still produces N arms with right seeds; group_id stays None."""
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 2
+    assert sorted(a.run_config.seed for a in res.arms) == [42, 43]
+    assert all(a.group_id is None for a in res.arms)
+    # group_name is still set so consumers can bucket client-side
+    assert all(a.group_name == "base" for a in res.arms)
+
+
+def test_n_repeats_create_group_failure_does_not_kill_arms(base_run: RunConfig):
+    """If store.create_group throws, arms still run with group_id=None."""
+
+    class _BrokenGroupStore(_FakeStore):
+        def create_group(self, experiment_id, name, *, description=None):
+            raise RuntimeError("group write failed")
+
+    cfg = ExperimentConfig(name="x", run=base_run, n_repeats=2,
+                           metadata={"success_metric": "reward"})
+    res = Experiment(cfg, store=_BrokenGroupStore(), train_fn=_make_train_fn()).run()
+    assert len(res.arms) == 2
+    assert all(a.status == "completed" for a in res.arms)
+    assert all(a.group_id is None for a in res.arms)
+    assert all(a.group_name == "base" for a in res.arms)
+
+
+# ---------------------------------------------------------------------------
+# Eval auto-wrap with ChatTemplatedInference (config-driven)
+# ---------------------------------------------------------------------------
+
+
+class _TokenizedInference:
+    """Eval client that carries a tokenizer; required by ChatTemplatedInference."""
+
+    name: ClassVar[str] = "tokenized"
+
+    def __init__(self, completion: str) -> None:
+        self._tokenizer = _Tok()
+        self._completion = completion
+
+    def generate(self, *, prompt: str, max_tokens: int = 256,
+                 temperature: float = 0.0, stop: list[str] | None = None) -> str:
+        # When wrapped, prompt will be the tokenizer's templated string.
+        return self._completion
+
+
+class _Tok:
+    """Tokenizer stand-in that returns a sentinel string when templated."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def apply_chat_template(self, messages, *, tokenize=True, add_generation_prompt=False):
+        self.calls.append({"messages": messages})
+        return "<TEMPLATED>"
+
+
+def test_eval_arm_wraps_client_when_chat_template_configured(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """metadata.benchmark.chat_template → ChatTemplatedInference wrapping."""
+    single_run_config.metadata["benchmark"] = {
+        "path": str(benchmark_dir),
+        "chat_template": {
+            "system_prompt": "You answer.",
+            "user_template": "Q: {prompt}",
+        },
+    }
+    client = _TokenizedInference("A")
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: client,
+    ).run()
+    # The wrapped client routed every prompt through the templated path,
+    # leaving its tokenizer with one call per benchmark task.
+    assert res.arms[0].status == "completed"
+    assert len(client._tokenizer.calls) == len(Benchmark.from_dir(benchmark_dir).tasks)
+    # Message shape from the wrapper
+    sample = client._tokenizer.calls[0]["messages"]
+    assert sample[0] == {"role": "system", "content": "You answer."}
+    assert sample[1]["role"] == "user"
+    assert sample[1]["content"].startswith("Q: ")
+
+
+def test_eval_arm_skips_wrap_when_chat_template_absent(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """No chat_template block → client is passed through unwrapped."""
+    single_run_config.metadata["benchmark"] = {"path": str(benchmark_dir)}
+    client = _TokenizedInference("A")
+    Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: client,
+    ).run()
+    # No template call: Benchmark.score handed the raw task.instruction
+    # straight to client.generate without touching the tokenizer.
+    assert client._tokenizer.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Default inference-factory resolution (via the registry)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_inference_factory_user_supplied_wins(sweep_config: ExperimentConfig):
+    """When the caller passes inference_factory=…, the registry default is ignored."""
+    sentinel = lambda rr, rc: object()
+    exp = Experiment(sweep_config, inference_factory=sentinel)
+    # Pick any run config to test against; factory is independent of run_cfg.
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is sentinel
+
+
+def test_resolve_inference_factory_falls_back_to_registry(sweep_config: ExperimentConfig, monkeypatch):
+    """When no inference_factory is passed, fall back to the registered default
+    for the run's backend kind. We register a fake for 'mock' to verify the
+    plumbing without needing the tinker module."""
+    from evsys_sdk import registry
+
+    fake = lambda rr, rc: object()
+    monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", fake)
+
+    exp = Experiment(sweep_config)
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is fake
+
+
+def test_resolve_inference_factory_none_when_no_default_registered(sweep_config: ExperimentConfig, monkeypatch):
+    """No user-supplied factory + no registered default → None (eval skipped)."""
+    from evsys_sdk import registry
+
+    monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", None)
+    # explicitly clear instead of None to mimic the "never registered" case
+    monkeypatch.delitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", raising=False)
+
+    exp = Experiment(sweep_config)
+    run_cfg = list(exp._iter_runs())[0]
+    assert exp._resolve_inference_factory(run_cfg) is None
+
+
+# ---------------------------------------------------------------------------
 # Store-flake resilience — store errors don't kill the experiment
 # ---------------------------------------------------------------------------
 
@@ -548,7 +793,7 @@ def test_default_train_fn_is_used_when_none_passed(single_run_config: Experiment
 
 def test_default_train_fn_routes_to_runner(monkeypatch, single_run_config: ExperimentConfig):
     """The shim imports run_experiment lazily and forwards the config."""
-    from trajectory_labs import experiment as exp_mod
+    from evsys_sdk import experiment as exp_mod
 
     captured: dict = {}
 
@@ -556,7 +801,7 @@ def test_default_train_fn_routes_to_runner(monkeypatch, single_run_config: Exper
         captured["cfg"] = cfg
         return [RunResult(run_id="x", status="completed", metrics={"loss": 0.0})]
 
-    monkeypatch.setattr("trajectory_labs.runner.run_experiment", fake_run_experiment)
+    monkeypatch.setattr("evsys_sdk.runner.run_experiment", fake_run_experiment)
     out = exp_mod._default_train_fn(single_run_config)
     assert captured["cfg"] is single_run_config
     assert out[0].status == "completed"
@@ -638,3 +883,165 @@ def test_step_metrics_no_op_without_local_file(single_run_config: ExperimentConf
     Experiment(single_run_config, store=store, train_fn=_make_train_fn()).run()
     forwarded = [c[1] for c in store.calls if c[0] == "log_metrics"]
     assert forwarded == []
+
+
+# ---------------------------------------------------------------------------
+# Multi-benchmark (list-form) eval — task #39 commit 1
+# ---------------------------------------------------------------------------
+
+
+def _make_bench_dir(tmp_path: Path, name: str, expected_a: str, expected_b: str) -> Path:
+    """Two-task harbor benchmark; lets each ScriptedInference produce 2 strs."""
+    root = tmp_path / name
+    root.mkdir()
+    rows = [
+        {"task_id": f"{name}-t1", "instruction": "Q1",
+         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": expected_a},
+         "metadata": {}},
+        {"task_id": f"{name}-t2", "instruction": "Q2",
+         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": expected_b},
+         "metadata": {}},
+    ]
+    (root / "tasks.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    (root / "metadata.yaml").write_text(yaml.safe_dump({"name": name}))
+    return root
+
+
+def test_single_dict_benchmark_still_works(
+    benchmark_dir: Path, single_run_config: ExperimentConfig
+):
+    """Back-compat: legacy single-dict `metadata.benchmark` keeps producing
+    one EvalResult and mirrors into eval_metrics/eval_breakdowns."""
+    single_run_config.metadata["benchmark"] = {"path": str(benchmark_dir)}
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    arm = res.arms[0]
+    assert len(arm.evals) == 1
+    assert arm.evals[0].step is None
+    assert arm.evals[0].metrics["pass_rate"] == 1.0
+    # Flat back-compat fields mirror the single eval.
+    assert arm.eval_metrics["pass_rate"] == 1.0
+
+
+def test_list_benchmark_runs_each_entry(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """List form: two post-training entries → arm.evals has 2 rows in order,
+    each named and tagged per the spec."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+        {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+    ]
+    store = _FakeStore()
+    completions = iter([["A", "B"], ["A", "X"]])  # val perfect, test 1/2
+    res = Experiment(
+        single_run_config, store=store, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    arm = res.arms[0]
+
+    assert [e.name for e in arm.evals] == ["val_set", "test_set"]
+    assert arm.evals[0].metrics["pass_rate"] == 1.0
+    assert arm.evals[1].metrics["pass_rate"] == 0.5
+    assert arm.evals[0].tags == ["val"]
+    assert arm.evals[1].tags == ["test"]
+    # Each benchmark round-trips to create_eval on the dashboard.
+    eval_calls = [c[1] for c in store.calls if c[0] == "create_eval"]
+    assert len(eval_calls) == 2
+
+
+def test_list_benchmark_primary_mirrors_first_test_tagged(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """eval_metrics mirrors the FIRST `test`-tagged entry, even if it isn't
+    the first overall — that's the post-training metric researchers care about."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+        {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+    ]
+    # val gets 100%, test gets 50% → flat field should mirror test (0.5).
+    completions = iter([["A", "B"], ["A", "X"]])
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    arm = res.arms[0]
+    assert arm.eval_metrics["pass_rate"] == 0.5
+
+
+def test_arm_eval_lookup_by_name(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """arm.eval(name) returns the matching EvalResult; None for misses."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "v", "path": str(val_dir), "tags": ["val"]},
+    ]
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    arm = res.arms[0]
+    assert arm.eval("v") is not None
+    assert arm.eval("v").metrics["pass_rate"] == 1.0
+    assert arm.eval("does_not_exist") is None
+
+
+def test_dotted_success_metric_picks_named_benchmark(
+    tmp_path: Path, base_run: RunConfig
+):
+    """`success_metric: <bench>.pass_rate` ranks arms by the named eval,
+    not by the (mirrored) first-test default."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    test_dir = _make_bench_dir(tmp_path, "test", "A", "B")
+    cfg = ExperimentConfig(
+        name="dotted",
+        matrix=MatrixSpec(
+            base_run=base_run,
+            axes={"algorithm.params.lora_rank": [1, 4]},
+        ),
+        metadata={
+            "benchmark": [
+                {"name": "val_set",  "path": str(val_dir),  "tags": ["val"]},
+                {"name": "test_set", "path": str(test_dir), "tags": ["test"]},
+            ],
+            "success_metric": "test_set.pass_rate",
+        },
+    )
+    # rank=1 gets 100% on val, 0% on test. rank=4 gets 50% on val, 100% on test.
+    # If we ranked by val, rank=1 wins; by test, rank=4 wins.
+    completions = iter([
+        ["A", "B"], ["X", "Y"],   # arm 1: val=100%, test=0%
+        ["A", "X"], ["A", "B"],   # arm 4: val=50%,  test=100%
+    ])
+    res = Experiment(
+        cfg, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(next(completions)),
+    ).run()
+    assert res.best_arm.name == "base__lora_rank4"
+    assert res.best_score == pytest.approx(1.0)
+
+
+def test_run_every_entries_are_skipped_post_training(
+    tmp_path: Path, single_run_config: ExperimentConfig
+):
+    """Commit 1 surface: an entry with ``run_every`` is parsed and resolves
+    to a Benchmark, but is NOT scored in `_eval_arm` — in-loop scoring is
+    wired by the algorithm wrapper (lands in commit 2). The user sees this
+    via a warning the SDK emits at startup (visual; not asserted here)."""
+    val_dir = _make_bench_dir(tmp_path, "val", "A", "B")
+    single_run_config.metadata["benchmark"] = [
+        {"name": "val_set", "path": str(val_dir), "tags": ["val"], "run_every": 100},
+    ]
+    res = Experiment(
+        single_run_config, train_fn=_make_train_fn(),
+        inference_factory=lambda r, c: _ScriptedInference(["A", "B"]),
+    ).run()
+    # `run_every` entry skipped in `_eval_arm` → no EvalResult attached.
+    assert res.arms[0].evals == []

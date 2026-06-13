@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trajectory_labs import (
+from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -27,7 +27,7 @@ from trajectory_labs import (
     InferenceSpec,
     run_experiment,
 )
-from trajectory_labs.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
+from evsys_sdk.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
 
 
 def _make_cfg(tmp_path: Path, sample_rows: list[dict]) -> ExperimentConfig:

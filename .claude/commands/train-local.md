@@ -1,4 +1,4 @@
-You are helping the user train an LLM locally using the trajectory-labs-sdk. Follow these steps carefully.
+You are helping the user train an LLM locally using the evsys-sdk. Follow these steps carefully.
 
 ## Step 1 — Check dependencies
 
@@ -86,7 +86,7 @@ run:
 ## Step 4 — Validate
 
 ```bash
-trajex validate examples/configs/generated_local_sft.yaml --deep
+evsys validate examples/configs/generated_local_sft.yaml --deep
 ```
 
 If there are errors, diagnose and fix the YAML before continuing.
@@ -94,7 +94,7 @@ If there are errors, diagnose and fix the YAML before continuing.
 ## Step 5 — Run training
 
 ```bash
-trajex run examples/configs/generated_local_sft.yaml -o /tmp/train_summary.json
+evsys run examples/configs/generated_local_sft.yaml -o /tmp/train_summary.json
 ```
 
 Stream the output to the user. Training a 0.6B model for 5 steps on CPU takes ~3-8 minutes

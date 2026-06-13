@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from trajectory_labs import load_yaml, run_experiment
+from evsys_sdk import load_yaml, run_experiment
 
 HERE = Path(__file__).parent
 

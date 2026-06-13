@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.data_stores.in_memory import InMemoryDataStore
-from trajectory_labs.data_stores.local import LocalDataStore
+from evsys_sdk.data_stores.in_memory import InMemoryDataStore
+from evsys_sdk.data_stores.local import LocalDataStore
 
 
 def test_in_memory_jsonl_roundtrip():

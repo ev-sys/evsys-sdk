@@ -1,5 +1,5 @@
-"""Tests for `trajectory_labs.benchmark_upload.upload_benchmark` and the
-`trajex benchmark upload` CLI subcommand.
+"""Tests for `evsys_sdk.benchmark_upload.upload_benchmark` and the
+`evsys benchmark upload` CLI subcommand.
 """
 
 from __future__ import annotations
@@ -11,12 +11,12 @@ from typing import Any
 import pytest
 import yaml
 
-from trajectory_labs.benchmark_upload import (
+from evsys_sdk.benchmark_upload import (
     BENCHMARK_FORMAT,
     UploadResult,
     upload_benchmark,
 )
-from trajectory_labs.cli import main as cli_main
+from evsys_sdk.cli import main as cli_main
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ def test_cli_benchmark_upload_happy(bench_dir: Path, monkeypatch, capsys):
     def _fake_ctor(*args, **kwargs):
         return fake_store
 
-    monkeypatch.setattr("trajectory_labs.store.TrajectoryStore", _fake_ctor)
+    monkeypatch.setattr("evsys_sdk.store.EvsysStore", _fake_ctor)
     rc = cli_main(["benchmark", "upload", str(bench_dir)])
     assert rc == 0
     out = capsys.readouterr().out
@@ -255,7 +255,7 @@ def test_cli_benchmark_upload_happy(bench_dir: Path, monkeypatch, capsys):
 
 def test_cli_benchmark_upload_missing_dir(tmp_path: Path, monkeypatch, capsys):
     fake_store = _FakeStore()
-    monkeypatch.setattr("trajectory_labs.store.TrajectoryStore",
+    monkeypatch.setattr("evsys_sdk.store.EvsysStore",
                         lambda *a, **kw: fake_store)
     rc = cli_main(["benchmark", "upload", str(tmp_path / "nope")])
     assert rc == 1
@@ -268,7 +268,7 @@ def test_cli_benchmark_upload_malformed(tmp_path: Path, monkeypatch, capsys):
     bad.mkdir()
     (bad / "tasks.jsonl").write_text("nope\n")
     fake_store = _FakeStore()
-    monkeypatch.setattr("trajectory_labs.store.TrajectoryStore",
+    monkeypatch.setattr("evsys_sdk.store.EvsysStore",
                         lambda *a, **kw: fake_store)
     rc = cli_main(["benchmark", "upload", str(bad)])
     assert rc == 1

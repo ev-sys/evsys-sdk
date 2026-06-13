@@ -1,4 +1,4 @@
-"""TrajectoryStore request-shape tests (mocked gateway).
+"""EvsysStore request-shape tests (mocked gateway).
 
 The SDK no longer talks to Supabase directly — every call routes through the
 backend gateway (`/api/dashboard/api/sdk/data/`) with a Bearer API key. These
@@ -13,11 +13,11 @@ from unittest import mock
 
 import pytest
 
-from trajectory_labs import TrajectoryStore, TrajectoryStoreError
+from evsys_sdk import EvsysStore, EvsysStoreError
 
 
 def _client(monkeypatch, result=None, capture=None):
-    """TrajectoryStore whose requests.post returns {"result": result} and, if
+    """EvsysStore whose requests.post returns {"result": result} and, if
     given, appends each posted body to `capture`."""
     def fake_post(url, headers=None, json=None, timeout=None):
         if capture is not None:
@@ -26,14 +26,14 @@ def _client(monkeypatch, result=None, capture=None):
         r.status_code = 200
         r.json.return_value = {"result": result}
         return r
-    monkeypatch.setattr("trajectory_labs.store.requests.post", fake_post)
-    return TrajectoryStore(base_url="http://test.local", api_key="sk_test", project_id="p1")
+    monkeypatch.setattr("evsys_sdk.store.requests.post", fake_post)
+    return EvsysStore(base_url="http://test.local", api_key="sk_test", project_id="p1")
 
 
 def test_requires_api_key(monkeypatch):
-    monkeypatch.delenv("TRAJECTORY_API_KEY", raising=False)
-    with pytest.raises(TrajectoryStoreError):
-        TrajectoryStore(base_url="http://test.local", api_key=None)
+    monkeypatch.delenv("EVSYS_API_KEY", raising=False)
+    with pytest.raises(EvsysStoreError):
+        EvsysStore(base_url="http://test.local", api_key=None)
 
 
 def test_posts_to_gateway_with_bearer(monkeypatch):
@@ -112,8 +112,8 @@ def test_gateway_error_raises(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
         r = mock.MagicMock(); r.status_code = 403; r.text = "not a member of this project"
         return r
-    monkeypatch.setattr("trajectory_labs.store.requests.post", fake_post)
-    store = TrajectoryStore(base_url="http://test.local", api_key="sk_test", project_id="p1")
-    with pytest.raises(TrajectoryStoreError) as ei:
+    monkeypatch.setattr("evsys_sdk.store.requests.post", fake_post)
+    store = EvsysStore(base_url="http://test.local", api_key="sk_test", project_id="p1")
+    with pytest.raises(EvsysStoreError) as ei:
         store.list_experiments()
     assert ei.value.status == 403

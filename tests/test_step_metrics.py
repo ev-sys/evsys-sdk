@@ -1,8 +1,8 @@
-"""Tests for `trajectory_labs.step_metrics.forward_step_metrics`.
+"""Tests for `evsys_sdk.step_metrics.forward_step_metrics`.
 
 The forwarder replaces hand-rolled `backfill_step_metrics` loops in
 researcher scripts: it reads a local metrics.jsonl and pushes each row to
-a TrajectoryStore.
+a EvsysStore.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from trajectory_labs.step_metrics import forward_step_metrics
+from evsys_sdk.step_metrics import forward_step_metrics
 
 
 class _RecordingStore:
@@ -230,3 +230,108 @@ def test_custom_metrics_file_name(tmp_path: Path):
     sent = forward_step_metrics(store, "run-A", tmp_path,
                                 metrics_file="train_metrics.jsonl")
     assert sent == 1
+
+
+# ---------------------------------------------------------------------------
+# Flat tinker_cookbook shape (no nested ``metrics`` key)
+# ---------------------------------------------------------------------------
+
+
+class _SplitRecordingStore:
+    """Like _RecordingStore but accepts the optional `split` kwarg used for
+    val-prefixed metrics, so val-routing tests can introspect both buckets."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def log_metrics(self, *, run_id: str, step: int, metrics: dict[str, float],
+                    split: str = "train") -> dict:
+        self.calls.append({"run_id": run_id, "step": step,
+                           "metrics": dict(metrics), "split": split})
+        return {"ok": True}
+
+
+def test_forwards_flat_tinker_cookbook_format(tmp_path: Path):
+    """tinker_cookbook writes flat rows where metric keys sit at the top
+    level alongside `step`. They must forward as a normalized metrics dict."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl", [
+        {"step": 0, "epoch": 0, "progress": 0.05,
+         "learning_rate": 1e-4, "train_mean_nll": 2.09,
+         "num_sequences": 16, "num_tokens": 1900,
+         "time/get_batch": 3e-06, "time/step": 18.17},
+    ])
+    store = _RecordingStore()
+    sent = forward_step_metrics(store, "run-A", tmp_path)
+    assert sent == 1
+    call = store.calls[0]
+    assert call["step"] == 0
+    assert call["metrics"]["learning_rate"] == 1e-4
+    assert call["metrics"]["train_mean_nll"] == 2.09
+    assert call["metrics"]["time/step"] == 18.17
+
+
+def test_flat_row_excludes_meta_keys(tmp_path: Path):
+    """`step`, `epoch`, `progress`, `ts`, `timestamp` are positional meta
+    fields, not metric values; they must not leak into the metrics dict."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl", [
+        {"step": 5, "epoch": 0, "progress": 0.5, "ts": 1700000000.0,
+         "timestamp": 42, "loss": 0.42},
+    ])
+    store = _RecordingStore()
+    forward_step_metrics(store, "run-A", tmp_path)
+    assert store.calls[0]["metrics"] == {"loss": 0.42}
+
+
+def test_flat_row_skips_non_numeric_fields(tmp_path: Path):
+    """String- and dict-valued top-level fields must not appear in the
+    forwarded metrics — only numerics make it through."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl", [
+        {"step": 1, "loss": 0.5, "tag": "smoke", "nested": {"x": 1}, "flag": True},
+    ])
+    store = _RecordingStore()
+    forward_step_metrics(store, "run-A", tmp_path)
+    # bool is a subclass of int in Python — flag does technically pass the
+    # isinstance check, so we accept it. The point of this test is that
+    # `tag` (str) and `nested` (dict) are excluded.
+    m = store.calls[0]["metrics"]
+    assert "tag" not in m
+    assert "nested" not in m
+    assert m["loss"] == 0.5
+
+
+def test_flat_row_with_only_meta_keys_skipped(tmp_path: Path):
+    """If a row has only positional fields (no numeric metric values), it
+    must be a silent no-op — no log_metrics call."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl", [
+        {"step": 1, "epoch": 0, "progress": 0.5},
+        {"step": 2, "loss": 0.5},
+    ])
+    store = _RecordingStore()
+    sent = forward_step_metrics(store, "run-A", tmp_path)
+    assert sent == 1
+    assert store.calls[0]["step"] == 2
+
+
+def test_val_prefix_split_works_on_flat_format(tmp_path: Path):
+    """A flat row with `val/`-prefixed keys must still route to split='val'."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl", [
+        {"step": 10, "train_mean_nll": 0.42, "val/exact_match": 0.7},
+    ])
+    store = _SplitRecordingStore()
+    sent = forward_step_metrics(store, "run-A", tmp_path)
+    # one train call (train_mean_nll) + one val call (val/exact_match)
+    assert sent == 2
+    by_split = {c["split"]: c["metrics"] for c in store.calls}
+    assert by_split["train"] == {"train_mean_nll": 0.42}
+    assert by_split["val"] == {"val/exact_match": 0.7}
+
+
+def test_forwards_nested_format_unchanged(tmp_path: Path):
+    """Regression: the original nested shape must continue to forward
+    untouched, even though _extract_metrics now handles both."""
+    _write_jsonl(tmp_path / "logs" / "metrics.jsonl",
+                 [{"ts": 0, "step": 1, "metrics": {"loss": 0.5, "lr": 1e-4}}])
+    store = _RecordingStore()
+    sent = forward_step_metrics(store, "run-A", tmp_path)
+    assert sent == 1
+    assert store.calls[0]["metrics"] == {"loss": 0.5, "lr": 1e-4}

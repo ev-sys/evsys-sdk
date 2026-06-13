@@ -1,5 +1,5 @@
-"""Tests for `trajectory_labs.new_experiment.new_experiment` and the
-`trajex new-experiment` CLI subcommand.
+"""Tests for `evsys_sdk.new_experiment.new_experiment` and the
+`evsys new-experiment` CLI subcommand.
 """
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from trajectory_labs.cli import main as cli_main
-from trajectory_labs.config import ExperimentConfig
-from trajectory_labs.new_experiment import new_experiment
+from evsys_sdk.cli import main as cli_main
+from evsys_sdk.config import ExperimentConfig
+from evsys_sdk.new_experiment import new_experiment
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +122,11 @@ def test_run_py_is_syntactically_valid(tmp_path: Path):
     ast.parse(src)  # raises SyntaxError if invalid
 
 
-def test_run_py_imports_experiment_and_scripts(tmp_path: Path):
+def test_run_py_imports_experiment_and_src(tmp_path: Path):
     path = new_experiment(tmp_path, "valid", today=date(2026, 1, 1))
     src = (path / "run.py").read_text()
-    assert "from trajectory_labs import Experiment" in src
-    assert "import scripts" in src
+    assert "from evsys_sdk import Experiment" in src
+    assert "import src" in src
     assert "Experiment.from_yaml" in src
     assert ".run()" in src
 

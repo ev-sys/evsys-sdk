@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.checkpoint` — parse algorithm-emitted
+"""Tests for `evsys_sdk.checkpoint` — parse algorithm-emitted
 `checkpoints.jsonl` manifests so researcher scripts don't hand-roll it.
 """
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.checkpoint import (
+from evsys_sdk.checkpoint import (
     MANIFEST_NAME,
     Checkpoint,
     find_manifest,

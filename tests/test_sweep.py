@@ -1,4 +1,4 @@
-"""Tests for `trajectory_labs.sweep.Sweep`.
+"""Tests for `evsys_sdk.sweep.Sweep`.
 
 Sweep is the OOP counterpart to the YAML `matrix:` block — same expansion
 semantics, used directly from Python by Experiment scripts.
@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_labs.config import (
+from evsys_sdk.config import (
     AlgorithmConfig,
     DataConfig,
     MatrixSpec,
     ModelConfig,
     RunConfig,
 )
-from trajectory_labs.sweep import Sweep, expand_runs
+from evsys_sdk.sweep import Sweep, expand_runs
 
 
 # ---------------------------------------------------------------------------

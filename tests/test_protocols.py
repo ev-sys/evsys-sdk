@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from trajectory_labs.algorithms.mock_sft import MockSFT
-from trajectory_labs.backends.mock import MockBackend
-from trajectory_labs.metrics.basic import ExactMatch, MeanReward
-from trajectory_labs.protocols import (
+from evsys_sdk.algorithms.mock_sft import MockSFT
+from evsys_sdk.backends.mock import MockBackend
+from evsys_sdk.metrics.basic import ExactMatch, MeanReward
+from evsys_sdk.protocols import (
     Algorithm,
     Backend,
     Metric,
     Verifier,
 )
-from trajectory_labs.verifiers.format_only import FormatOnlyVerifier
+from evsys_sdk.verifiers.format_only import FormatOnlyVerifier
 
 
 def test_mock_sft_satisfies_algorithm_protocol():

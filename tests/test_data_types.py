@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from trajectory_labs.data_types import (
+from evsys_sdk.data_types import (
     ChatMessagesRow,
     E2BVerifier,
     HarborTask,

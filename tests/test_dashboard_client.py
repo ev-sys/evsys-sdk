@@ -17,22 +17,22 @@ from unittest import mock
 
 import pytest
 
-from trajectory_labs.dashboard_client import (
+from evsys_sdk.dashboard_client import (
     DashboardClient,
     DashboardClientError,
     ExperimentRun,
-    TrajectoryAuthError,
+    EvsysAuthError,
 )
 
 
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path, monkeypatch):
     """Keep tests hermetic: no ambient creds, and mirror writes go to tmp."""
-    monkeypatch.delenv("TRAJECTORY_API_KEY", raising=False)
-    monkeypatch.delenv("TRAJECTORY_PROJECT_ID", raising=False)
-    monkeypatch.delenv("TRAJECTORY_API_URL", raising=False)
-    monkeypatch.delenv("TRAJECTORY_OFFLINE", raising=False)
-    monkeypatch.setenv("TRAJECTORY_LOG_DIR", str(tmp_path / "mirror"))
+    monkeypatch.delenv("EVSYS_API_KEY", raising=False)
+    monkeypatch.delenv("EVSYS_PROJECT_ID", raising=False)
+    monkeypatch.delenv("EVSYS_API_URL", raising=False)
+    monkeypatch.delenv("EVSYS_OFFLINE", raising=False)
+    monkeypatch.setenv("EVSYS_LOG_DIR", str(tmp_path / "mirror"))
 
 
 def _mock_session(response_json: dict, status: int = 200):
@@ -56,7 +56,7 @@ def _make_client(session=None) -> DashboardClient:
 class TestConstruction:
     def test_requires_credentials_when_online(self, monkeypatch):
         # No api_key / project_id and not offline → auth error.
-        with pytest.raises(TrajectoryAuthError, match="TRAJECTORY_API_KEY"):
+        with pytest.raises(EvsysAuthError, match="EVSYS_API_KEY"):
             DashboardClient(base_url="http://x")
 
     def test_offline_needs_no_credentials(self):
@@ -65,14 +65,14 @@ class TestConstruction:
         assert c._session is None
 
     def test_offline_via_env(self, monkeypatch):
-        monkeypatch.setenv("TRAJECTORY_OFFLINE", "true")
+        monkeypatch.setenv("EVSYS_OFFLINE", "true")
         c = DashboardClient()
         assert c.offline is True
 
     def test_picks_up_env_vars(self, monkeypatch):
-        monkeypatch.setenv("TRAJECTORY_API_KEY", "sk_from_env")
-        monkeypatch.setenv("TRAJECTORY_PROJECT_ID", "proj_from_env")
-        monkeypatch.setenv("TRAJECTORY_API_URL", "https://x.test")
+        monkeypatch.setenv("EVSYS_API_KEY", "sk_from_env")
+        monkeypatch.setenv("EVSYS_PROJECT_ID", "proj_from_env")
+        monkeypatch.setenv("EVSYS_API_URL", "https://x.test")
         c = DashboardClient()
         assert c.api_key == "sk_from_env"
         assert c.project_id == "proj_from_env"

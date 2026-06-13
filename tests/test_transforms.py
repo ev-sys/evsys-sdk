@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_labs.transforms.identity import IdentityTransform
-from trajectory_labs.transforms.jsonl_to_chat import JSONLToChatTransform
+from evsys_sdk.transforms.identity import IdentityTransform
+from evsys_sdk.transforms.jsonl_to_chat import JSONLToChatTransform
 
 
 def test_identity():

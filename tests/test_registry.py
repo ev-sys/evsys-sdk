@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from trajectory_labs import (
+from evsys_sdk import (
     get_algorithm,
     list_algorithms,
     list_backends,
@@ -13,7 +13,7 @@ from trajectory_labs import (
     list_verifiers,
     register_algorithm,
 )
-from trajectory_labs.registry import _algorithms, schema_for
+from evsys_sdk.registry import _algorithms, schema_for
 
 
 def test_builtin_algorithms_registered():

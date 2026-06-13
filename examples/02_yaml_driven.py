@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trajectory_labs import dump_yaml, load_yaml, run_experiment
+from evsys_sdk import dump_yaml, load_yaml, run_experiment
 
 HERE = Path(__file__).parent
 

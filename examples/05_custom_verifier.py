@@ -12,7 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from trajectory_labs import (
+from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
@@ -23,7 +23,7 @@ from trajectory_labs import (
     register_verifier,
     run_experiment,
 )
-from trajectory_labs.protocols import VerificationResult
+from evsys_sdk.protocols import VerificationResult
 
 HERE = Path(__file__).parent
 
