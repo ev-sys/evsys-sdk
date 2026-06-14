@@ -1,13 +1,12 @@
-"""Rollout trajectory data model.
+"""The rollout data model — one shape for all (multi-turn) rollouts.
 
-The SDK's training-side rollout shape: a prompt + a sampled completion (with
-per-token logprobs) + a scalar reward. Produced by the harbor rollout engine
-(:mod:`evsys_sdk.training.harbor_engine`) and consumed by the IS-loss data
-prep (:mod:`evsys_sdk.training.data_processing`).
-
-This is the *training* model (what the optimizer needs). Harbor's own
-``RolloutDetail`` (ATIF: per-turn token ids + logprobs) is the richer
-agent-rollout interchange shape; the harbor engine maps it into this.
+Every rollout in the SDK — single- or multi-turn, RL or SDFT — is a
+:class:`Trajectory`: an ordered list of :class:`Turn`\\s (each a prompt + a
+sampled completion with per-token logprobs) plus a scalar reward. Harbor's
+``RolloutDetail`` (ATIF) is converted into this at the engine boundary
+(:func:`evsys_sdk.training.harbor_engine.run_harbor_rollouts`), so the rest of
+the SDK only ever sees ``Trajectory``. The IS-loss data prep
+(:mod:`evsys_sdk.training.data_processing`) emits one ``Datum`` per turn.
 """
 
 from __future__ import annotations
@@ -15,19 +14,28 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import tinker
+
+@dataclass
+class Turn:
+    """One assistant turn of a rollout.
+
+    ``prompt_tokens`` is the full rendered context the policy saw for this turn
+    (system + prior turns + the latest observation); ``completion_tokens`` /
+    ``logprobs`` are the sampled response. A single-turn rollout has exactly one.
+    """
+
+    prompt_tokens: list[int]
+    completion_tokens: list[int]
+    logprobs: list[float]
+    text: str = ""
 
 
 @dataclass
 class Trajectory:
-    """One rollout: prompt → completion (+ per-token logprobs) → reward."""
+    """One rollout: an ordered list of :class:`Turn`\\s + a scalar reward."""
 
-    prompt: tinker.ModelInput
-    completion_tokens: list[int]
-    completion_logprobs: list[float]
-    """Per-token logprobs from the sampler (one per ``completion_tokens``
-    entry). Used to construct the importance-sampling loss."""
-    reward: float
+    turns: list[Turn]
+    reward: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -38,13 +46,12 @@ class TrajectoryGroup:
 
     trajectories: list[Trajectory]
     tags: list[str] = field(default_factory=list)
-    """Logging tags (toolkit, task category, …) — propagated by
-    :func:`~evsys_sdk.training.data_processing.compute_advantages` /
-    ``assemble_training_data`` so metric breakdowns work."""
+    """Logging tags (toolkit, task category, …) propagated through advantage +
+    Datum assembly so metric breakdowns work."""
 
     @property
     def rewards(self) -> list[float]:
         return [t.reward for t in self.trajectories]
 
 
-__all__ = ["Trajectory", "TrajectoryGroup"]
+__all__ = ["Turn", "Trajectory", "TrajectoryGroup"]

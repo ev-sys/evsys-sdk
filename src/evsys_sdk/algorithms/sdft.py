@@ -17,6 +17,7 @@ per-algorithm pieces:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import tinker
@@ -24,10 +25,7 @@ import tinker
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
-from ..training.batch_utils import (
-    coerce_floats,
-    extract_completion_tokens_from_response,
-)
+from ..training.batch_utils import coerce_floats
 from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
     CompletionSlice,
@@ -39,7 +37,6 @@ from ..training.sdft_data import (
     student_datum_from_rollout,
 )
 from ..training.loop import TrainingBatch
-from ..training.templates import Message, messages_to_model_input
 from ..training.tinker_backend import TinkerBackend, TinkerSamplingClient
 from .base import BaseAlgorithm, BaseAlgorithmConfig
 
@@ -99,25 +96,20 @@ class SDFT(BaseAlgorithm):
         )
         self._teacher = TinkerSamplingClient(teacher_client, name="teacher")
 
-        # Per-step student sampler provider: snapshot the current weights each
-        # step so the on-policy rollout uses fresh weights (cookbook's
-        # save_checkpoint_and_get_sampling_client, as an injectable seam).
+        # Per-step student rollouts go through harbor (on-policy: each step
+        # saves a sampler checkpoint and points the harbor agent at it).
         self._backend = backend
         self._snapshot_i = 0
+        self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
 
         self._steps_per_epoch = max(1, len(self._dataset))
 
-    async def _latest_student_sampler(self) -> Any:
-        self._snapshot_i += 1
-        return await self._backend.snapshot_sampling_client(
-            name=f"student_snap_{self._snapshot_i}"
-        )
-
     async def build_batch(self, step_idx: int) -> TrainingBatch:
+        from ..training.harbor_engine import run_harbor_generations
+
         questions, golden = self._dataset.get_batch(step_idx)
 
-        # 1. Build student + teacher prompts.
-        student_prompts = [self._build_student_prompt(q) for q in questions]
+        # 1. Teacher prompts (golden answer shown as an in-context demo).
         teacher_prompts = [
             build_teacher_prompt(
                 question=q, golden_answer=g, tokenizer=self._tokenizer,
@@ -128,26 +120,31 @@ class SDFT(BaseAlgorithm):
             for q, g in zip(questions, golden)
         ]
 
-        # 2. On-policy student rollouts (one per question, batched in parallel).
-        sampler = await self._latest_student_sampler()
-        student_responses = await asyncio.gather(*[
-            sampler.sample_async(
-                prompt=sp,
-                params=tinker.SamplingParams(
-                    max_tokens=self.cfg.max_tokens, temperature=self.cfg.temperature,
-                ),
-                num_samples=1,
-            )
-            for sp in student_prompts
-        ])
+        # 2. On-policy student rollouts via harbor's engine (generation only —
+        #    no verifier). Save a sampler checkpoint so the harbor agent samples
+        #    from the current weights.
+        self._snapshot_i += 1
+        model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
+        student_trajs = await run_harbor_generations(
+            [self._student_user_content(q) for q in questions],
+            model_name=self._model_name,
+            model_path=model_path,
+            workspace_dir=self._workspace,
+            renderer_name=self.cfg.renderer_name,
+            max_tokens=self.cfg.max_tokens,
+            temperature=self.cfg.temperature,
+            system_prompt=self.cfg.system_prompt,
+        )
 
         # 3. Wrap each rollout as a student Datum (carrying the completion mask).
         student_datums: list[tinker.Datum] = []
         completion_slices: list[CompletionSlice] = []
         teacher_forced_seqs: list[tinker.ModelInput] = []
 
-        for sp, tp, resp in zip(student_prompts, teacher_prompts, student_responses):
-            completion = extract_completion_tokens_from_response(resp)
+        for tp, traj in zip(teacher_prompts, student_trajs):
+            turn = traj.turns[0] if traj.turns else None
+            completion = list(turn.completion_tokens) if turn else []
+            sp = tinker.ModelInput.from_ints(list(turn.prompt_tokens) if turn else [])
             datum = student_datum_from_rollout(prompt=sp, completion_tokens=completion)
             student_datums.append(datum)
             slice_ = extract_completion_tokens(
@@ -228,17 +225,10 @@ class SDFT(BaseAlgorithm):
 
     # --- internals ---------------------------------------------------------
 
-    def _build_student_prompt(self, question: str) -> tinker.ModelInput:
-        user_content = self.cfg.user_template.format(question=question, prompt=question)
-        messages: list[Message] = []
-        if self.cfg.system_prompt:
-            messages.append({"role": "system", "content": self.cfg.system_prompt})
-        messages.append({"role": "user", "content": user_content})
-        return messages_to_model_input(
-            self._tokenizer, messages,
-            add_generation_prompt=True,
-            enable_thinking=self.cfg.enable_thinking,
-        )
+    def _student_user_content(self, question: str) -> str:
+        """The user turn the student sees (no demo). The harbor agent's
+        TinkerLLM renders it into a chat-templated prompt internally."""
+        return self.cfg.user_template.format(question=question, prompt=question)
 
 
 __all__ = ["SDFT", "SDFTConfig"]

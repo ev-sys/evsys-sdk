@@ -24,7 +24,7 @@ from typing import Any, Sequence
 import tinker
 
 from ..data_types import HarborTask, InProcessVerifier
-from .trajectory import Trajectory, TrajectoryGroup
+from .trajectory import Trajectory, TrajectoryGroup, Turn
 
 # Where harbor loads our glue classes from (by string, at trial runtime).
 _AGENTS_PATH = "evsys_sdk.training.harbor_agents"
@@ -152,6 +152,105 @@ async def run_harbor_rollouts(
 
 
 # ---------------------------------------------------------------------------
+# Generation-only rollouts (no verifier/reward) — used by SDFT's student rollout
+# ---------------------------------------------------------------------------
+
+
+def _materialize_generation_task(instruction: str, dest: Path) -> Path:
+    """A verifier-less task dir: ``instruction.md`` + a ``task.toml`` whose
+    ``environment_mode="separate"`` skips the test.sh check at load. The trial
+    disables the verifier, so only the agent's generation matters."""
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "instruction.md").write_text(instruction)
+    (dest / "task.toml").write_text(
+        "[agent]\ntimeout_sec = 600.0\n\n[environment]\n\n"
+        '[verifier]\nenvironment_mode = "separate"\n'
+    )
+    return dest
+
+
+async def run_harbor_generations(
+    prompts: Sequence[str],
+    *,
+    model_name: str,
+    model_path: str | None,
+    workspace_dir: Path,
+    renderer_name: str | None = None,
+    max_turns: int = 1,
+    max_tokens: int = 512,
+    temperature: float = 1.0,
+    system_prompt: str | None = None,
+    agent_import_path: str | None = None,
+    n_concurrent: int = 4,
+    max_retries: int = 2,
+    _job_factory: Any | None = None,
+) -> list[Trajectory]:
+    """One generation per prompt through harbor's engine, **no verifier/reward**.
+
+    Returns one :class:`Trajectory` per prompt (``reward=0``); SDFT uses the
+    student completion tokens for teacher-forced distillation.
+    """
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    from harbor import Job
+    from harbor.models.job.config import JobConfig, RetryConfig
+    from harbor.models.trial.config import (
+        AgentConfig,
+        EnvironmentConfig,
+        TaskConfig,
+        TrialConfig,
+        VerifierConfig,
+    )
+
+    agent = AgentConfig(
+        import_path=agent_import_path or f"{_AGENTS_PATH}:BasicLoopAgent",
+        kwargs={} if agent_import_path else {
+            "model_name": model_name,
+            "model_path": model_path,
+            "renderer_name": renderer_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "max_turns": max_turns,
+            "system_prompt": system_prompt,
+        },
+    )
+
+    trial_configs = []
+    for i, prompt in enumerate(prompts):
+        task_dir = _materialize_generation_task(prompt, workspace_dir / "tasks" / f"gen_{i}")
+        trial_configs.append(TrialConfig(
+            task=TaskConfig(path=task_dir),
+            trial_name=f"gen_{i}",
+            trials_dir=workspace_dir / "trials",
+            agent=agent,
+            environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
+            verifier=VerifierConfig(disable=True),   # generation only — no scoring
+        ))
+
+    config = JobConfig(
+        trials=trial_configs,
+        jobs_dir=workspace_dir / "jobs",
+        n_concurrent_trials=n_concurrent,
+        retry=RetryConfig(max_retries=max_retries),
+    )
+
+    if _job_factory is not None:
+        result = await _job_factory(config)
+    else:
+        job = await Job.create(config)
+        result = await job.run()
+
+    by_trial = {
+        tr.trial_name: tr for tr in (getattr(result, "trial_results", None) or [])
+    }
+    out: list[Trajectory] = []
+    for i in range(len(prompts)):
+        traj = _trial_to_trajectory(by_trial.get(f"gen_{i}"))
+        out.append(traj if traj is not None else Trajectory(turns=[]))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Harvest: JobResult → TrajectoryGroups (one per task)
 # ---------------------------------------------------------------------------
 
@@ -175,32 +274,31 @@ def _harvest(job_result: Any, tasks: Sequence[HarborTask], num_samples: int) -> 
 
 
 def _trial_to_trajectory(tr: Any) -> Trajectory | None:
+    """Convert harbor's RolloutDetail (ATIF) → our multi-turn Trajectory."""
     if tr is None:
         return None
     agent_result = getattr(tr, "agent_result", None)
     details = getattr(agent_result, "rollout_details", None) if agent_result else None
     if not details:
         return None
-    rd = details[0]  # single linear chat history
+    rd = details[0]  # the main linear chat history
     prompt_turns = rd.get("prompt_token_ids") or []
     completion_turns = rd.get("completion_token_ids") or []
     logprob_turns = rd.get("logprobs") or []
     if not completion_turns:
         return None
-    # Single-turn Trajectory shape: use the last turn.
-    prompt_ids = list(prompt_turns[-1]) if prompt_turns else []
-    completion = list(completion_turns[-1])
-    logprobs = list(logprob_turns[-1]) if logprob_turns else []
+
+    turns: list[Turn] = []
+    for i, completion in enumerate(completion_turns):
+        turns.append(Turn(
+            prompt_tokens=list(prompt_turns[i]) if i < len(prompt_turns) else [],
+            completion_tokens=list(completion),
+            logprobs=list(logprob_turns[i]) if i < len(logprob_turns) else [],
+        ))
 
     rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None) or {}
     reward = float(rewards.get("reward", 0.0))
-
-    return Trajectory(
-        prompt=tinker.ModelInput.from_ints(prompt_ids),
-        completion_tokens=completion,
-        completion_logprobs=logprobs,
-        reward=reward,
-    )
+    return Trajectory(turns=turns, reward=reward)
 
 
 def _trial_name(task_id: str, sample: int) -> str:
@@ -211,4 +309,4 @@ def _safe(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(name))
 
 
-__all__ = ["materialize_task", "run_harbor_rollouts"]
+__all__ = ["materialize_task", "run_harbor_rollouts", "run_harbor_generations"]

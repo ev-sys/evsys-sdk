@@ -24,7 +24,7 @@ from typing import Any
 import tinker
 import torch
 
-from .trajectory import Trajectory, TrajectoryGroup
+from .trajectory import TrajectoryGroup, Turn
 
 logger = logging.getLogger(__name__)
 
@@ -79,40 +79,41 @@ def assemble_training_data(
     trajectory_groups: list[TrajectoryGroup],
     advantages: list[list[float]],
 ) -> tuple[list[tinker.Datum], list[DatumMetadata]]:
-    """Flatten ``(group, trajectory)`` → ``(Datum, DatumMetadata)`` pairs.
+    """Flatten ``(group, trajectory, turn)`` → ``(Datum, DatumMetadata)`` pairs.
 
-    Each Datum carries:
-      * ``model_input``: prompt + completion[:-1] (left-shifted convention).
+    **One Datum per assistant turn** — a single-turn trajectory yields one
+    Datum, a multi-turn one yields one per turn, all carrying the same
+    trajectory-level advantage. Each Datum carries:
+
+      * ``model_input``: turn prompt + completion[:-1] (left-shifted).
       * ``loss_fn_inputs["target_tokens"]``: completion tokens.
       * ``loss_fn_inputs["mask"]``: ``1.0`` on completion positions, else ``0``.
-      * ``loss_fn_inputs["logprobs"]``: sampler's per-position logprobs for
-        the completion tokens (zero on prompt positions). Used by the IS
-        loss to weight the gradient.
+      * ``loss_fn_inputs["logprobs"]``: sampler's per-position logprobs (zero on
+        prompt positions). Used by the IS loss.
       * ``loss_fn_inputs["advantages"]``: the trajectory's group-normalized
-        reward, broadcast to every completion position; 0 on prompt
-        positions.
+        reward, broadcast to completion positions; 0 on prompt positions.
 
-    Empty trajectories (no completion tokens) are dropped silently — IS
-    loss is a no-op on them.
+    Turns with no completion tokens are dropped silently — IS loss is a no-op.
     """
     datums: list[tinker.Datum] = []
     metas: list[DatumMetadata] = []
     for group_idx, (group, group_advantages) in enumerate(zip(trajectory_groups, advantages)):
         for traj, adv in zip(group.trajectories, group_advantages):
-            datum = _trajectory_to_datum(traj, advantage=adv)
-            if datum is None:
-                continue
-            datums.append(datum)
-            metas.append(DatumMetadata(group_idx=group_idx, tags=list(group.tags)))
+            for turn in traj.turns:
+                datum = _turn_to_datum(turn, advantage=adv)
+                if datum is None:
+                    continue
+                datums.append(datum)
+                metas.append(DatumMetadata(group_idx=group_idx, tags=list(group.tags)))
     return datums, metas
 
 
-def _trajectory_to_datum(traj: Trajectory, *, advantage: float) -> tinker.Datum | None:
-    if not traj.completion_tokens:
+def _turn_to_datum(turn: Turn, *, advantage: float) -> tinker.Datum | None:
+    if not turn.completion_tokens:
         return None
-    prompt_tokens = traj.prompt.to_ints()
-    completion = list(traj.completion_tokens)
-    logprobs = list(traj.completion_logprobs)
+    prompt_tokens = list(turn.prompt_tokens)
+    completion = list(turn.completion_tokens)
+    logprobs = list(turn.logprobs)
     # Pad/truncate logprobs to match completion length defensively.
     if len(logprobs) < len(completion):
         logprobs = logprobs + [0.0] * (len(completion) - len(logprobs))

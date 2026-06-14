@@ -75,7 +75,7 @@ def test_harvest_maps_trials_to_groups():
     assert len(groups) == 2
     assert groups[0].tags == ["x"]
     assert groups[0].trajectories[0].reward == 1.0
-    assert groups[0].trajectories[0].completion_tokens == [10, 11]
+    assert groups[0].trajectories[0].turns[0].completion_tokens == [10, 11]
     assert groups[1].trajectories[0].reward == 0.0
 
 

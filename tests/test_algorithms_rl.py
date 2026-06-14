@@ -23,7 +23,7 @@ from evsys_sdk.algorithms.rl import RL, RLConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend
-from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup
+from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
 
 
 class _StubLogStore:
@@ -58,9 +58,11 @@ async def _fake_run_harbor_rollouts(tasks, *, num_samples=1, **kwargs):
     for t in tasks:
         trajs = [
             Trajectory(
-                prompt=tinker.ModelInput.from_ints([1, 2, 3]),
-                completion_tokens=[200, 201, 202],
-                completion_logprobs=[-0.5, -0.5, -0.5],
+                turns=[Turn(
+                    prompt_tokens=[1, 2, 3],
+                    completion_tokens=[200, 201, 202],
+                    logprobs=[-0.5, -0.5, -0.5],
+                )],
                 reward=1.0,
             )
             for _ in range(num_samples)
