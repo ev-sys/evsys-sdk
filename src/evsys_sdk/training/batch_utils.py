@@ -22,12 +22,33 @@ def coerce_floats(value: Any) -> list[float] | None:
     if value is None:
         return None
     if isinstance(value, list):
-        return [float(v) for v in value]
+        return _flatten_floats(value)
     if hasattr(value, "to_torch"):
-        return [float(v) for v in value.to_torch().tolist()]
+        # reshape(-1) flattens any rank (real tinker can return 2D logprobs for
+        # the SDFT top-K CE datums; SFT's are 1D and pass through unchanged).
+        return [float(v) for v in value.to_torch().reshape(-1).tolist()]
     if hasattr(value, "tolist"):
-        return [float(v) for v in value.tolist()]
+        return _flatten_floats(value.tolist())
     return None
+
+
+def _flatten_floats(seq: Any) -> list[float] | None:
+    """Flatten an arbitrarily-nested list of numbers to ``list[float]``.
+    Returns ``None`` if a leaf isn't coercible to float."""
+    flat: list[Any] = []
+
+    def _walk(x: Any) -> None:
+        if isinstance(x, (list, tuple)):
+            for e in x:
+                _walk(e)
+        else:
+            flat.append(x)
+
+    _walk(seq)
+    try:
+        return [float(v) for v in flat]
+    except (TypeError, ValueError):
+        return None
 
 
 def extract_weights(datum: tinker.Datum) -> Any:
