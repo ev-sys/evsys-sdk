@@ -13,6 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+harbor = [
+    # Rollout engine for the `rl` algorithm: harbor's Job/Trial runner +
+    # TinkerLLM sampler. Loaded lazily by evsys_sdk.training.harbor_engine.
+    "harbor>=0.13.2",
+]
 tinker = [
     "tinker>=0.18.2",
     "tinker-cookbook>=0.3.0",

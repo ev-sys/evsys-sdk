@@ -1,27 +1,29 @@
 """End-to-end test of `evsys_sdk.algorithms.rl.RL`.
 
-Like the SFT/SDFT composer tests: stub TinkerBackend.create + the sampler
-factory so the full RL pipeline (rows → builders → rollout → advantage →
-IS-loss CE-shape Datums → loop) runs without a real tinker session.
+RL now hands rollouts to harbor's engine via
+``evsys_sdk.training.harbor_engine.run_harbor_rollouts``. We mock that helper
+(harbor isn't installed in CI) so the rest of the pipeline — HarborTask parsing,
+advantage computation, IS-loss Datums, the training loop on MockBackend — runs
+for real.
 """
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 pytest.importorskip("tinker")  # optional dep; not installed in base CI
 pytest.importorskip("torch")
 
+import tinker
+
 import evsys_sdk.algorithms.rl as rl_module
 from evsys_sdk.algorithms.rl import RL, RLConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend
+from evsys_sdk.training.env import Trajectory, TrajectoryGroup
 
 
 class _StubLogStore:
@@ -43,66 +45,53 @@ class _StubLogStore:
 class _StubTokenizer:
     def apply_chat_template(self, messages, *, tokenize=True,
                             add_generation_prompt=False, **extra):
-        parts = [f"<{m['role'][0]}>{m['content']}" for m in messages]
-        text = "$".join(parts)
-        if add_generation_prompt:
-            text += "?"
-        return text
+        return "$".join(f"<{m['role'][0]}>{m['content']}" for m in messages)
 
     def encode(self, text, add_special_tokens=False):
         return [ord(c) for c in text]
 
-    def decode(self, tokens):
-        return "T" + "_".join(str(t) for t in tokens)
 
-
-class _CannedRolloutSampler:
-    """Sampler that emits a canned `tokens` list per call."""
-
-    def __init__(self, tokens, name="rl-mock"):
-        self.tokens = tokens
-        self.name = name
-
-    async def sample_async(self, **kwargs):
-        @dataclass
-        class _Seq:
-            tokens: list[int]
-            logprobs: list[float]
-        @dataclass
-        class _Resp:
-            sequences: list[Any]
-        return _Resp(sequences=[
-            _Seq(tokens=list(self.tokens), logprobs=[-0.5] * len(self.tokens)),
-        ])
+async def _fake_run_harbor_rollouts(tasks, *, num_samples=1, **kwargs):
+    """Stand-in for the harbor engine: one TrajectoryGroup per task, each with
+    a canned single-turn trajectory + reward (no harbor / containers)."""
+    groups = []
+    for t in tasks:
+        trajs = [
+            Trajectory(
+                prompt=tinker.ModelInput.from_ints([1, 2, 3]),
+                completion_tokens=[200, 201, 202],
+                completion_logprobs=[-0.5, -0.5, -0.5],
+                reward=1.0,
+            )
+            for _ in range(num_samples)
+        ]
+        groups.append(TrajectoryGroup(trajectories=trajs, tags=list(t.metadata.get("tags") or [])))
+    return groups
 
 
 @pytest.fixture
 def patched_tinker_backend(monkeypatch):
     backend = MockBackend(tokenizer=_StubTokenizer())
-    backend._sampler_factory = lambda name: _CannedRolloutSampler(  # type: ignore[assignment]
-        tokens=[200, 201, 202], name=name,
-    )
 
     async def _factory(**kwargs):
         backend._model_name = kwargs.get("model_name")  # type: ignore[attr-defined]
         return backend
 
     monkeypatch.setattr(rl_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(
+        "evsys_sdk.training.harbor_engine.run_harbor_rollouts",
+        _fake_run_harbor_rollouts,
+    )
     return backend
 
 
 @pytest.fixture
 def ctx(tmp_path: Path):
-    # Standardized HarborTask shape: instruction + per-row in_process verifier.
     rows = [
         {
             "task_id": f"t{i}",
             "instruction": f"P{i}",
-            "verifier": {
-                "kind": "in_process",
-                "fn_name": "exact_match",
-                "expected": "T200_201_202",
-            },
+            "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": "T200_201_202"},
             "metadata": {"tags": ["foo"]},
         }
         for i in range(20)
@@ -126,9 +115,7 @@ def ctx(tmp_path: Path):
     return _Ctx()
 
 
-# ---------------------------------------------------------------------------
-# Registry + Config
-# ---------------------------------------------------------------------------
+# --- Registry + Config -----------------------------------------------------
 
 
 def test_registered_under_rl():
@@ -140,7 +127,7 @@ def test_config_defaults():
     assert cfg.batch_size == 4
     assert cfg.num_samples == 1
     assert cfg.drop_constant_reward is True
-    assert cfg.learning_rate == 1.0e-5  # lower default than SFT
+    assert cfg.learning_rate == 1.0e-5
 
 
 def test_config_rejects_unknown_kwarg():
@@ -148,9 +135,7 @@ def test_config_rejects_unknown_kwarg():
         RLConfig(bogus_field=True)
 
 
-# ---------------------------------------------------------------------------
-# Validation gates
-# ---------------------------------------------------------------------------
+# --- Validation gates ------------------------------------------------------
 
 
 def test_rejects_non_tinker_backend(ctx):
@@ -161,26 +146,22 @@ def test_rejects_non_tinker_backend(ctx):
         RL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
-def test_rejects_missing_train_rows_and_no_env_builders(ctx, patched_tinker_backend):
+def test_rejects_missing_train_rows(ctx, patched_tinker_backend):
     ctx.extras["train_rows"] = []
-    ctx.extras.pop("env_builders", None)
-    with pytest.raises(RuntimeError, match="env_builders.*train_rows|train_rows.*env_builders"):
+    with pytest.raises(RuntimeError, match="train_rows"):
         RL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
 def test_rejects_unknown_verifier(ctx, patched_tinker_backend):
-    # The verifier fn_name now rides on each HarborTask row.
     ctx.extras["train_rows"] = [{
         "task_id": "t0", "instruction": "P0",
-        "verifier": {"kind": "in_process", "fn_name": "not_real_verifier",
-                     "expected": "x"},
+        "verifier": {"kind": "in_process", "fn_name": "not_real_verifier", "expected": "x"},
     }]
     with pytest.raises(RuntimeError, match="unknown verifier_name"):
         RL(max_steps=2, batch_size=1).train(ctx)
 
 
-def test_rejects_missing_verifier_when_rows_path_chosen(ctx, patched_tinker_backend):
-    # Empty fn_name on the row + no cfg.verifier_name fallback.
+def test_rejects_missing_verifier_fn(ctx, patched_tinker_backend):
     ctx.extras["train_rows"] = [{
         "task_id": "t0", "instruction": "P0",
         "verifier": {"kind": "in_process", "fn_name": "", "expected": "x"},
@@ -190,41 +171,29 @@ def test_rejects_missing_verifier_when_rows_path_chosen(ctx, patched_tinker_back
 
 
 def test_rejects_non_harbor_task_rows(ctx, patched_tinker_backend):
-    # Wrong format entirely → parse_rows rejects strictly.
     ctx.extras["train_rows"] = [{"prompt": "P0", "expected": "x"}]
     with pytest.raises(ValueError, match="expected 'harbor_task'"):
         RL(max_steps=2, batch_size=1, verifier_name="exact_match").train(ctx)
 
 
-# ---------------------------------------------------------------------------
-# End-to-end happy path
-# ---------------------------------------------------------------------------
+# --- End-to-end happy path -------------------------------------------------
 
 
 def test_train_runs_end_to_end(patched_tinker_backend, ctx):
-    """drop_constant_reward=False so the rewards (all 1.0 from the canned
-    sampler) don't get filtered out — keeps the test's batch non-empty."""
-    algo = RL(
-        max_steps=2, batch_size=4, num_samples=1,
-        verifier_name="exact_match", drop_constant_reward=False,
-    )
+    algo = RL(max_steps=2, batch_size=4, num_samples=1,
+              verifier_name="exact_match", drop_constant_reward=False)
     result = algo.train(ctx)
     assert isinstance(result, RunResult)
     assert result.status == "completed"
-    # The loop ran 2 train steps.
     assert len(patched_tinker_backend.fb_calls) == 2
     assert len(patched_tinker_backend.optim_calls) == 2
-    # IS loss name was passed through.
     assert patched_tinker_backend.fb_calls[0]["loss_fn"] == "importance_sampling"
-    # checkpoint artifacts surface
     assert result.artifacts.get("checkpoint-final", "").startswith("mock://sampler/")
 
 
 def test_train_logs_reward_metrics_per_step(patched_tinker_backend, ctx):
-    algo = RL(
-        max_steps=2, batch_size=4, num_samples=1,
-        verifier_name="exact_match", drop_constant_reward=False,
-    )
+    algo = RL(max_steps=2, batch_size=4, num_samples=1,
+              verifier_name="exact_match", drop_constant_reward=False)
     algo.train(ctx)
     train_rows = [r for r in ctx.log_store.metric_rows if r["split"] == "train"]
     assert len(train_rows) == 2
@@ -235,12 +204,10 @@ def test_train_logs_reward_metrics_per_step(patched_tinker_backend, ctx):
 
 
 def test_train_logs_hyperparams(patched_tinker_backend, ctx):
-    RL(
-        max_steps=2, batch_size=4, num_samples=1,
-        verifier_name="exact_match", drop_constant_reward=False,
-    ).train(ctx)
+    RL(max_steps=2, batch_size=4, num_samples=1,
+       verifier_name="exact_match", drop_constant_reward=False).train(ctx)
     hp = ctx.log_store.hyperparams
     assert hp is not None
     assert hp["algorithm"] == "rl"
-    assert hp["n_builders"] == 20
+    assert hp["n_tasks"] == 20
     assert hp["total_steps"] == 2

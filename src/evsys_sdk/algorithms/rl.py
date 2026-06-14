@@ -1,99 +1,64 @@
-"""RL — on-policy reinforcement learning on the SDK training loop.
+"""RL — on-policy reinforcement learning, rollouts run by harbor's engine.
 
-Single-turn out of the box (the path most evsys projects start with —
-prompt → completion → verifier reward); multi-turn slots in via the
-:class:`~evsys_sdk.training.env.EnvGroupBuilder` Protocol when a project
-needs it.
+Rollouts are handed to **harbor's ``Job`` engine** (retries, bounded
+concurrency, timeouts, persistence) via
+:func:`evsys_sdk.training.harbor_engine.run_harbor_rollouts`; this algorithm
+just turns ``HarborTask`` rows into the engine's inputs and assembles the
+returned trajectories into importance-sampling-loss Datums.
 
-All the composer plumbing lives in
-:class:`~evsys_sdk.algorithms.base.BaseAlgorithm`; RL supplies:
+Composer plumbing lives in :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`;
+RL supplies:
 
-* :meth:`setup` — build per-row single-turn envs (from HarborTask rows or
-  pre-built ``ctx.extras['env_builders']``) and a per-step student sampler
-  provider (snapshots the current weights each step → on-policy).
-* :meth:`build_batch` — rollout the batch's envs, group-normalize advantages,
-  emit importance-sampling-loss Datums.
+* :meth:`setup` — parse ``HarborTask`` rows; stash the backend + the
+  ``.evsys`` rollout workspace.
+* :meth:`build_batch` — save a sampler checkpoint (on-policy), roll out the
+  batch via harbor, group-normalize advantages, emit IS-loss Datums.
 
-Researchers supply ``train_rows`` (HarborTask shape: ``task_id`` +
-``instruction`` + a per-row ``in_process`` verifier), or pre-built
-``EnvGroupBuilder`` instances via ``ctx.extras['env_builders']`` for non-text
-envs.
+The agent harness is pluggable: by default harbor runs our ``BasicLoopAgent``
+(``Chat(TinkerLLM)``); set ``agent_import_path`` to any harbor ``BaseAgent``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, cast
+from pathlib import Path
+from typing import Any, ClassVar, cast
 
 from ..data_types import HarborTask, InProcessVerifier, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
-from ..training.env import EnvGroupBuilder, SingleTurnEnv, VerifierFn
 from ..training.loop import TrainingBatch
-from ..training.templates import messages_to_model_input
 from ..training.tinker_backend import TinkerBackend
 from .base import BaseAlgorithm, BaseAlgorithmConfig
 
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-
 class RLConfig(BaseAlgorithmConfig):
-    """Config for :class:`RL`. Inherits the shared training/save/eval knobs
-    from :class:`BaseAlgorithmConfig`; adds RL-only fields."""
+    """Config for :class:`RL` — shared knobs from :class:`BaseAlgorithmConfig`
+    plus RL/rollout-engine fields."""
 
     learning_rate: float = 1.0e-5
     """RL needs a lower LR than SFT — IS gradients can be large."""
 
     num_samples: int = 1
-    """Rollouts per builder — ``group_size`` in the cookbook."""
+    """Rollouts per task (``group_size``); >= 2 enables the advantage baseline."""
 
     verifier_name: str | None = None
-    """Fallback verifier-fn name used only when a HarborTask's InProcessVerifier
-    leaves ``fn_name`` empty. Normally the verifier is carried per-row by the
-    HarborTask itself (looked up via :func:`evsys_sdk.verifiers.get_verifier_fn`)."""
+    """Fallback verifier-fn name when a HarborTask's InProcessVerifier leaves
+    ``fn_name`` empty (normally the verifier rides per-row on the task)."""
 
     max_tokens: int = 256
     temperature: float = 1.0
+    max_turns: int = 1
     drop_constant_reward: bool = True
 
     system_prompt: str | None = None
     user_template: str = "{prompt}"
 
-
-# ---------------------------------------------------------------------------
-# Per-step dataset over env builders
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _SimpleRLDataset:
-    builders: list[EnvGroupBuilder]
-    batch_size: int
-
-    def __post_init__(self) -> None:
-        if not self.builders:
-            raise ValueError("_SimpleRLDataset: builders is empty")
-        if self.batch_size <= 0:
-            raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
-
-    def __len__(self) -> int:
-        return max(1, len(self.builders) // self.batch_size)
-
-    def get_batch(self, step_idx: int) -> list[EnvGroupBuilder]:
-        n = len(self.builders)
-        start = (step_idx * self.batch_size) % n
-        end = start + self.batch_size
-        if end <= n:
-            return self.builders[start:end]
-        return self.builders[start:] + self.builders[: end - n]
-
-
-# ---------------------------------------------------------------------------
-# Algorithm
-# ---------------------------------------------------------------------------
+    # Harbor engine knobs.
+    agent_import_path: str | None = None
+    """Override the rollout agent harness (any harbor ``BaseAgent`` import path).
+    Default: our ``BasicLoopAgent``."""
+    n_concurrent: int = 4
+    max_retries: int = 2
 
 
 @register_algorithm("rl")
@@ -102,32 +67,21 @@ class RL(BaseAlgorithm):
     Config: ClassVar[type] = RLConfig
 
     def _check_inputs(self, ctx: RunContext) -> None:
-        if not ctx.extras.get("env_builders") and not ctx.extras.get("train_rows"):
+        if not ctx.extras.get("train_rows"):
             raise RuntimeError(
-                "RL.train: provide either ctx.extras['env_builders'] or "
-                "ctx.extras['train_rows'] of HarborTask rows "
-                "(task_id + instruction + verifier)."
+                "RL.train: ctx.extras['train_rows'] missing/empty "
+                "(HarborTask rows: task_id + instruction + verifier)."
             )
 
     async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
-        builders = ctx.extras.get("env_builders")
-        if not builders:
-            builders = self._builders_from_rows(
-                ctx.extras["train_rows"], backend.get_tokenizer()
-            )
-        self._dataset = _SimpleRLDataset(
-            builders=list(builders), batch_size=self.cfg.batch_size,
-        )
-        self._n_builders = len(self._dataset.builders)
+        rows = ctx.extras["train_rows"]
+        tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
+        self._tasks = [self._prep_task(t) for t in tasks]
         self._backend = backend
         self._snapshot_i = 0
-        self._steps_per_epoch = max(1, len(self._dataset))
-
-    async def _latest_sampler(self) -> Any:
-        self._snapshot_i += 1
-        return await self._backend.snapshot_sampling_client(
-            name=f"rl_snap_{self._snapshot_i}"
-        )
+        # Materialize harbor task dirs + persist rollouts under the workspace.
+        self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+        self._steps_per_epoch = max(1, len(self._tasks) // self.cfg.batch_size)
 
     async def build_batch(self, step_idx: int) -> TrainingBatch:
         from ..training.data_processing import (
@@ -135,19 +89,30 @@ class RL(BaseAlgorithm):
             compute_advantages,
             compute_trajectory_metrics,
         )
-        from ..training.rollouts import do_group_rollouts
+        from ..training.harbor_engine import run_harbor_rollouts
 
-        builders = list(self._dataset.get_batch(step_idx))
-        sampler = await self._latest_sampler()
-        groups = await do_group_rollouts(
-            sampler=sampler, builders=builders,
+        batch = self._slice(step_idx)
+        self._snapshot_i += 1
+        model_path = await self._backend.save_for_sampler(f"rl_snap_{self._snapshot_i}")
+
+        groups = await run_harbor_rollouts(
+            batch,
+            model_name=self._model_name,
+            model_path=model_path,
+            workspace_dir=self._workspace,
+            renderer_name=self.cfg.renderer_name,
             num_samples=self.cfg.num_samples,
-            max_tokens=self.cfg.max_tokens, temperature=self.cfg.temperature,
-            drop_constant_reward=self.cfg.drop_constant_reward,
+            max_turns=self.cfg.max_turns,
+            max_tokens=self.cfg.max_tokens,
+            temperature=self.cfg.temperature,
+            system_prompt=self.cfg.system_prompt,
+            agent_import_path=self.cfg.agent_import_path,
+            n_concurrent=self.cfg.n_concurrent,
+            max_retries=self.cfg.max_retries,
         )
+        if self.cfg.drop_constant_reward:
+            groups = [g for g in groups if not _all_equal(g.rewards)]
         if not groups:
-            # No usable groups — emit an empty batch + a zeroed metric row so
-            # the loop's step counter advances cleanly.
             return TrainingBatch(
                 data=[], loss_fn="importance_sampling",
                 metrics={"reward/n_trajectories": 0.0},
@@ -156,80 +121,54 @@ class RL(BaseAlgorithm):
         advantages = compute_advantages(groups)
         datums, _meta = assemble_training_data(groups, advantages)
         metrics = compute_trajectory_metrics(groups)
-        return TrainingBatch(
-            data=datums, loss_fn="importance_sampling", metrics=metrics,
-        )
+        return TrainingBatch(data=datums, loss_fn="importance_sampling", metrics=metrics)
 
     def _hyperparams_extra(self) -> dict[str, Any]:
-        return {"n_builders": self._n_builders}
+        return {"n_tasks": len(self._tasks)}
 
     # --- internals ---------------------------------------------------------
 
-    def _builders_from_rows(
-        self,
-        rows: list[dict[str, Any]],
-        tokenizer: Any,
-    ) -> list[EnvGroupBuilder]:
+    def _prep_task(self, t: HarborTask) -> HarborTask:
+        """Template the instruction + fill the verifier fn_name fallback, so the
+        materialized harbor task is self-contained."""
+        v = t.verifier
+        if not isinstance(v, InProcessVerifier):
+            raise RuntimeError(
+                f"RL: task {t.task_id!r} uses a {v.kind!r} verifier; only "
+                "'in_process' is supported in the rollout path today."
+            )
+        fn_name = v.fn_name or self.cfg.verifier_name
+        if not fn_name:
+            raise RuntimeError(
+                f"RL: task {t.task_id!r} has no verifier fn_name and "
+                "cfg.verifier_name is unset."
+            )
+        # Fail fast on an unknown verifier fn (EvsysVerifier re-resolves it at
+        # harbor runtime, but surfacing it here avoids a costly rollout).
         from ..verifiers import get_verifier_fn
 
-        # Standardize raw rows → typed HarborTask (strict): instruction is the
-        # prompt, the verifier spec rides on each task.
-        tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
+        try:
+            get_verifier_fn(fn_name)
+        except ValueError as e:
+            raise RuntimeError(f"RL: unknown verifier_name {fn_name!r}") from e
+        return HarborTask(
+            task_id=t.task_id,
+            instruction=self.cfg.user_template.format(prompt=t.instruction),
+            verifier=InProcessVerifier(fn_name=fn_name, expected=v.expected, params=v.params),
+            metadata=t.metadata,
+        )
 
-        builders: list[EnvGroupBuilder] = []
-        for t in tasks:
-            v = t.verifier
-            if not isinstance(v, InProcessVerifier):
-                raise RuntimeError(
-                    f"RL: task {t.task_id!r} uses a {v.kind!r} verifier; "
-                    "the training rollout path executes only 'in_process' "
-                    "verifiers today (e2b / llm_judge are not yet wired)."
-                )
-            fn_name = v.fn_name or self.cfg.verifier_name
-            if not fn_name:
-                raise RuntimeError(
-                    f"RL: task {t.task_id!r} has no verifier fn_name and "
-                    "cfg.verifier_name is unset."
-                )
-            try:
-                verifier_fn = get_verifier_fn(fn_name)
-            except ValueError as e:
-                raise RuntimeError(f"RL: unknown verifier_name {fn_name!r}") from e
-            verifier = _wrap_verifier(verifier_fn, params=v.params)
-
-            messages = []
-            if self.cfg.system_prompt:
-                messages.append({"role": "system", "content": self.cfg.system_prompt})
-            messages.append({
-                "role": "user",
-                "content": self.cfg.user_template.format(prompt=t.instruction),
-            })
-            prompt_mi = messages_to_model_input(
-                tokenizer, messages,
-                add_generation_prompt=True,
-                enable_thinking=self.cfg.enable_thinking,
-            )
-            tags = list(t.metadata.get("tags") or [])
-            metadata = {k: val for k, val in t.metadata.items() if k != "tags"}
-            metadata.setdefault("task_id", t.task_id)
-            builders.append(SingleTurnEnv(
-                prompt=prompt_mi, expected=v.expected, tokenizer=tokenizer,
-                verifier=verifier, tags=tags, metadata=metadata,
-            ))
-        if not builders:
-            raise RuntimeError("RL: no usable HarborTask rows")
-        return builders
+    def _slice(self, step_idx: int) -> list[HarborTask]:
+        n = len(self._tasks)
+        start = (step_idx * self.cfg.batch_size) % n
+        end = start + self.cfg.batch_size
+        if end <= n:
+            return self._tasks[start:end]
+        return self._tasks[start:] + self._tasks[: end - n]
 
 
-def _wrap_verifier(fn: Callable[..., Any], params: dict | None = None) -> VerifierFn:
-    """Adapt a registered ``(output, expected, params)`` verifier to the
-    :class:`VerifierFn` shape (``(output, expected)``). ``params`` comes from
-    the HarborTask's InProcessVerifier spec."""
-    params = dict(params or {})
-
-    def _call(output: str, expected: Any) -> float:
-        return float(fn(output, expected, params))
-    return _call
+def _all_equal(xs: list[float]) -> bool:
+    return len(xs) > 0 and all(x == xs[0] for x in xs)
 
 
 __all__ = ["RL", "RLConfig"]
