@@ -129,13 +129,20 @@ class BenchmarkEvaluator:
     model_name: str | None = None
     workspace_dir: Any = None
     num_samples: int = 1
+    # Dashboard upload wiring. When ``store`` + ``run_id`` are present, the
+    # harbor branch records one ``eval`` per invocation (tagged with ``step``,
+    # so the many validations across a run stay distinct) and uploads its
+    # per-task rollouts as ``kind='eval'`` predictions.
+    store: Any = None
+    run_id: str | None = None
+    benchmark_id: str | None = None
 
     async def evaluate(
         self, sampler: Any, *,
         model_path: str | None = None, step: int | None = None,
     ) -> dict[str, float]:
         if self.engine.lower() == "harbor" and model_path and self.model_name:
-            return await self._evaluate_harbor(model_path)
+            return await self._evaluate_harbor(model_path, step=step)
         loop = asyncio.get_running_loop()
         client: Any = _AsyncToSyncSampler(sampler, self.tokenizer, loop)
         if self.chat_template:
@@ -150,9 +157,12 @@ class BenchmarkEvaluator:
         )
         return dict(score.metrics)
 
-    async def _evaluate_harbor(self, model_path: str) -> dict[str, float]:
+    async def _evaluate_harbor(
+        self, model_path: str, *, step: int | None = None,
+    ) -> dict[str, float]:
         """Score the validation benchmark through harbor (same engine as
-        training); reward = each task's verifier. Returns the metric dict."""
+        training); reward = each task's verifier. Returns the metric dict and,
+        when ``store`` + ``run_id`` are set, uploads the eval rollouts."""
         import tempfile
         from pathlib import Path
 
@@ -163,6 +173,8 @@ class BenchmarkEvaluator:
         ws = Path(self.workspace_dir) if self.workspace_dir else Path(
             tempfile.mkdtemp(prefix="evsys_val_")
         )
+        if step is not None:
+            ws = ws / f"step_{step}"
         groups = await score_via_harbor(
             tasks,
             model_name=self.model_name,
@@ -173,7 +185,40 @@ class BenchmarkEvaluator:
             temperature=self.temperature,
             system_prompt=(self.chat_template or {}).get("system_prompt"),
         )
-        return eval_metrics(groups)
+        metrics = eval_metrics(groups)
+        if self.store is not None and self.run_id:
+            self._upload(tasks, groups, metrics, step)
+        return metrics
+
+    def _upload(
+        self, tasks: list[Any], groups: list[Any],
+        metrics: dict[str, float], step: int | None,
+    ) -> None:
+        """Record one ``eval`` (per step) + its per-task rollout predictions on
+        the dashboard. Best-effort: a dashboard hiccup must not kill training."""
+        from .harbor_eval import eval_predictions, upload_eval_rollouts
+
+        eval_id: str | None = None
+        create_eval = getattr(self.store, "create_eval", None)
+        if callable(create_eval):
+            try:
+                rec = create_eval(
+                    run_id=self.run_id,
+                    benchmark_id=self.benchmark_id,
+                    step=step,
+                    metrics=metrics,
+                )
+                if isinstance(rec, dict):
+                    eval_id = rec.get("id") or rec.get("eval_id")
+                else:
+                    eval_id = getattr(rec, "id", None)
+            except Exception:  # pragma: no cover — defensive
+                logger.exception("create_eval failed for run %s", self.run_id)
+        try:
+            preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step)
+            upload_eval_rollouts(self.store, self.run_id, preds)
+        except Exception:  # pragma: no cover — defensive
+            logger.exception("eval rollout upload failed for run %s", self.run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +233,7 @@ def build_in_loop_evaluators(
     store: Any = None,
     model_name: str | None = None,
     workspace_dir: Any = None,
+    run_id: str | None = None,
 ) -> list[BenchmarkEvaluator]:
     """Read ``metadata.benchmark`` and return one
     :class:`BenchmarkEvaluator` per entry whose ``run_every`` > 0.
@@ -241,6 +287,9 @@ def build_in_loop_evaluators(
             model_name=model_name,
             workspace_dir=workspace_dir,
             num_samples=int(spec.get("num_samples", 1)),
+            store=store,
+            run_id=run_id,
+            benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out
 

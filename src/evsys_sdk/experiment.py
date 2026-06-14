@@ -193,6 +193,7 @@ class Experiment:
         self.config = config
         self.store = store
         self.train_fn = train_fn or _default_train_fn
+        self._train_fn_is_default = train_fn is None
         self._benchmark_override = benchmark
         self.inference_factory = inference_factory
 
@@ -400,7 +401,17 @@ class Experiment:
             update={"run": run_cfg, "runs": None, "matrix": None}
         )
         t0 = time.time()
-        results = self.train_fn(single_cfg)
+        from .runner import run_experiment
+        if self._train_fn_is_default:
+            # Hand the dashboard store + run_id down to the runner so in-loop
+            # validation (harbor engine) can upload its eval rollouts tagged
+            # with this run. Custom train_fns get the plain (cfg) contract.
+            results = run_experiment(
+                single_cfg,
+                extra_context={"store": self.store, "dashboard_run_id": arm.run_id},
+            )
+        else:
+            results = self.train_fn(single_cfg)
         arm.train_seconds = time.time() - t0
         if not results:
             raise RuntimeError(f"train_fn returned no results for arm {run_cfg.name!r}")

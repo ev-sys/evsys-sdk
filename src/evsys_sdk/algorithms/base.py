@@ -194,6 +194,7 @@ class BaseAlgorithm:
             store=getattr(ctx, "store", None) or ctx.extras.get("store"),
             model_name=model_name,
             workspace_dir=Path(ctx.output_dir) / "harbor_val",
+            run_id=ctx.extras.get("dashboard_run_id"),
         )
         loop = TrainingLoop(
             backend=backend,
