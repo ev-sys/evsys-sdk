@@ -123,7 +123,7 @@ def test_callback_failure_does_not_kill_loop(tmp_path: Path):
     )
     artifacts = asyncio.run(loop.run(num_steps=3))
     # loop completed all 3 steps despite the failing callback
-    assert artifacts.total_steps == 3
+    assert artifacts.total_requested_steps == 3
     assert sum(1 for r in log.rows if r["split"] == "train") == 3
 
 

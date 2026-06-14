@@ -156,7 +156,7 @@ def test_single_step_runs_end_to_end(tmp_path: Path):
     # save_every=1 triggers at step 0; +1 final save at the end.
     assert backend.save_state_calls == ["step_1", "final"]
     assert backend.save_sampler_calls == ["step_1", "final"]
-    assert artifacts.total_steps == 1
+    assert artifacts.total_requested_steps == 1
     assert artifacts.train_seconds >= 0.0
 
 
@@ -254,7 +254,7 @@ def test_failing_evaluator_does_not_kill_loop(tmp_path: Path):
         save_every=10, eval_every=1, evaluators=[_BoomEv()],
     )
     artifacts = asyncio.run(loop.run(num_steps=2))
-    assert artifacts.total_steps == 2  # finished despite the evaluator
+    assert artifacts.total_requested_steps == 2  # finished despite the evaluator
     assert all(r.get("split") != "val" for r in log.rows)
 
 
