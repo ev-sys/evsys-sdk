@@ -24,7 +24,7 @@ from typing import Any, Sequence
 import tinker
 
 from ..data_types import HarborTask, InProcessVerifier
-from .env import Trajectory, TrajectoryGroup
+from .trajectory import Trajectory, TrajectoryGroup
 
 # Where harbor loads our glue classes from (by string, at trial runtime).
 _AGENTS_PATH = "evsys_sdk.training.harbor_agents"

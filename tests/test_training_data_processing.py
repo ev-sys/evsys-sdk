@@ -19,7 +19,7 @@ from evsys_sdk.training.data_processing import (
     compute_advantages,
     compute_trajectory_metrics,
 )
-from evsys_sdk.training.env import Trajectory, TrajectoryGroup
+from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup
 
 
 def _traj(prompt_ids, completion, *, reward, logprobs=None):

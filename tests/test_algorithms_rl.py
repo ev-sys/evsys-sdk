@@ -23,7 +23,7 @@ from evsys_sdk.algorithms.rl import RL, RLConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend
-from evsys_sdk.training.env import Trajectory, TrajectoryGroup
+from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup
 
 
 class _StubLogStore:

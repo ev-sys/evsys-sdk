@@ -24,7 +24,7 @@ from typing import Any
 import tinker
 import torch
 
-from .env import Trajectory, TrajectoryGroup
+from .trajectory import Trajectory, TrajectoryGroup
 
 logger = logging.getLogger(__name__)
 
