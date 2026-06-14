@@ -100,6 +100,8 @@ class SDFT(BaseAlgorithm):
         # saves a sampler checkpoint and points the harbor agent at it).
         self._backend = backend
         self._snapshot_i = 0
+        # Rollouts persist under the run's workspace on disk; training rollouts
+        # are NOT uploaded to the dashboard (only eval rollouts are).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
 
         self._steps_per_epoch = max(1, len(self._dataset))

@@ -79,7 +79,9 @@ class RL(BaseAlgorithm):
         self._tasks = [self._prep_task(t) for t in tasks]
         self._backend = backend
         self._snapshot_i = 0
-        # Materialize harbor task dirs + persist rollouts under the workspace.
+        # Rollouts are materialized + persisted under the run's workspace on
+        # disk; training rollouts are NOT uploaded to the dashboard (only eval
+        # rollouts are — see harbor_eval).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
         self._steps_per_epoch = max(1, len(self._tasks) // self.cfg.batch_size)
 
