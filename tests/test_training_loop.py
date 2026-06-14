@@ -96,7 +96,7 @@ class _CannedEvaluator:
     metrics: dict[str, float]
     calls: list[Any] = field(default_factory=list)
 
-    async def evaluate(self, sampler) -> dict[str, float]:
+    async def evaluate(self, sampler, **kwargs) -> dict[str, float]:
         self.calls.append(sampler)
         return dict(self.metrics)
 
@@ -244,7 +244,7 @@ def test_eval_skipped_when_evaluators_empty(tmp_path: Path):
 def test_failing_evaluator_does_not_kill_loop(tmp_path: Path):
     class _BoomEv:
         name = "boom"
-        async def evaluate(self, sampler):
+        async def evaluate(self, sampler, **kwargs):
             raise RuntimeError("boom")
 
     log = _StubLogStore()

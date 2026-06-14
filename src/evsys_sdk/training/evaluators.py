@@ -123,8 +123,19 @@ class BenchmarkEvaluator:
     limit: int | None = None
     """Cap the number of tasks scored per eval — useful when the benchmark
     is large and you want quick in-loop snapshots."""
+    engine: str = ""
+    """``"harbor"`` → score through harbor's rollout engine (off the eval
+    checkpoint). Anything else → the live-sampler InferenceClient path."""
+    model_name: str | None = None
+    workspace_dir: Any = None
+    num_samples: int = 1
 
-    async def evaluate(self, sampler: Any) -> dict[str, float]:
+    async def evaluate(
+        self, sampler: Any, *,
+        model_path: str | None = None, step: int | None = None,
+    ) -> dict[str, float]:
+        if self.engine.lower() == "harbor" and model_path and self.model_name:
+            return await self._evaluate_harbor(model_path)
         loop = asyncio.get_running_loop()
         client: Any = _AsyncToSyncSampler(sampler, self.tokenizer, loop)
         if self.chat_template:
@@ -139,6 +150,31 @@ class BenchmarkEvaluator:
         )
         return dict(score.metrics)
 
+    async def _evaluate_harbor(self, model_path: str) -> dict[str, float]:
+        """Score the validation benchmark through harbor (same engine as
+        training); reward = each task's verifier. Returns the metric dict."""
+        import tempfile
+        from pathlib import Path
+
+        from .harbor_eval import eval_metrics, score_via_harbor
+
+        tasks = (self.benchmark.tasks if self.limit is None
+                 else self.benchmark.tasks[: max(0, self.limit)])
+        ws = Path(self.workspace_dir) if self.workspace_dir else Path(
+            tempfile.mkdtemp(prefix="evsys_val_")
+        )
+        groups = await score_via_harbor(
+            tasks,
+            model_name=self.model_name,
+            model_path=model_path,
+            workspace_dir=ws,
+            num_samples=self.num_samples,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            system_prompt=(self.chat_template or {}).get("system_prompt"),
+        )
+        return eval_metrics(groups)
+
 
 # ---------------------------------------------------------------------------
 # Factory — translate metadata.benchmark list entries → evaluators
@@ -150,6 +186,8 @@ def build_in_loop_evaluators(
     *,
     tokenizer: Any,
     store: Any = None,
+    model_name: str | None = None,
+    workspace_dir: Any = None,
 ) -> list[BenchmarkEvaluator]:
     """Read ``metadata.benchmark`` and return one
     :class:`BenchmarkEvaluator` per entry whose ``run_every`` > 0.
@@ -199,6 +237,10 @@ def build_in_loop_evaluators(
             breakdown_keys=list(spec.get("breakdown_keys") or []),
             chat_template=dict(spec.get("chat_template") or {}),
             limit=int(spec["limit"]) if spec.get("limit") is not None else None,
+            engine=str(spec.get("engine", "")),
+            model_name=model_name,
+            workspace_dir=workspace_dir,
+            num_samples=int(spec.get("num_samples", 1)),
         ))
     return out
 

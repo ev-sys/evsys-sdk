@@ -116,7 +116,10 @@ class Evaluator(Protocol):
     """Per-evaluator step cadence. ``0`` → inherit the loop's
     ``eval_every``. Positive → fire when ``(step + 1) % run_every == 0``."""
 
-    async def evaluate(self, sampler: SamplingClient) -> dict[str, float]:
+    async def evaluate(
+        self, sampler: SamplingClient, *,
+        model_path: str | None = None, step: int | None = None,
+    ) -> dict[str, float]:
         ...
 
 
@@ -347,9 +350,10 @@ class TrainingLoop:
         sampler = await self.backend.snapshot_sampling_client(
             name=f"eval_{step + 1}"
         )
+        model_path = getattr(sampler, "model_path", None)
         for ev in due:
             try:
-                ev_metrics = await ev.evaluate(sampler)
+                ev_metrics = await ev.evaluate(sampler, model_path=model_path, step=step + 1)
             except Exception:
                 logger.exception(
                     "evaluator %r raised at step %d; continuing", ev.name, step

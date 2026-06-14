@@ -192,6 +192,8 @@ class BaseAlgorithm:
             ctx.config.metadata if hasattr(ctx, "config") else None,
             tokenizer=backend.get_tokenizer(),
             store=getattr(ctx, "store", None) or ctx.extras.get("store"),
+            model_name=model_name,
+            workspace_dir=Path(ctx.output_dir) / "harbor_val",
         )
         loop = TrainingLoop(
             backend=backend,
