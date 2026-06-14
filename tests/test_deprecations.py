@@ -35,7 +35,7 @@ def test_tinker_sdft_emits_deprecation():
         TinkerSDFT()
     msgs = [str(w.message) for w in caught
             if issubclass(w.category, DeprecationWarning)]
-    assert any("native_sdft" in m for m in msgs)
+    assert any("`sdft`" in m for m in msgs)
 
 
 def test_tinker_rl_emits_deprecation():

@@ -184,10 +184,10 @@ class TinkerSDFTConfig(BaseModel):
 
 _DEPRECATION_MSG = (
     "TinkerSDFT (algorithm.kind: tinker_sdft) delegates to tinker_cookbook "
-    "and is deprecated in favor of `native_sdft`, which runs the loop "
+    "and is deprecated in favor of `sdft`, which runs the loop "
     "natively in the SDK (no cookbook dep, no monkey-patching of "
     "sdft.train_step for per-step loss). Flip algorithm.kind to "
-    "'native_sdft' when ready; the YAML surface is identical."
+    "'sdft' when ready; the YAML surface is identical."
 )
 
 

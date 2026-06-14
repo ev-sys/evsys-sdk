@@ -151,6 +151,9 @@ class BaseAlgorithm:
         model_name = handles.get("model_name") or ctx.extras.get("model_name")
         if not model_name:
             raise RuntimeError("model_name not set in backend handles")
+        # Stash so setup() can reach it (e.g. SDFT builds a teacher client over
+        # the same base model).
+        self._model_name = model_name
 
         # 1. backend (async factory; allocates the LoRA training client)
         backend = await TinkerBackend.create(

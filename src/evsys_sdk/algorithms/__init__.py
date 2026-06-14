@@ -35,7 +35,7 @@ except ImportError:
     pass
 
 try:
-    from .native_sdft import NativeSDFT  # noqa: F401  — native loop
+    from .sdft import SDFT  # noqa: F401  — SDK-native loop
 except ImportError:
     pass
 

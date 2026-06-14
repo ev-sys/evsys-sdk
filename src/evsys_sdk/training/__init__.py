@@ -64,8 +64,7 @@ from .env import (
 from .rollouts import do_group_rollout, do_group_rollouts
 from .sft_data import row_to_datum, sft_tokenize
 from .step_builder import (
-    RLDataset, RLStepBuilder, SDFTDataset, SDFTStepBuilder,
-    SimpleSDFTDataset,
+    RLDataset, RLStepBuilder, SDFTDataset, SimpleSDFTDataset,
 )
 from .templates import (
     Message,
@@ -107,7 +106,6 @@ __all__ = [
     "RLDataset",
     "RLStepBuilder",
     "SDFTDataset",
-    "SDFTStepBuilder",
     "SamplingClient",
     "SimpleSDFTDataset",
     "SingleTurnEnv",

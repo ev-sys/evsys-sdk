@@ -17,7 +17,7 @@ The Self-Distillation Fine-Tuning algorithm (Shenfeld et al., 2026):
 This module owns Step 4's data shaping (turning teacher responses into
 ``tinker.Datum`` objects with ``(N, K)``-shaped target_tokens + weights)
 plus the teacher-prompt helper for Step 2. The
-:class:`~evsys_sdk.training.step_builder.SDFTStepBuilder` orchestrates 1-4.
+:class:`~evsys_sdk.algorithms.sdft.SDFT` algorithm orchestrates 1-4.
 """
 
 from __future__ import annotations
@@ -163,7 +163,7 @@ def extract_completion_tokens(
     ``teacher_prompt + completion`` would exceed ``max_context_length``.
 
     The cookbook does the same step inline; here it's a named function so
-    :class:`~evsys_sdk.training.step_builder.SDFTStepBuilder` and tests
+    the :class:`~evsys_sdk.algorithms.sdft.SDFT` algorithm and tests
     share the implementation.
     """
     mask = datum.loss_fn_inputs["mask"].to_torch()
