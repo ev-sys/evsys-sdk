@@ -37,7 +37,11 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from pydantic import BaseModel, ConfigDict
+
+from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
     from .backend import Backend, SamplingClient
@@ -147,6 +151,13 @@ class Callback:
 # ---------------------------------------------------------------------------
 
 
+class PrintProgressConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    every: int = 1
+    keys: list[str] | None = None
+
+
+@register_callback("print_progress")
 @dataclass
 class PrintProgressCallback(Callback):
     """Compact one-liner per step to stdout. Useful when you're not on a
@@ -160,8 +171,11 @@ class PrintProgressCallback(Callback):
         Metric keys to include in the printed dict. ``None`` (default)
         prints all keys; pass an explicit list to keep the line short.
     stream:
-        Where to write (default ``sys.stdout``).
+        Where to write (default ``sys.stdout``). Not YAML-configurable.
     """
+
+    name: ClassVar[str] = "print_progress"
+    Config: ClassVar[type] = PrintProgressConfig
 
     every: int = 1
     keys: list[str] | None = None
@@ -180,6 +194,13 @@ class PrintProgressCallback(Callback):
         print(line, file=self.stream, flush=True)
 
 
+class CsvMetricsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    out_path: str
+    delimiter: str = ","
+
+
+@register_callback("csv_metrics")
 @dataclass
 class CsvMetricsCallback(Callback):
     """Mirror the loop's per-step metric writes into a CSV alongside
@@ -192,6 +213,9 @@ class CsvMetricsCallback(Callback):
     delimiter:
         Field separator (default ``,``).
     """
+
+    name: ClassVar[str] = "csv_metrics"
+    Config: ClassVar[type] = CsvMetricsConfig
 
     out_path: Path
     delimiter: str = ","
@@ -229,6 +253,16 @@ class CsvMetricsCallback(Callback):
                 logger.exception("CsvMetricsCallback: close failed")
 
 
+class EarlyStoppingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    metric: str
+    eval_name: str | None = None
+    patience: int = 3
+    mode: str = "max"
+    min_delta: float = 0.0
+
+
+@register_callback("early_stopping")
 @dataclass
 class EarlyStoppingCallback(Callback):
     """Watch a metric emitted on eval; request_stop after N evals without
@@ -250,6 +284,9 @@ class EarlyStoppingCallback(Callback):
     min_delta:
         Treat improvements smaller than this as no improvement (default 0).
     """
+
+    name: ClassVar[str] = "early_stopping"
+    Config: ClassVar[type] = EarlyStoppingConfig
 
     metric: str
     eval_name: str | None = None
@@ -286,6 +323,32 @@ class EarlyStoppingCallback(Callback):
 
 
 # ---------------------------------------------------------------------------
+# Factory — build callbacks from {kind, params} specs (YAML surface)
+# ---------------------------------------------------------------------------
+
+
+def build_callbacks(specs: Any) -> list[Callback]:
+    """Materialize callbacks from a list of ``{kind, params}`` specs.
+
+    Each ``spec`` may be a :class:`~evsys_sdk.config.CallbackSpec` (or any
+    object/dict with ``kind`` + ``params``). The ``kind`` is resolved through
+    the callback registry; ``params`` are validated against the callback's
+    ``Config`` (so a YAML typo fails loudly) before construction. Users
+    register their own callbacks with ``@register_callback("my_name")`` — see
+    the built-ins above for the contract (``name`` + ``Config`` ClassVars).
+    """
+    out: list[Callback] = []
+    for spec in specs or []:
+        kind = spec.kind if hasattr(spec, "kind") else spec["kind"]
+        raw = (spec.params if hasattr(spec, "params") else spec.get("params")) or {}
+        cls = get_callback(kind)
+        cfg = getattr(cls, "Config", None)
+        params = cfg(**raw).model_dump() if cfg is not None else dict(raw)
+        out.append(cls(**params))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
@@ -306,4 +369,5 @@ __all__ = [
     "EarlyStoppingCallback",
     "LoopState",
     "PrintProgressCallback",
+    "build_callbacks",
 ]

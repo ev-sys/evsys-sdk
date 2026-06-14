@@ -235,3 +235,41 @@ def test_explicit_save_every_overrides_fractions():
     algo = SFT(max_steps=100, save_every=42,
                      save_at_fractions=[0.5, 1.0])
     assert algo._resolve_save_every(total_steps=100) == 42
+
+
+# ---------------------------------------------------------------------------
+# Callbacks wired from config (BaseAlgorithm → TrainingLoop)
+# ---------------------------------------------------------------------------
+
+
+def test_callbacks_from_config_fire_during_train(patched_tinker_backend, ctx):
+    """A callback declared in `algorithm.params.callbacks` is resolved through
+    the registry and attached to the loop, so its hooks fire end-to-end."""
+    from evsys_sdk.registry import _callbacks, register_callback
+    from evsys_sdk.training import Callback
+    from pydantic import BaseModel
+
+    seen: dict[str, int] = {"start": 0, "steps": 0, "end": 0}
+
+    class _RecorderConfig(BaseModel):
+        pass
+
+    @register_callback("sft_recorder_test")
+    class _Recorder(Callback):
+        name = "sft_recorder_test"
+        Config = _RecorderConfig
+
+        def on_train_start(self, state):
+            seen["start"] += 1
+        def on_step_end(self, state, step_idx, batch, metrics):
+            seen["steps"] += 1
+        def on_train_end(self, state, artifacts):
+            seen["end"] += 1
+
+    try:
+        algo = SFT(max_steps=3, batch_size=4,
+                   callbacks=[{"kind": "sft_recorder_test", "params": {}}])
+        algo.train(ctx)
+        assert seen == {"start": 1, "steps": 3, "end": 1}
+    finally:
+        _callbacks.unregister("sft_recorder_test")

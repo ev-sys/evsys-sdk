@@ -36,7 +36,9 @@ from typing import Any, ClassVar
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..config import CallbackSpec
 from ..protocols import RunContext, RunResult
+from ..training.callbacks import build_callbacks
 from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
 from ..training.tinker_backend import TinkerBackend
@@ -78,6 +80,11 @@ class BaseAlgorithmConfig(BaseModel):
     # In-loop eval cadence (separate from the post-training Benchmark eval that
     # Experiment runs). 0 disables; per-benchmark ``run_every`` can override.
     eval_every: int = 0
+
+    # Training-loop callbacks ({kind, params}); resolved through the callback
+    # registry and attached to the loop. e.g.
+    #   callbacks: [{kind: early_stopping, params: {metric: pass_rate}}]
+    callbacks: list[CallbackSpec] = Field(default_factory=list)
 
     # Adam knobs (passthrough to tinker.AdamParams)
     adam_beta1: float = 0.9
@@ -200,6 +207,7 @@ class BaseAlgorithm:
             save_every=save_every,
             eval_every=self.cfg.eval_every,
             evaluators=evaluators,
+            callbacks=build_callbacks(self.cfg.callbacks),
         )
         artifacts = await loop.run(num_steps=total_steps)
 

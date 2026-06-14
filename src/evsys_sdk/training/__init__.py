@@ -36,6 +36,7 @@ from .callbacks import (
     EarlyStoppingCallback,
     LoopState,
     PrintProgressCallback,
+    build_callbacks,
 )
 from .checkpoints import CheckpointManager, ManifestRow
 from .loop import (
@@ -116,6 +117,7 @@ __all__ = [
     "TrajectoryGroup",
     "VerifierFn",
     "assemble_training_data",
+    "build_callbacks",
     "coerce_floats",
     "extract_completion_tokens_from_response",
     "extract_weights",

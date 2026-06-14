@@ -36,6 +36,31 @@ The plugin manifest is `.claude-plugin/plugin.json`; the marketplace entry is
   * Commits: keep them minimal — one new class or one logical change per
     commit, code + tests together.
 
+## Extension points: the registry + Config + `{kind, params}` pattern
+
+Anything a user can define and select by name — algorithms, transforms,
+callbacks, verifiers, metrics, data stores, log stores, backends, inference
+clients — follows ONE convention. When you add a new extension *kind*, or a
+new built-in of an existing kind, mirror this exactly:
+
+  1. **A registry** in `src/evsys_sdk/registry.py`: a `Registry("<kind>")`
+     instance plus `register_<kind>` / `get_<kind>` / `list_<kind>s` functions,
+     and an entry in `_all_registries()`.
+  2. **Each implementation** is a class carrying two ClassVars — `name`
+     (the string used in YAML) and `Config` (a Pydantic model, `extra="forbid"`,
+     describing its params) — and decorated with `@register_<kind>("<name>")`.
+  3. **A YAML surface**: a `<Kind>Spec` model in `config.py` (`{kind, params}`)
+     and a `list[<Kind>Spec]` field on whatever config owns it.
+  4. **A factory** that resolves specs → instances: look up the class via
+     `get_<kind>(spec.kind)`, validate `spec.params` against the class's
+     `Config`, then construct. See `training/callbacks.py::build_callbacks` and
+     `transforms` for the two reference implementations.
+
+The payoff: a researcher enables a feature from `config.yaml` with
+`{kind: <name>, params: {...}}`, and **registers their own** with the same
+decorator in their project — no SDK edit, no subclassing the library. Keep new
+extension points consistent with this so the whole surface stays predictable.
+
 ## Useful entry points
 
   * `src/evsys_sdk/__init__.py` — public surface; what researchers
