@@ -93,8 +93,18 @@ def patched_tinker_backend(monkeypatch):
 
 @pytest.fixture
 def ctx(tmp_path: Path):
+    # Standardized HarborTask shape: instruction + per-row in_process verifier.
     rows = [
-        {"prompt": f"P{i}", "expected": "T200_201_202", "tags": ["foo"]}
+        {
+            "task_id": f"t{i}",
+            "instruction": f"P{i}",
+            "verifier": {
+                "kind": "in_process",
+                "fn_name": "exact_match",
+                "expected": "T200_201_202",
+            },
+            "metadata": {"tags": ["foo"]},
+        }
         for i in range(20)
     ]
 
@@ -159,13 +169,31 @@ def test_rejects_missing_train_rows_and_no_env_builders(ctx, patched_tinker_back
 
 
 def test_rejects_unknown_verifier(ctx, patched_tinker_backend):
+    # The verifier fn_name now rides on each HarborTask row.
+    ctx.extras["train_rows"] = [{
+        "task_id": "t0", "instruction": "P0",
+        "verifier": {"kind": "in_process", "fn_name": "not_real_verifier",
+                     "expected": "x"},
+    }]
     with pytest.raises(RuntimeError, match="unknown verifier_name"):
-        NativeRL(max_steps=2, batch_size=4, verifier_name="not_real_verifier").train(ctx)
+        NativeRL(max_steps=2, batch_size=1).train(ctx)
 
 
 def test_rejects_missing_verifier_when_rows_path_chosen(ctx, patched_tinker_backend):
-    with pytest.raises(RuntimeError, match="verifier_name unset"):
-        NativeRL(max_steps=2, batch_size=4).train(ctx)
+    # Empty fn_name on the row + no cfg.verifier_name fallback.
+    ctx.extras["train_rows"] = [{
+        "task_id": "t0", "instruction": "P0",
+        "verifier": {"kind": "in_process", "fn_name": "", "expected": "x"},
+    }]
+    with pytest.raises(RuntimeError, match="no verifier fn_name"):
+        NativeRL(max_steps=2, batch_size=1).train(ctx)
+
+
+def test_rejects_non_harbor_task_rows(ctx, patched_tinker_backend):
+    # Wrong format entirely → parse_rows rejects strictly.
+    ctx.extras["train_rows"] = [{"prompt": "P0", "expected": "x"}]
+    with pytest.raises(ValueError, match="expected 'harbor_task'"):
+        NativeRL(max_steps=2, batch_size=1, verifier_name="exact_match").train(ctx)
 
 
 # ---------------------------------------------------------------------------

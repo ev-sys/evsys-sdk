@@ -21,11 +21,12 @@ from __future__ import annotations
 import asyncio
 import math
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, cast
 
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..data_types import ChatMessagesRow, TargetFormat, parse_rows
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
 from ..training.evaluators import build_in_loop_evaluators
@@ -57,6 +58,11 @@ class NativeSFTConfig(BaseModel):
     max_steps: int | None = None
     lora_rank: int = 8
     max_seq_len: int = 2048
+
+    # Which assistant turns the loss is computed on. Lives here (algorithm
+    # config), NOT on the dataset — ChatMessagesRow carries only the
+    # conversation; the algorithm decides what to supervise.
+    supervise: Literal["all_assistant", "last_assistant"] = "all_assistant"
 
     # checkpoint cadence — same resolution rules as TinkerSFT
     save_every: int = 0
@@ -123,11 +129,15 @@ class NativeSFT:
             resume_state_path=handles.get("load_checkpoint_path"),
         )
 
-        # 2. tokenize rows → list of Datum with assistant-span loss masks
+        # 2. standardize raw rows → typed ChatMessagesRow (strict), then
+        #    tokenize → list of Datum with assistant-span loss masks. The
+        #    supervise decision is the algorithm's, not the dataset's.
+        chat_rows = cast("list[ChatMessagesRow]", parse_rows(rows, TargetFormat.CHAT_MESSAGES))
         datums = sft_tokenize(
-            rows, backend.get_tokenizer(),
+            chat_rows, backend.get_tokenizer(),
             max_seq_len=self.cfg.max_seq_len,
             enable_thinking=self.cfg.enable_thinking,
+            supervise=self.cfg.supervise,
         )
 
         # 3. total step count + save cadence

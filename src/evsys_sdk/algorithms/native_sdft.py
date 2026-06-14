@@ -18,11 +18,12 @@ from __future__ import annotations
 import asyncio
 import math
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
 from ..training.evaluators import build_in_loop_evaluators
@@ -95,7 +96,11 @@ class NativeSDFT:
         rows = ctx.extras.get("train_rows")
         if not rows:
             raise RuntimeError("NativeSDFT.train: ctx.extras['train_rows'] missing/empty")
-        self._validate_rows(rows)
+        # Standardize raw rows → typed PromptExample (strict): inputs['question']
+        # is the prompt, expected is the gold answer. Build the dataset up front
+        # so row-shape errors surface before we allocate a backend.
+        examples = cast("list[PromptExample]", parse_rows(rows, TargetFormat.PROMPT_DATASET))
+        dataset = SimpleSDFTDataset(rows=examples, batch_size=self.cfg.batch_size)
 
         handles = ctx.extras.get("backend_handles", {})
         model_name = handles.get("model_name") or ctx.extras.get("model_name")
@@ -121,7 +126,6 @@ class NativeSDFT:
         teacher_wrapped = TinkerSamplingClient(teacher_client, name="teacher")
 
         # 3. compute total steps + save cadence
-        dataset = SimpleSDFTDataset(rows=list(rows), batch_size=self.cfg.batch_size)
         steps_per_epoch = max(1, len(dataset))
         total_steps = (
             self.cfg.max_steps
@@ -199,16 +203,6 @@ class NativeSDFT:
         )
 
     # --- helpers -----------------------------------------------------------
-
-    @staticmethod
-    def _validate_rows(rows: list[dict]) -> None:
-        bad = [i for i, r in enumerate(rows[:5])
-               if not r.get("question") or not r.get("golden_answer")]
-        if bad:
-            raise RuntimeError(
-                f"NativeSDFT: rows must have non-empty `question` + `golden_answer`; "
-                f"first 5 row indices missing one or both: {bad}"
-            )
 
     def _resolve_save_every(self, total_steps: int) -> int:
         if self.cfg.save_every:

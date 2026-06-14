@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable, Protocol, Sequence, runtime_checkab
 
 import tinker
 
+from ..data_types import PromptExample
 from .loop import TrainingBatch
 from .sdft_data import (
     CompletionSlice,
@@ -195,11 +196,12 @@ class SDFTDataset(Protocol):
 
 @dataclass
 class SimpleSDFTDataset:
-    """Stock :class:`SDFTDataset` over a row list with ``question`` /
-    ``golden_answer`` fields. Wraps modulo dataset length so the loop can
-    exceed one epoch (no ``_RepeatingSDFTProvider`` hack needed)."""
+    """Stock :class:`SDFTDataset` over :class:`~evsys_sdk.data_types.PromptExample`
+    rows: the question lives in ``inputs['question']`` and the gold answer in
+    ``expected``. Wraps modulo dataset length so the loop can exceed one epoch
+    (no ``_RepeatingSDFTProvider`` hack needed)."""
 
-    rows: list[dict[str, str]]
+    rows: list[PromptExample]
     batch_size: int
 
     def __post_init__(self) -> None:
@@ -209,11 +211,11 @@ class SimpleSDFTDataset:
             raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
         missing = [
             i for i, r in enumerate(self.rows[:5])
-            if not r.get("question") or not r.get("golden_answer")
+            if not r.inputs.get("question") or r.expected is None
         ]
         if missing:
             raise ValueError(
-                f"SimpleSDFTDataset: rows missing question/golden_answer "
+                f"SimpleSDFTDataset: rows need inputs['question'] + expected "
                 f"(indices {missing} of first 5)"
             )
 
@@ -228,7 +230,10 @@ class SimpleSDFTDataset:
             slice_ = self.rows[start:end]
         else:
             slice_ = self.rows[start:] + self.rows[: end - n]
-        return [r["question"] for r in slice_], [r["golden_answer"] for r in slice_]
+        return (
+            [r.inputs["question"] for r in slice_],
+            [str(r.expected) for r in slice_],
+        )
 
 
 SamplerProvider = Callable[[], Awaitable[Any]]

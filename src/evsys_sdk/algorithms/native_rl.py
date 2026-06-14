@@ -29,6 +29,9 @@ from typing import Any, Callable, ClassVar
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from typing import cast
+
+from ..data_types import HarborTask, InProcessVerifier, TargetFormat, parse_rows
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
 from ..training.env import EnvGroupBuilder, SingleTurnEnv, VerifierFn
@@ -57,8 +60,9 @@ class NativeRLConfig(BaseModel):
     enable_thinking: bool | None = None
 
     verifier_name: str | None = None
-    """Looks up :func:`evsys_sdk.registry.get_verifier_fn` at runtime. Required
-    unless ``ctx.extras['env_builders']`` is set by the runner."""
+    """Fallback verifier-fn name used only when a HarborTask's InProcessVerifier
+    leaves ``fn_name`` empty. Normally the verifier is carried per-row by the
+    HarborTask itself (looked up via :func:`evsys_sdk.verifiers.get_verifier_fn`)."""
 
     max_tokens: int = 256
     temperature: float = 1.0
@@ -133,7 +137,8 @@ class NativeRL:
             if not rows:
                 raise RuntimeError(
                     "NativeRL.train: provide either ctx.extras['env_builders'] "
-                    "or ctx.extras['train_rows'] with 'prompt' + 'expected'."
+                    "or ctx.extras['train_rows'] of HarborTask rows "
+                    "(task_id + instruction + verifier)."
                 )
             builders = self._builders_from_rows(rows, backend.get_tokenizer())
 
@@ -208,46 +213,53 @@ class NativeRL:
         tokenizer: Any,
     ) -> list[EnvGroupBuilder]:
         from ..verifiers import get_verifier_fn
-        if not self.cfg.verifier_name:
-            raise RuntimeError(
-                "NativeRL: cfg.verifier_name unset and no env_builders in extras"
-            )
-        try:
-            verifier_fn = get_verifier_fn(self.cfg.verifier_name)
-        except ValueError as e:
-            raise RuntimeError(
-                f"NativeRL: unknown verifier_name {self.cfg.verifier_name!r}"
-            ) from e
 
-        verifier = _wrap_verifier(verifier_fn)
+        # Standardize raw rows → typed HarborTask (strict): instruction is the
+        # prompt, the verifier spec rides on each task.
+        tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
+
         builders: list[EnvGroupBuilder] = []
-        for r in rows:
-            prompt_str = r.get("prompt") or r.get("question") or r.get("instruction")
-            expected = r.get("expected") or r.get("golden_answer") or r.get("answer")
-            if not prompt_str or expected is None:
-                continue
+        for t in tasks:
+            v = t.verifier
+            if not isinstance(v, InProcessVerifier):
+                raise RuntimeError(
+                    f"NativeRL: task {t.task_id!r} uses a {v.kind!r} verifier; "
+                    "the training rollout path executes only 'in_process' "
+                    "verifiers today (e2b / llm_judge are not yet wired)."
+                )
+            fn_name = v.fn_name or self.cfg.verifier_name
+            if not fn_name:
+                raise RuntimeError(
+                    f"NativeRL: task {t.task_id!r} has no verifier fn_name and "
+                    "cfg.verifier_name is unset."
+                )
+            try:
+                verifier_fn = get_verifier_fn(fn_name)
+            except ValueError as e:
+                raise RuntimeError(f"NativeRL: unknown verifier_name {fn_name!r}") from e
+            verifier = _wrap_verifier(verifier_fn, params=v.params)
+
             messages = []
             if self.cfg.system_prompt:
                 messages.append({"role": "system", "content": self.cfg.system_prompt})
             messages.append({
                 "role": "user",
-                "content": self.cfg.user_template.format(prompt=prompt_str),
+                "content": self.cfg.user_template.format(prompt=t.instruction),
             })
             prompt_mi = messages_to_model_input(
                 tokenizer, messages,
                 add_generation_prompt=True,
                 enable_thinking=self.cfg.enable_thinking,
             )
-            tags = list(r.get("tags") or [])
-            metadata = {k: v for k, v in r.items()
-                        if k not in {"prompt", "question", "instruction",
-                                     "expected", "golden_answer", "answer", "tags"}}
+            tags = list(t.metadata.get("tags") or [])
+            metadata = {k: val for k, val in t.metadata.items() if k != "tags"}
+            metadata.setdefault("task_id", t.task_id)
             builders.append(SingleTurnEnv(
-                prompt=prompt_mi, expected=expected, tokenizer=tokenizer,
+                prompt=prompt_mi, expected=v.expected, tokenizer=tokenizer,
                 verifier=verifier, tags=tags, metadata=metadata,
             ))
         if not builders:
-            raise RuntimeError("NativeRL: no usable rows (need prompt + expected)")
+            raise RuntimeError("NativeRL: no usable HarborTask rows")
         return builders
 
     def _resolve_save_every(self, total_steps: int) -> int:
@@ -268,11 +280,14 @@ class NativeRL:
         return max(1, total_steps // 10)
 
 
-def _wrap_verifier(fn: Callable[..., Any]) -> VerifierFn:
+def _wrap_verifier(fn: Callable[..., Any], params: dict | None = None) -> VerifierFn:
     """Adapt a registered ``(output, expected, params)`` verifier to the
-    :class:`VerifierFn` shape (``(output, expected)``)."""
+    :class:`VerifierFn` shape (``(output, expected)``). ``params`` comes from
+    the HarborTask's InProcessVerifier spec."""
+    params = dict(params or {})
+
     def _call(output: str, expected: Any) -> float:
-        return float(fn(output, expected, {}))
+        return float(fn(output, expected, params))
     return _call
 
 
