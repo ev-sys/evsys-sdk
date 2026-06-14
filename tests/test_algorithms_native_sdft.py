@@ -116,13 +116,30 @@ class _SDFTMockSampler:
 # ---------------------------------------------------------------------------
 
 
+async def _fake_generate_rollouts(tasks, *, num_samples=1, **kwargs):
+    """Stand-in for the harbor-backed rollout helper: emit a canned student
+    completion per task (the teacher topK scoring still runs for real against
+    the mock teacher client)."""
+    from evsys_sdk.training.rollout import Trajectory, Turn
+
+    return [
+        [
+            Trajectory(turns=[Turn(
+                prompt_tokens=[1, 2, 3],
+                completion_tokens=[11, 12, 13, 14],
+                logprobs=[-0.5, -0.5, -0.5, -0.5], text="ans",
+            )])
+            for _ in range(num_samples)
+        ]
+        for _ in tasks
+    ]
+
+
 @pytest.fixture
 def patched_tinker_backend(monkeypatch):
-    """Replace TinkerBackend.create with a factory that returns _SDFTMockBackend.
-
-    The backend's sampler factory returns _SDFTMockSampler so both student
-    rollouts AND teacher topK scoring exercise the right code paths.
-    """
+    """Replace TinkerBackend.create with a factory returning _SDFTMockBackend,
+    and stub the student rollout helper. The teacher topK path still runs
+    against the mock teacher client (_SDFTMockSampler via backend._service)."""
     backend = _SDFTMockBackend(tokenizer=_StubTokenizer())
     backend._sampler_factory = lambda name: _SDFTMockSampler(name=name)  # type: ignore[assignment]
 
@@ -131,6 +148,10 @@ def patched_tinker_backend(monkeypatch):
         return backend
 
     monkeypatch.setattr(native_sdft_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(
+        "evsys_sdk.training.step_builder.generate_rollouts",
+        _fake_generate_rollouts,
+    )
     return backend
 
 

@@ -22,23 +22,19 @@ from __future__ import annotations
 
 import asyncio
 import math
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
-from typing import cast
-
 from ..data_types import HarborTask, InProcessVerifier, TargetFormat, parse_rows
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
-from ..training.env import EnvGroupBuilder, SingleTurnEnv, VerifierFn
 from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingLoop
+from ..training.rollout import EnvStep, RolloutTask
 from ..training.step_builder import RLStepBuilder
-from ..training.templates import messages_to_model_input
 from ..training.tinker_backend import TinkerBackend
 
 
@@ -66,6 +62,9 @@ class NativeRLConfig(BaseModel):
 
     max_tokens: int = 256
     temperature: float = 1.0
+    max_turns: int = 8
+    """Max agent turns per rollout. With a single-turn verifier env this is
+    effectively 1; >1 enables multi-turn envs (the env decides when to stop)."""
     drop_constant_reward: bool = True
 
     system_prompt: str | None = None
@@ -78,29 +77,6 @@ class NativeRLConfig(BaseModel):
     adam_beta1: float = 0.9
     adam_beta2: float = 0.95
     adam_eps: float = 1.0e-8
-
-
-@dataclass
-class _SimpleRLDataset:
-    builders: list[EnvGroupBuilder]
-    batch_size: int
-
-    def __post_init__(self) -> None:
-        if not self.builders:
-            raise ValueError("_SimpleRLDataset: builders is empty")
-        if self.batch_size <= 0:
-            raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
-
-    def __len__(self) -> int:
-        return max(1, len(self.builders) // self.batch_size)
-
-    def get_batch(self, step_idx: int) -> list[EnvGroupBuilder]:
-        n = len(self.builders)
-        start = (step_idx * self.batch_size) % n
-        end = start + self.batch_size
-        if end <= n:
-            return self.builders[start:end]
-        return self.builders[start:] + self.builders[: end - n]
 
 
 @register_algorithm("native_rl")
@@ -131,22 +107,15 @@ class NativeRL:
             resume_state_path=handles.get("load_checkpoint_path"),
         )
 
-        builders = ctx.extras.get("env_builders")
-        if not builders:
-            rows = ctx.extras.get("train_rows")
-            if not rows:
-                raise RuntimeError(
-                    "NativeRL.train: provide either ctx.extras['env_builders'] "
-                    "or ctx.extras['train_rows'] of HarborTask rows "
-                    "(task_id + instruction + verifier)."
-                )
-            builders = self._builders_from_rows(rows, backend.get_tokenizer())
+        rows = ctx.extras.get("train_rows")
+        if not rows:
+            raise RuntimeError(
+                "NativeRL.train: ctx.extras['train_rows'] missing/empty "
+                "(HarborTask rows: task_id + instruction + verifier)."
+            )
+        tasks = self._tasks_from_rows(rows)
 
-        dataset = _SimpleRLDataset(
-            builders=list(builders), batch_size=self.cfg.batch_size,
-        )
-
-        steps_per_epoch = max(1, len(dataset))
+        steps_per_epoch = max(1, len(tasks) // self.cfg.batch_size)
         total_steps = (
             self.cfg.max_steps
             if self.cfg.max_steps is not None
@@ -158,25 +127,30 @@ class NativeRL:
             "algorithm": self.name,
             **self.cfg.model_dump(),
             "model_name": model_name,
-            "n_builders": len(dataset.builders),
+            "n_tasks": len(tasks),
             "total_steps": total_steps,
             "save_every": save_every,
         })
 
+        # Per-step checkpoint provider: snapshot the current weights and hand
+        # the rollout helper its tinker:// path (keeps rollouts on-policy).
         snapshot_counter = {"i": 0}
 
-        async def _latest_sampler():
+        async def _checkpoint() -> str:
             snapshot_counter["i"] += 1
-            return await backend.snapshot_sampling_client(
-                name=f"rl_snap_{snapshot_counter['i']}"
-            )
+            return await backend.save_for_sampler(f"rl_snap_{snapshot_counter['i']}")
 
         step_builder = RLStepBuilder(
-            dataset=dataset,
-            student_sampler_provider=_latest_sampler,
+            tasks=tasks,
+            checkpoint_provider=_checkpoint,
+            model_name=model_name,
+            batch_size=self.cfg.batch_size,
+            renderer_name=self.cfg.renderer_name or handles.get("renderer_name"),
             num_samples=self.cfg.num_samples,
+            max_turns=self.cfg.max_turns,
             max_tokens=self.cfg.max_tokens,
             temperature=self.cfg.temperature,
+            system_prompt=self.cfg.system_prompt,
             drop_constant_reward=self.cfg.drop_constant_reward,
         )
 
@@ -207,25 +181,21 @@ class NativeRL:
             run_id=ctx.run_id, status="completed", metrics={}, artifacts=d,
         )
 
-    def _builders_from_rows(
-        self,
-        rows: list[dict[str, Any]],
-        tokenizer: Any,
-    ) -> list[EnvGroupBuilder]:
+    def _tasks_from_rows(self, rows: list[dict[str, Any]]) -> list[RolloutTask]:
         from ..verifiers import get_verifier_fn
 
         # Standardize raw rows → typed HarborTask (strict): instruction is the
-        # prompt, the verifier spec rides on each task.
-        tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
+        # prompt, the in-process verifier spec rides on each task.
+        harbor_tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
 
-        builders: list[EnvGroupBuilder] = []
-        for t in tasks:
+        out: list[RolloutTask] = []
+        for t in harbor_tasks:
             v = t.verifier
             if not isinstance(v, InProcessVerifier):
                 raise RuntimeError(
                     f"NativeRL: task {t.task_id!r} uses a {v.kind!r} verifier; "
-                    "the training rollout path executes only 'in_process' "
-                    "verifiers today (e2b / llm_judge are not yet wired)."
+                    "the rollout path executes only 'in_process' verifiers today "
+                    "(e2b / llm_judge are not yet wired)."
                 )
             fn_name = v.fn_name or self.cfg.verifier_name
             if not fn_name:
@@ -237,30 +207,17 @@ class NativeRL:
                 verifier_fn = get_verifier_fn(fn_name)
             except ValueError as e:
                 raise RuntimeError(f"NativeRL: unknown verifier_name {fn_name!r}") from e
-            verifier = _wrap_verifier(verifier_fn, params=v.params)
 
-            messages = []
-            if self.cfg.system_prompt:
-                messages.append({"role": "system", "content": self.cfg.system_prompt})
-            messages.append({
-                "role": "user",
-                "content": self.cfg.user_template.format(prompt=t.instruction),
-            })
-            prompt_mi = messages_to_model_input(
-                tokenizer, messages,
-                add_generation_prompt=True,
-                enable_thinking=self.cfg.enable_thinking,
-            )
-            tags = list(t.metadata.get("tags") or [])
-            metadata = {k: val for k, val in t.metadata.items() if k != "tags"}
+            metadata = {k: val for k, val in t.metadata.items()}
             metadata.setdefault("task_id", t.task_id)
-            builders.append(SingleTurnEnv(
-                prompt=prompt_mi, expected=v.expected, tokenizer=tokenizer,
-                verifier=verifier, tags=tags, metadata=metadata,
+            out.append(RolloutTask(
+                prompt=self.cfg.user_template.format(prompt=t.instruction),
+                env=_verifier_env(verifier_fn, expected=v.expected, params=v.params),
+                metadata=metadata,
             ))
-        if not builders:
+        if not out:
             raise RuntimeError("NativeRL: no usable HarborTask rows")
-        return builders
+        return out
 
     def _resolve_save_every(self, total_steps: int) -> int:
         if self.cfg.save_every:
@@ -280,15 +237,18 @@ class NativeRL:
         return max(1, total_steps // 10)
 
 
-def _wrap_verifier(fn: Callable[..., Any], params: dict | None = None) -> VerifierFn:
-    """Adapt a registered ``(output, expected, params)`` verifier to the
-    :class:`VerifierFn` shape (``(output, expected)``). ``params`` comes from
-    the HarborTask's InProcessVerifier spec."""
-    params = dict(params or {})
+def _verifier_env(fn: Callable[..., Any], *, expected: Any, params: dict | None = None):
+    """Build a single-turn in-process :data:`RolloutEnv` from a registered
+    verifier fn ``(output, expected, params) -> reward``. It scores the last
+    assistant message and ends the episode (no sandbox)."""
+    p = dict(params or {})
 
-    def _call(output: str, expected: Any) -> float:
-        return float(fn(output, expected, params))
-    return _call
+    async def env(messages: list[dict]) -> EnvStep:
+        last = messages[-1].get("content", "") if messages else ""
+        reward = float(fn(last, expected, p))
+        return EnvStep(done=True, reward=reward)
+
+    return env
 
 
 __all__ = ["NativeRL", "NativeRLConfig"]

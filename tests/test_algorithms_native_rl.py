@@ -56,38 +56,47 @@ class _StubTokenizer:
         return "T" + "_".join(str(t) for t in tokens)
 
 
-class _CannedRolloutSampler:
-    """Sampler that emits a canned `tokens` list per call."""
+async def _fake_generate_rollouts(tasks, *, num_samples=1, **kwargs):
+    """Stand-in for the harbor-backed rollout helper: emit a canned completion
+    and run each task's (in-process) env to get its reward, so the verifier
+    wiring is exercised without harbor/tinker."""
+    from evsys_sdk.training.rollout import Trajectory, Turn
 
-    def __init__(self, tokens, name="rl-mock"):
-        self.tokens = tokens
-        self.name = name
-
-    async def sample_async(self, **kwargs):
-        @dataclass
-        class _Seq:
-            tokens: list[int]
-            logprobs: list[float]
-        @dataclass
-        class _Resp:
-            sequences: list[Any]
-        return _Resp(sequences=[
-            _Seq(tokens=list(self.tokens), logprobs=[-0.5] * len(self.tokens)),
-        ])
+    out = []
+    for t in tasks:
+        samples = []
+        for _ in range(num_samples):
+            messages = [
+                {"role": "user", "content": t.prompt},
+                {"role": "assistant", "content": "T200_201_202"},
+            ]
+            reward = 0.0
+            if t.env is not None:
+                step = await t.env(messages)
+                reward = step.reward
+            samples.append(Trajectory(
+                turns=[Turn(prompt_tokens=[1, 2, 3],
+                            completion_tokens=[200, 201, 202],
+                            logprobs=[-0.5, -0.5, -0.5], text="T200_201_202")],
+                reward=reward, metadata=dict(t.metadata),
+            ))
+        out.append(samples)
+    return out
 
 
 @pytest.fixture
 def patched_tinker_backend(monkeypatch):
     backend = MockBackend(tokenizer=_StubTokenizer())
-    backend._sampler_factory = lambda name: _CannedRolloutSampler(  # type: ignore[assignment]
-        tokens=[200, 201, 202], name=name,
-    )
 
     async def _factory(**kwargs):
         backend._model_name = kwargs.get("model_name")  # type: ignore[attr-defined]
         return backend
 
     monkeypatch.setattr(native_rl_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(
+        "evsys_sdk.training.step_builder.generate_rollouts",
+        _fake_generate_rollouts,
+    )
     return backend
 
 
@@ -161,10 +170,9 @@ def test_rejects_non_tinker_backend(ctx):
         NativeRL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
-def test_rejects_missing_train_rows_and_no_env_builders(ctx, patched_tinker_backend):
+def test_rejects_missing_train_rows(ctx, patched_tinker_backend):
     ctx.extras["train_rows"] = []
-    ctx.extras.pop("env_builders", None)
-    with pytest.raises(RuntimeError, match="env_builders.*train_rows|train_rows.*env_builders"):
+    with pytest.raises(RuntimeError, match="train_rows"):
         NativeRL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
@@ -242,5 +250,5 @@ def test_train_logs_hyperparams(patched_tinker_backend, ctx):
     hp = ctx.log_store.hyperparams
     assert hp is not None
     assert hp["algorithm"] == "native_rl"
-    assert hp["n_builders"] == 20
+    assert hp["n_tasks"] == 20
     assert hp["total_steps"] == 2

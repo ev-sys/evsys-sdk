@@ -18,6 +18,11 @@ tinker = [
     "tinker-cookbook>=0.3.0",
     "chz",
 ]
+harbor = [
+    # Rollout engine for native_rl / native_sdft (TinkerLLM sampler + Chat).
+    # Pulled in lazily by evsys_sdk.training.rollout.generate_rollouts.
+    "harbor>=0.13.2",
+]
 local = [
     "torch>=2.4",
     "transformers>=4.40",

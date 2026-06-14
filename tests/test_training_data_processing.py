@@ -19,14 +19,29 @@ from evsys_sdk.training.data_processing import (
     compute_advantages,
     compute_trajectory_metrics,
 )
-from evsys_sdk.training.env import Trajectory, TrajectoryGroup
+from evsys_sdk.training.rollout import Trajectory, TrajectoryGroup, Turn
 
 
 def _traj(prompt_ids, completion, *, reward, logprobs=None):
+    """Single-turn trajectory helper."""
     return Trajectory(
-        prompt=tinker.ModelInput.from_ints(prompt_ids),
-        completion_tokens=list(completion),
-        completion_logprobs=list(logprobs or [-0.1] * len(completion)),
+        turns=[Turn(
+            prompt_tokens=list(prompt_ids),
+            completion_tokens=list(completion),
+            logprobs=list(logprobs or [-0.1] * len(completion)),
+        )],
+        reward=float(reward),
+    )
+
+
+def _multiturn(turns, *, reward):
+    """turns = list of (prompt_ids, completion, logprobs)."""
+    return Trajectory(
+        turns=[
+            Turn(prompt_tokens=list(p), completion_tokens=list(c),
+                 logprobs=list(lp))
+            for p, c, lp in turns
+        ],
         reward=float(reward),
     )
 
@@ -123,6 +138,23 @@ def test_datum_carries_mask_logprobs_advantages():
     # logprobs follow the same alignment, one entry per completion position
     lp = d.loss_fn_inputs["logprobs"].to_torch().tolist()
     assert lp[1:4] == [pytest.approx(-0.1), pytest.approx(-0.2), pytest.approx(-0.3)]
+
+
+def test_assemble_multiturn_emits_one_datum_per_turn():
+    """A multi-turn trajectory → one Datum per turn, all sharing the
+    trajectory-level advantage."""
+    traj = _multiturn(
+        [([1, 2], [3, 4], [-0.1, -0.2]), ([1, 2, 3, 4, 5], [6, 7], [-0.3, -0.4])],
+        reward=0.5,
+    )
+    group = TrajectoryGroup(trajectories=[traj])
+    datums, meta = assemble_training_data([group], compute_advantages([group]))
+    assert len(datums) == 2           # one per turn
+    assert all(m.group_idx == 0 for m in meta)
+    # both turns carry the same (single-traj) advantage = reward
+    for d in datums:
+        adv = d.loss_fn_inputs["advantages"].to_torch().tolist()
+        assert max(adv) == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------

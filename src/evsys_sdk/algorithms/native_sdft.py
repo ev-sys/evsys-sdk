@@ -144,22 +144,23 @@ class NativeSDFT:
             "save_every": save_every,
         })
 
-        # 5. closure providing the latest student sampler per step.
-        # The cookbook does this via save_checkpoint_and_get_sampling_client
-        # after each optim; same shape, exposed as an injectable seam.
+        # 5. per-step checkpoint provider: snapshot the current student weights
+        # and hand the rollout helper its tinker:// path (on-policy student
+        # rollouts, same effect as the cookbook's
+        # save_checkpoint_and_get_sampling_client).
         snapshot_counter = {"i": 0}
 
-        async def _latest_student_sampler():
+        async def _checkpoint() -> str:
             snapshot_counter["i"] += 1
-            return await backend.snapshot_sampling_client(
-                name=f"student_snap_{snapshot_counter['i']}"
-            )
+            return await backend.save_for_sampler(f"student_snap_{snapshot_counter['i']}")
 
         step_builder = SDFTStepBuilder(
             dataset=dataset,
             tokenizer=backend.get_tokenizer(),
             teacher_client=teacher_wrapped,
-            student_sampler_provider=_latest_student_sampler,
+            model_name=model_name,
+            checkpoint_provider=_checkpoint,
+            renderer_name=self.cfg.renderer_name or handles.get("renderer_name"),
             system_prompt=self.cfg.system_prompt,
             demo_template=self.cfg.demo_template,
             enable_thinking=self.cfg.enable_thinking,

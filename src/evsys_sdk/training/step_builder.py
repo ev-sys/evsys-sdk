@@ -23,6 +23,7 @@ import tinker
 
 from ..data_types import PromptExample
 from .loop import TrainingBatch
+from .rollout import RolloutTask, TrajectoryGroup, generate_rollouts
 from .sdft_data import (
     CompletionSlice,
     build_teacher_forced_sequence,
@@ -31,7 +32,6 @@ from .sdft_data import (
     extract_completion_tokens,
     student_datum_from_rollout,
 )
-from .templates import Message, messages_to_model_input
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ def _extract_weights(datum: tinker.Datum) -> Any:
     return inputs.get("weights")
 
 
-__all__ = ["RLDataset", "RLStepBuilder", "SDFTDataset", "SDFTStepBuilder", "SFTStepBuilder"]
+__all__ = ["RLStepBuilder", "SDFTDataset", "SDFTStepBuilder", "SFTStepBuilder"]
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,9 @@ class SDFTStepBuilder:
     dataset: SDFTDataset
     tokenizer: Any
     teacher_client: Any
-    student_sampler_provider: SamplerProvider
+    model_name: str
+    checkpoint_provider: Callable[[], Awaitable[Any]]
+    renderer_name: str | None = None
     system_prompt: str | None = None
     demo_template: str = ""   # set in __post_init__ to the DEFAULT
     enable_thinking: bool | None = None
@@ -307,10 +309,7 @@ class SDFTStepBuilder:
     async def build_batch(self, step_idx: int) -> TrainingBatch:
         questions, golden = self.dataset.get_batch(step_idx)
 
-        # 1. Build student + teacher prompts.
-        student_prompts = [
-            self._build_student_prompt(q) for q in questions
-        ]
+        # 1. Teacher prompts (golden answer shown as an in-context demo).
         teacher_prompts = [
             build_teacher_prompt(
                 question=q, golden_answer=g, tokenizer=self.tokenizer,
@@ -321,27 +320,33 @@ class SDFTStepBuilder:
             for q, g in zip(questions, golden)
         ]
 
-        # 2. On-policy student rollouts (one per question, batched in parallel).
-        sampler = await self.student_sampler_provider()
-        student_responses = await asyncio.gather(*[
-            sampler.sample_async(
-                prompt=sp,
-                params=tinker.SamplingParams(
-                    max_tokens=self.max_tokens, temperature=self.temperature,
-                ),
-                num_samples=1,
-            )
-            for sp in student_prompts
-        ])
+        # 2. On-policy student rollouts via the shared rollout helper
+        #    (env=None → pure single-turn generation from the current weights).
+        model_path = await self.checkpoint_provider()
+        roll_tasks = [
+            RolloutTask(prompt=self._student_user_content(q)) for q in questions
+        ]
+        rollouts = await generate_rollouts(
+            roll_tasks, model_name=self.model_name, model_path=model_path,
+            renderer_name=self.renderer_name, num_samples=1, max_turns=1,
+            max_tokens=self.max_tokens, temperature=self.temperature,
+            system_prompt=self.system_prompt,
+        )
 
         # 3. Wrap each rollout as a student Datum (carrying the completion mask).
         student_datums: list[tinker.Datum] = []
         completion_slices: list[CompletionSlice] = []
         teacher_forced_seqs: list[tinker.ModelInput] = []
 
-        for sp, tp, resp in zip(student_prompts, teacher_prompts, student_responses):
-            completion = _extract_completion_tokens_from_response(resp)
-            datum = student_datum_from_rollout(prompt=sp, completion_tokens=completion)
+        for tp, samples in zip(teacher_prompts, rollouts):
+            turn = samples[0].turns[0] if (samples and samples[0].turns) else None
+            completion = list(turn.completion_tokens) if turn else []
+            student_prompt = tinker.ModelInput.from_ints(
+                list(turn.prompt_tokens) if turn else []
+            )
+            datum = student_datum_from_rollout(
+                prompt=student_prompt, completion_tokens=completion,
+            )
             student_datums.append(datum)
             slice_ = extract_completion_tokens(
                 datum, teacher_prompt_len=tp.length,
@@ -423,17 +428,10 @@ class SDFTStepBuilder:
 
     # --- internals ---------------------------------------------------------
 
-    def _build_student_prompt(self, question: str) -> tinker.ModelInput:
-        user_content = self.user_template.format(question=question, prompt=question)
-        messages: list[Message] = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        messages.append({"role": "user", "content": user_content})
-        return messages_to_model_input(
-            self.tokenizer, messages,
-            add_generation_prompt=True,
-            enable_thinking=self.enable_thinking,
-        )
+    def _student_user_content(self, question: str) -> str:
+        """The user turn the student sees (no demo). The rollout helper's
+        TinkerLLM renders it into a chat-templated prompt internally."""
+        return self.user_template.format(question=question, prompt=question)
 
 
 # ---------------------------------------------------------------------------
@@ -441,54 +439,46 @@ class SDFTStepBuilder:
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class RLDataset(Protocol):
-    """Per-step ``Sequence[EnvGroupBuilder]`` source for :class:`RLStepBuilder`.
-
-    The cookbook's ``RLDataset`` Protocol has the same shape — one
-    ``EnvGroupBuilder`` per batch slot, ``batch_size`` builders per step.
-    """
-
-    def __len__(self) -> int: ...
-
-    def get_batch(self, step_idx: int) -> Sequence[Any]:
-        """Return ``batch_size`` :class:`~evsys_sdk.training.env.EnvGroupBuilder` instances."""
-        ...
-
-
 @dataclass
 class RLStepBuilder:
-    """On-policy rollout → group-normalized advantages → IS loss.
+    """On-policy RL: roll out each task via :func:`generate_rollouts`, score
+    with its per-task env, group-normalize advantages, emit IS-loss Datums.
+
+    Multi-turn comes for free — each task's ``env`` decides when the episode
+    ends; single-turn verifier tasks just return ``done`` on turn 0. The
+    student samples from ``checkpoint_provider()`` (the latest saved weights),
+    so rollouts are on-policy.
 
     Parameters
     ----------
-    dataset:
-        Returns ``batch_size`` :class:`~evsys_sdk.training.env.EnvGroupBuilder`
-        instances per step.
-    student_sampler_provider:
-        Async callable returning the latest student sampler (same shape as
-        :class:`SDFTStepBuilder` — composer binds it to
-        ``backend.snapshot_sampling_client``).
+    tasks:
+        The full pool of :class:`~evsys_sdk.training.rollout.RolloutTask`\\s;
+        ``batch_size`` are rolled out per step (wrapping past the end).
+    checkpoint_provider:
+        Async callable returning the current tinker ``model_path`` (saved
+        sampler weights). Called once per step so rollouts use fresh weights.
     num_samples:
-        Trajectories per ``EnvGroupBuilder`` (cookbook calls this
-        ``group_size``). >= 2 lets the advantage baseline subtract a
-        within-group mean.
+        Rollouts per task (``group_size``); >= 2 lets the advantage baseline
+        subtract a within-group mean.
     drop_constant_reward:
-        When True, groups whose rewards are all equal contribute no
-        gradient under IS, so we drop them before training. Matches the
-        cookbook's ``do_group_rollout_and_filter_constant_reward``.
+        Drop groups whose rewards are all equal (no IS gradient contribution).
     """
 
-    dataset: "RLDataset"
-    student_sampler_provider: SamplerProvider
+    tasks: list[RolloutTask]
+    checkpoint_provider: Callable[[], Awaitable[Any]]
+    model_name: str
+    batch_size: int
+    renderer_name: str | None = None
     num_samples: int = 1
-    max_tokens: int = 256
+    max_turns: int = 8
+    max_tokens: int = 512
     temperature: float = 1.0
+    system_prompt: str | None = None
     drop_constant_reward: bool = False
 
     @property
     def steps_per_epoch(self) -> int:
-        return len(self.dataset)
+        return max(1, len(self.tasks) // self.batch_size)
 
     async def build_batch(self, step_idx: int) -> TrainingBatch:
         from .data_processing import (
@@ -496,19 +486,27 @@ class RLStepBuilder:
             compute_advantages,
             compute_trajectory_metrics,
         )
-        from .rollouts import do_group_rollouts
 
-        builders = list(self.dataset.get_batch(step_idx))
-        sampler = await self.student_sampler_provider()
-        groups = await do_group_rollouts(
-            sampler=sampler, builders=builders,
-            num_samples=self.num_samples,
-            max_tokens=self.max_tokens, temperature=self.temperature,
-            drop_constant_reward=self.drop_constant_reward,
+        batch = self._slice(step_idx)
+        model_path = await self.checkpoint_provider()
+        rollouts = await generate_rollouts(
+            batch, model_name=self.model_name, model_path=model_path,
+            renderer_name=self.renderer_name, num_samples=self.num_samples,
+            max_turns=self.max_turns, max_tokens=self.max_tokens,
+            temperature=self.temperature, system_prompt=self.system_prompt,
         )
+        groups = [
+            TrajectoryGroup(
+                trajectories=samples,
+                tags=list(batch[i].metadata.get("tags") or []),
+            )
+            for i, samples in enumerate(rollouts)
+        ]
+        if self.drop_constant_reward:
+            groups = [g for g in groups if not _all_equal(g.rewards)]
         if not groups:
-            # No usable groups — emit an empty batch + a zeroed metric row so
-            # the loop's step counter advances cleanly.
+            # No usable groups — empty batch + zeroed metric so the loop's
+            # step counter advances cleanly.
             return TrainingBatch(
                 data=[], loss_fn="importance_sampling",
                 metrics={"reward/n_trajectories": 0.0},
@@ -524,23 +522,18 @@ class RLStepBuilder:
     def step_metrics(
         self, step_idx: int, batch: TrainingBatch, fb_result: Any,
     ) -> dict[str, float]:
-        # Reward stats already merged from batch.metrics by the loop; nothing
-        # to add from the fb_result for IS (the loss is summed server-side and
-        # bubbled through optim_result.metrics anyway).
+        # Reward stats are merged from batch.metrics by the loop; nothing to
+        # add from fb_result for IS.
         return {}
 
+    def _slice(self, step_idx: int) -> list[RolloutTask]:
+        n = len(self.tasks)
+        start = (step_idx * self.batch_size) % n
+        end = start + self.batch_size
+        if end <= n:
+            return self.tasks[start:end]
+        return self.tasks[start:] + self.tasks[: end - n]
 
-def _extract_completion_tokens_from_response(response: Any) -> list[int]:
-    """Pull the token-id list out of a tinker SamplingResponse-shape object.
 
-    Real tinker exposes ``.sequences[0].tokens``; MockSamplingClient does
-    the same; either way we get a list of ints back.
-    """
-    seqs = getattr(response, "sequences", None)
-    if not seqs:
-        return []
-    first = seqs[0]
-    tokens = getattr(first, "tokens", None) or getattr(first, "token_ids", None)
-    if not tokens:
-        return []
-    return [int(t) for t in tokens]
+def _all_equal(xs: list[float]) -> bool:
+    return len(xs) > 0 and all(x == xs[0] for x in xs)
