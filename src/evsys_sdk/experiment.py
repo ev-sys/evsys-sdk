@@ -572,10 +572,18 @@ class Experiment:
         eval_id = self._record_eval(
             arm, bench, bench_meta, BenchmarkScore(metrics=metrics, per_task=[], breakdowns={}),
         )
-        # Upload eval rollouts only (training rollouts are never uploaded).
+        # Upload eval rollouts only (training rollouts are never uploaded), and
+        # only once they have an eval_id to hang off of — orphan predictions
+        # can't be told apart from other evals on the same run.
         if self.store is not None and arm.run_id:
-            preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
-            upload_eval_rollouts(self.store, arm.run_id, preds)
+            if eval_id is None:
+                logger.warning(
+                    "skipping eval rollout upload for arm %r: create_eval gave no id",
+                    arm.name,
+                )
+            else:
+                preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
+                upload_eval_rollouts(self.store, arm.run_id, preds)
 
     @staticmethod
     def _final_checkpoint(arm: ArmResult) -> str | None:

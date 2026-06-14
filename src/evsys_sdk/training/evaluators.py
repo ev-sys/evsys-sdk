@@ -214,6 +214,15 @@ class BenchmarkEvaluator:
                     eval_id = getattr(rec, "id", None)
             except Exception:  # pragma: no cover — defensive
                 logger.exception("create_eval failed for run %s", self.run_id)
+        # Each validation mints its own eval (tagged with `step`); the per-task
+        # predictions hang off that eval_id so step-5 / step-10 / final evals
+        # stay distinguishable. No eval_id → don't upload orphan predictions.
+        if eval_id is None:
+            logger.warning(
+                "skipping val rollout upload for run %s step %s: no eval_id",
+                self.run_id, step,
+            )
+            return
         try:
             preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step)
             upload_eval_rollouts(self.store, self.run_id, preds)

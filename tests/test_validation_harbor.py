@@ -95,6 +95,36 @@ def test_harbor_validation_uploads_eval_per_step(monkeypatch):
     assert all(p["kind"] == "eval" for p in store.preds)
 
 
+def test_harbor_validation_skips_upload_without_eval_id(monkeypatch):
+    """If create_eval yields no id, predictions are NOT uploaded — orphan rows
+    couldn't be told apart from other evals on the run."""
+    async def _fake_score(tasks, **kwargs):
+        return [TrajectoryGroup(trajectories=[Trajectory(
+            turns=[Turn(prompt_tokens=[1], completion_tokens=[2], logprobs=[-0.1])],
+            reward=1.0,
+        )]) for _ in tasks]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+
+    class _Store:
+        def __init__(self):
+            self.preds: list[dict] = []
+
+        def create_eval(self, **kw):
+            return {}  # no id
+
+        def add_prediction(self, **kw):
+            self.preds.append(kw)
+
+    store = _Store()
+    ev = BenchmarkEvaluator(
+        name="val", benchmark=_bench(), tokenizer=None,
+        engine="harbor", model_name="m", store=store, run_id="r1",
+    )
+    asyncio.run(ev.evaluate(object(), model_path="tinker://ckpt", step=5))
+    assert store.preds == []
+
+
 def test_non_harbor_engine_uses_sampler_path(monkeypatch):
     """Without engine='harbor', the live-sampler path is used (no harbor call)."""
     called = {"harbor": False}
