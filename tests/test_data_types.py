@@ -49,10 +49,12 @@ class TestShapes:
 
     def test_chat_messages_row_construct(self):
         row = ChatMessagesRow(
-            messages=[{"role": "user", "content": "hi"}],
-            target_assistant="hello",
+            messages=[
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello"},
+            ],
         )
-        assert row.target_assistant == "hello"
+        assert row.messages[-1]["content"] == "hello"
         assert row.metadata == {}
 
     def test_harbor_task_construct_in_process(self):
@@ -79,7 +81,7 @@ class TestShapes:
 
 class TestDetectFormat:
     def test_chat_messages(self):
-        assert detect_format({"messages": [], "target_assistant": "x"}) == "chat_messages"
+        assert detect_format({"messages": [{"role": "user", "content": "hi"}]}) == "chat_messages"
 
     def test_harbor_task(self):
         assert detect_format({"task_id": "t", "instruction": "i", "verifier": {"kind": "in_process"}}) == "harbor_task"
@@ -99,8 +101,8 @@ class TestRoundTrip:
             messages=[
                 {"role": "system", "content": "You are helpful."},
                 {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": "hello!"},
             ],
-            target_assistant="hello!",
             metadata={"split": "train", "row_id": "ex_0001"},
         )
         d = to_dict(row)
@@ -129,7 +131,7 @@ class TestRoundTrip:
 
     def test_from_dict_dispatch(self):
         rows = [
-            {"messages": [], "target_assistant": "x"},
+            {"messages": [{"role": "user", "content": "hi"}]},
             {"task_id": "t", "instruction": "i", "verifier": {"kind": "in_process", "fn_name": "f"}},
             {"inputs": {"q": "a"}, "expected": "b"},
         ]
@@ -141,7 +143,7 @@ class TestRoundTrip:
     def test_iter_jsonl_mixed(self, tmp_path: Path):
         p = tmp_path / "mixed.jsonl"
         with open(p, "w") as f:
-            f.write(json.dumps({"messages": [], "target_assistant": "ok"}) + "\n")
+            f.write(json.dumps({"messages": [{"role": "user", "content": "hi"}]}) + "\n")
             f.write("\n")  # blank line should be skipped
             f.write(json.dumps({"task_id": "t1", "instruction": "i",
                                 "verifier": {"kind": "in_process", "fn_name": "exact"}}) + "\n")
@@ -194,13 +196,12 @@ class TestMultimodal:
         assert block_to_image_src(block) is None
 
     def test_has_images_text_only(self):
-        row = ChatMessagesRow(messages=[{"role": "user", "content": "hi"}], target_assistant="hello")
+        row = ChatMessagesRow(messages=[{"role": "user", "content": "hi"}])
         assert has_images(row) is False
 
     def test_has_images_with_image(self):
         row = ChatMessagesRow(
             messages=[{"role": "user", "content": [text_block("look:"), image_url_block("https://x.com/a.png")]}],
-            target_assistant="I see it.",
         )
         assert has_images(row) is True
 
@@ -225,9 +226,9 @@ class TestVerifierFromDict:
 
 class TestImmutability:
     def test_dataclasses_are_frozen(self):
-        row = ChatMessagesRow(messages=[], target_assistant="x")
+        row = ChatMessagesRow(messages=[{"role": "user", "content": "hi"}])
         with pytest.raises(dataclasses.FrozenInstanceError):
-            row.target_assistant = "y"  # type: ignore[misc]
+            row.messages = []  # type: ignore[misc]
 
         v = InProcessVerifier(fn_name="f")
         with pytest.raises(dataclasses.FrozenInstanceError):

@@ -47,11 +47,14 @@ class TargetFormat(str, enum.Enum):
 
 @dataclass(frozen=True)
 class ChatMessagesRow:
-    """One SFT training example.
+    """One SFT conversation — pure data, no supervision encoded.
 
-    ``messages`` is the conversation prefix the model sees; ``target_assistant``
-    is the exact string the loss is computed against. Roles in messages are
-    typically system / user / assistant / tool.
+    ``messages`` is the full multi-turn conversation (roles: system / user /
+    assistant / tool). The row deliberately carries **no** notion of which
+    tokens are trained: choosing the supervised span is the *algorithm's* job
+    (e.g. ``NativeSFT`` masks assistant turns according to its ``supervise``
+    config). Keeping the dataset format free of target/loss metadata lets the
+    same conversation feed any SFT variant.
 
     For multimodal SFT, a message's ``content`` may be either a string OR a
     list of content blocks (mix of text + image blocks). See
@@ -59,7 +62,6 @@ class ChatMessagesRow:
     """
 
     messages: list[dict]
-    target_assistant: str
     metadata: dict = field(default_factory=dict)
 
 
@@ -228,15 +230,20 @@ def has_images(row: ChatMessagesRow) -> bool:
 
 
 def detect_format(row: Any) -> str:
-    """Returns 'chat_messages' | 'harbor_task' | 'prompt_dataset' | 'unknown'."""
+    """Returns 'chat_messages' | 'harbor_task' | 'prompt_dataset' | 'unknown'.
+
+    Checked most-specific first: ``harbor_task`` and ``prompt_dataset`` have
+    distinctive key pairs; ``chat_messages`` is any row carrying ``messages``
+    (the conversation — supervision is decided by the algorithm, not the row).
+    """
     if not isinstance(row, dict):
         return "unknown"
-    if "target_assistant" in row and "messages" in row:
-        return "chat_messages"
     if "task_id" in row and "verifier" in row:
         return "harbor_task"
     if "inputs" in row and "expected" in row:
         return "prompt_dataset"
+    if "messages" in row:
+        return "chat_messages"
     return "unknown"
 
 
@@ -277,9 +284,11 @@ def harbor_task_from_dict(d: dict) -> HarborTask:
 
 
 def chat_messages_row_from_dict(d: dict) -> ChatMessagesRow:
+    msgs = d.get("messages")
+    if not isinstance(msgs, list) or not msgs:
+        raise ValueError("chat_messages row requires a non-empty `messages` list")
     return ChatMessagesRow(
-        messages=list(d.get("messages") or []),
-        target_assistant=d["target_assistant"],
+        messages=list(msgs),
         metadata=dict(d.get("metadata") or {}),
     )
 
@@ -299,6 +308,47 @@ def from_dict(row: dict) -> Union[ChatMessagesRow, HarborTask, PromptExample]:
     if fmt == "harbor_task":    return harbor_task_from_dict(row)
     if fmt == "prompt_dataset": return prompt_example_from_dict(row)
     raise ValueError(f"can't dispatch row — unknown format: keys={sorted(row.keys())[:6]}")
+
+
+_ROW_PARSERS = {
+    "chat_messages": chat_messages_row_from_dict,
+    "harbor_task": harbor_task_from_dict,
+    "prompt_dataset": prompt_example_from_dict,
+}
+
+
+def parse_rows(
+    rows: Iterable[dict],
+    fmt: Union["TargetFormat", str],
+) -> list[Union[ChatMessagesRow, HarborTask, PromptExample]]:
+    """Strictly parse raw dicts into typed rows for the given ``fmt``.
+
+    This is the standardized boundary between the transform stage and a
+    StepBuilder/algorithm: ``raw rows -> transforms -> parse_rows(fmt) -> typed
+    rows``. ``fmt`` is a :class:`TargetFormat` (or its string value). Every row
+    must match ``fmt`` per :func:`detect_format`; a mismatch raises
+    ``ValueError`` naming the offending row — no silent coercion, mirroring the
+    SDK's ``extra='forbid'`` philosophy. Tokenization/rollout stays downstream,
+    owned by the algorithm.
+    """
+    want = fmt.value if isinstance(fmt, TargetFormat) else str(fmt)
+    parser = _ROW_PARSERS.get(want)
+    if parser is None:
+        raise ValueError(
+            f"parse_rows: unsupported target format {want!r} "
+            f"(expected one of {sorted(_ROW_PARSERS)})"
+        )
+    out: list[Union[ChatMessagesRow, HarborTask, PromptExample]] = []
+    for i, r in enumerate(rows):
+        got = detect_format(r)
+        if got != want:
+            keys = sorted(r)[:6] if isinstance(r, dict) else type(r).__name__
+            raise ValueError(
+                f"parse_rows: row {i} has format {got!r}, expected {want!r} "
+                f"(keys={keys})"
+            )
+        out.append(parser(r))
+    return out
 
 
 def to_dict(
@@ -328,5 +378,5 @@ __all__ = [
     "block_to_image_src", "has_images",
     "detect_format",
     "harbor_task_from_dict", "chat_messages_row_from_dict", "prompt_example_from_dict",
-    "from_dict", "to_dict", "iter_jsonl",
+    "from_dict", "parse_rows", "to_dict", "iter_jsonl",
 ]

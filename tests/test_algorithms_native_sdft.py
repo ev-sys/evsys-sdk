@@ -136,8 +136,9 @@ def patched_tinker_backend(monkeypatch):
 
 @pytest.fixture
 def ctx(tmp_path: Path):
+    # Standardized PromptExample shape: inputs['question'] + expected.
     rows = [
-        {"question": f"Q{i}", "golden_answer": f"A{i}"}
+        {"inputs": {"question": f"Q{i}"}, "expected": f"A{i}"}
         for i in range(20)
     ]
 
@@ -194,9 +195,20 @@ def test_rejects_non_tinker_backend(ctx):
         NativeSDFT(max_steps=2, batch_size=4).train(ctx)
 
 
-def test_rejects_rows_missing_question_or_golden(ctx):
-    ctx.extras["train_rows"] = [{"question": "q1"}, {"question": "q2"}]
-    with pytest.raises(RuntimeError, match="question.*golden_answer"):
+def test_rejects_rows_missing_question(ctx):
+    # PromptExample shape but no inputs['question'] → SimpleSDFTDataset rejects.
+    ctx.extras["train_rows"] = [
+        {"inputs": {}, "expected": "a1"},
+        {"inputs": {}, "expected": "a2"},
+    ]
+    with pytest.raises(ValueError, match="question"):
+        NativeSDFT(max_steps=2, batch_size=2).train(ctx)
+
+
+def test_rejects_non_prompt_dataset_rows(ctx):
+    # Wrong format entirely → parse_rows rejects strictly.
+    ctx.extras["train_rows"] = [{"question": "q1", "golden_answer": "a1"}]
+    with pytest.raises(ValueError, match="expected 'prompt_dataset'"):
         NativeSDFT(max_steps=2, batch_size=2).train(ctx)
 
 

@@ -19,34 +19,42 @@ see ``training_client.forward_backward_async(loss_fn="cross_entropy")``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Sequence
+from typing import Any, Literal, Sequence
 
 import tinker
 import torch
 
+from ..data_types import ChatMessagesRow
 from .templates import Message, apply_template
 
 logger = logging.getLogger(__name__)
 
+Supervise = Literal["all_assistant", "last_assistant"]
+"""Which assistant turns the loss is computed on. This is an *algorithm*
+decision (passed in by the composer), NOT a property of the dataset —
+:class:`~evsys_sdk.data_types.ChatMessagesRow` carries only the conversation."""
+
 
 def sft_tokenize(
-    rows: Sequence[dict[str, Any]],
+    rows: Sequence[ChatMessagesRow],
     tokenizer: Any,
     *,
     max_seq_len: int,
     enable_thinking: bool | None = None,
+    supervise: Supervise = "all_assistant",
 ) -> list[tinker.Datum]:
-    """Tokenize every row → list of ``tinker.Datum``.
+    """Tokenize every :class:`ChatMessagesRow` → list of ``tinker.Datum``.
 
-    Rows must have ``messages: list[{"role", "content"}]``. Rows whose
-    rendering produces zero assistant tokens (e.g. system+user only — no
-    label) are silently dropped; a warning is logged with the count.
+    ``supervise`` selects which assistant turns are loss-masked
+    (``all_assistant`` = every assistant turn, ``last_assistant`` = only the
+    final one). Rows that render zero supervised tokens (e.g. system+user only,
+    or no assistant turn) are silently dropped; a warning logs the count.
     """
     data: list[tinker.Datum] = []
     skipped = 0
     for r in rows:
         d = row_to_datum(r, tokenizer, max_seq_len=max_seq_len,
-                         enable_thinking=enable_thinking)
+                         enable_thinking=enable_thinking, supervise=supervise)
         if d is None:
             skipped += 1
             continue
@@ -63,28 +71,37 @@ def sft_tokenize(
 
 
 def row_to_datum(
-    row: dict[str, Any],
+    row: ChatMessagesRow,
     tokenizer: Any,
     *,
     max_seq_len: int,
     enable_thinking: bool | None = None,
+    supervise: Supervise = "all_assistant",
 ) -> tinker.Datum | None:
     """Single-row tokenize + assistant-span loss mask → ``tinker.Datum``.
 
     Strategy: render the full sequence once for the input ids; then walk
-    the messages and for each assistant turn, render up to (and not
-    including) it with ``add_generation_prompt=True`` to find the prefix
+    the messages and for each *supervised* assistant turn, render up to (and
+    not including) it with ``add_generation_prompt=True`` to find the prefix
     span, render through it without to find the end. The diff is the
-    assistant token span — mark it 1.0 in the weight vector.
+    assistant token span — mark it 1.0 in the weight vector. ``supervise``
+    selects which assistant turns count (all, or just the last).
 
-    Returns ``None`` when the row has no assistant turn or the assistant
+    Returns ``None`` when the row has no assistant turn or the supervised
     span ends up empty after truncation to ``max_seq_len``.
     """
-    messages: list[Message] = list(row.get("messages") or [])
+    messages: list[Message] = list(row.messages)
     if not messages:
-        raise ValueError("row has empty messages")
-    if not any(m.get("role") == "assistant" for m in messages):
+        raise ValueError("ChatMessagesRow has empty messages")
+    assistant_idxs = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    if not assistant_idxs:
         return None
+    if supervise == "last_assistant":
+        target_idxs = {assistant_idxs[-1]}
+    elif supervise == "all_assistant":
+        target_idxs = set(assistant_idxs)
+    else:
+        raise ValueError(f"unknown supervise mode: {supervise!r}")
 
     full_text = apply_template(
         tokenizer, messages, add_generation_prompt=False,
@@ -95,7 +112,7 @@ def row_to_datum(
     weights = [0.0] * len(full_ids)
     cursor = 0
     for i, m in enumerate(messages):
-        if m.get("role") != "assistant":
+        if m.get("role") != "assistant" or i not in target_idxs:
             continue
         prefix_text = apply_template(
             tokenizer, messages[:i], add_generation_prompt=True,

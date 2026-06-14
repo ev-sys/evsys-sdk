@@ -118,6 +118,7 @@ from .data_types import (
     chat_messages_row_from_dict,
     prompt_example_from_dict,
     from_dict,
+    parse_rows,
     to_dict,
     iter_jsonl,
 )
@@ -212,6 +213,7 @@ __all__ = [
     "chat_messages_row_from_dict",
     "prompt_example_from_dict",
     "from_dict",
+    "parse_rows",
     "to_dict",
     "iter_jsonl",
     # Dashboard client (push runs to the EvolvingSystems dashboard)
