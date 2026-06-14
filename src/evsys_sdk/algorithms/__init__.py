@@ -15,7 +15,7 @@ from .gepa_prompt import GEPAPromptAlgorithm  # noqa: F401
 
 # Tinker recipes — optional.
 try:
-    from .native_sft import NativeSFT  # noqa: F401  — native loop, no cookbook
+    from .sft import SFT  # noqa: F401  — SDK-native loop, no cookbook
 except ImportError:
     pass
 

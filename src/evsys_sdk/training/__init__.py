@@ -10,7 +10,7 @@ Three concerns, three modules:
 * :mod:`~evsys_sdk.training.checkpoints` — `CheckpointManager` (writes the
   manifest :class:`evsys_sdk.checkpoint.Checkpoint` reads).
 
-Concrete algorithm wrappers (`native_sft`, `native_sdft`, `native_rl`) live
+Concrete algorithm wrappers (`sft`, `sdft`, `rl`) live
 under :mod:`evsys_sdk.algorithms` and compose these three pieces; researchers
 who want a custom algorithm can subclass `StepBuilder` and re-register.
 
@@ -65,7 +65,7 @@ from .rollouts import do_group_rollout, do_group_rollouts
 from .sft_data import row_to_datum, sft_tokenize
 from .step_builder import (
     RLDataset, RLStepBuilder, SDFTDataset, SDFTStepBuilder,
-    SFTStepBuilder, SimpleSDFTDataset,
+    SimpleSDFTDataset,
 )
 from .templates import (
     Message,
@@ -108,7 +108,6 @@ __all__ = [
     "RLStepBuilder",
     "SDFTDataset",
     "SDFTStepBuilder",
-    "SFTStepBuilder",
     "SamplingClient",
     "SimpleSDFTDataset",
     "SingleTurnEnv",

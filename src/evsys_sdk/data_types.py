@@ -52,7 +52,7 @@ class ChatMessagesRow:
     ``messages`` is the full multi-turn conversation (roles: system / user /
     assistant / tool). The row deliberately carries **no** notion of which
     tokens are trained: choosing the supervised span is the *algorithm's* job
-    (e.g. ``NativeSFT`` masks assistant turns according to its ``supervise``
+    (e.g. ``SFT`` masks assistant turns according to its ``supervise``
     config). Keeping the dataset format free of target/loss metadata lets the
     same conversation feed any SFT variant.
 

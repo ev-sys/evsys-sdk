@@ -203,9 +203,9 @@ class _RowsBuilder(SupervisedDatasetBuilder):
 
 _DEPRECATION_MSG = (
     "TinkerSFT (algorithm.kind: tinker_sft) delegates to tinker_cookbook "
-    "and is deprecated in favor of `native_sft`, which runs the training "
+    "and is deprecated in favor of `sft`, which runs the training "
     "loop natively in the SDK and removes the cookbook dependency. Flip "
-    "algorithm.kind in your config to 'native_sft' when ready; the YAML "
+    "algorithm.kind in your config to 'sft' when ready; the YAML "
     "field surface is identical modulo cookbook-only knobs."
 )
 
