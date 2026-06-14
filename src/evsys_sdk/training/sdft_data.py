@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
 
 import tinker
 import torch
 
+from ..data_types import PromptExample
 from .templates import Message, messages_to_model_input
 
 logger = logging.getLogger(__name__)
@@ -342,9 +343,74 @@ def _make_topk_datum(
     )
 
 
+# ---------------------------------------------------------------------------
+# Per-step dataset (consumed by the SDFT algorithm)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class SDFTDataset(Protocol):
+    """The data interface the SDFT algorithm consumes per step.
+
+    Per the SDFT paper, each step needs ``batch_size`` ``(question, golden_answer)``
+    pairs — the student rolls out on the question, the teacher scores
+    teacher-forced through the question+golden_answer demo.
+    """
+
+    def __len__(self) -> int: ...
+
+    def get_batch(self, step_idx: int) -> tuple[list[str], list[str]]:
+        """Return ``(questions, golden_answers)`` of length ``batch_size``."""
+        ...
+
+
+@dataclass
+class SimpleSDFTDataset:
+    """Stock :class:`SDFTDataset` over :class:`~evsys_sdk.data_types.PromptExample`
+    rows: the question lives in ``inputs['question']`` and the gold answer in
+    ``expected``. Wraps modulo dataset length so the loop can exceed one epoch
+    (no ``_RepeatingSDFTProvider`` hack needed)."""
+
+    rows: list[PromptExample]
+    batch_size: int
+
+    def __post_init__(self) -> None:
+        if not self.rows:
+            raise ValueError("SimpleSDFTDataset: rows is empty")
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
+        missing = [
+            i for i, r in enumerate(self.rows[:5])
+            if not r.inputs.get("question") or r.expected is None
+        ]
+        if missing:
+            raise ValueError(
+                f"SimpleSDFTDataset: rows need inputs['question'] + expected "
+                f"(indices {missing} of first 5)"
+            )
+
+    def __len__(self) -> int:
+        return max(1, len(self.rows) // self.batch_size)
+
+    def get_batch(self, step_idx: int) -> tuple[list[str], list[str]]:
+        n = len(self.rows)
+        start = (step_idx * self.batch_size) % n
+        end = start + self.batch_size
+        if end <= n:
+            slice_ = self.rows[start:end]
+        else:
+            slice_ = self.rows[start:] + self.rows[: end - n]
+        return (
+            [r.inputs["question"] for r in slice_],
+            [str(r.expected) for r in slice_],
+        )
+
+
 __all__ = [
     "CompletionSlice",
     "DEFAULT_DEMO_TEMPLATE",
+    "SDFTDataset",
+    "SimpleSDFTDataset",
     "build_teacher_forced_sequence",
     "build_teacher_prompt",
     "build_topk_targets",

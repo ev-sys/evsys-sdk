@@ -61,11 +61,14 @@ from .env import (
     TrajectoryGroup,
     VerifierFn,
 )
+from .batch_utils import (
+    coerce_floats,
+    extract_completion_tokens_from_response,
+    extract_weights,
+)
 from .rollouts import do_group_rollout, do_group_rollouts
 from .sft_data import row_to_datum, sft_tokenize
-from .step_builder import (
-    RLDataset, RLStepBuilder, SDFTDataset, SimpleSDFTDataset,
-)
+from .sdft_data import SDFTDataset, SimpleSDFTDataset
 from .templates import (
     Message,
     apply_template,
@@ -103,8 +106,6 @@ __all__ = [
     "DatumMetadata",
     "EnvGroupBuilder",
     "Observation",
-    "RLDataset",
-    "RLStepBuilder",
     "SDFTDataset",
     "SamplingClient",
     "SimpleSDFTDataset",
@@ -115,6 +116,9 @@ __all__ = [
     "TrajectoryGroup",
     "VerifierFn",
     "assemble_training_data",
+    "coerce_floats",
+    "extract_completion_tokens_from_response",
+    "extract_weights",
     "build_in_loop_evaluators",
     "compute_advantages",
     "compute_trajectory_metrics",

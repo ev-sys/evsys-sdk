@@ -24,9 +24,14 @@ import tinker
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
+from ..training.batch_utils import (
+    coerce_floats,
+    extract_completion_tokens_from_response,
+)
 from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
     CompletionSlice,
+    SimpleSDFTDataset,
     build_teacher_forced_sequence,
     build_teacher_prompt,
     build_topk_targets,
@@ -34,11 +39,6 @@ from ..training.sdft_data import (
     student_datum_from_rollout,
 )
 from ..training.loop import TrainingBatch
-from ..training.step_builder import (
-    SimpleSDFTDataset,
-    _coerce_floats,
-    _extract_completion_tokens_from_response,
-)
 from ..training.templates import Message, messages_to_model_input
 from ..training.tinker_backend import TinkerBackend, TinkerSamplingClient
 from .base import BaseAlgorithm, BaseAlgorithmConfig
@@ -147,7 +147,7 @@ class SDFT(BaseAlgorithm):
         teacher_forced_seqs: list[tinker.ModelInput] = []
 
         for sp, tp, resp in zip(student_prompts, teacher_prompts, student_responses):
-            completion = _extract_completion_tokens_from_response(resp)
+            completion = extract_completion_tokens_from_response(resp)
             datum = student_datum_from_rollout(prompt=sp, completion_tokens=completion)
             student_datums.append(datum)
             slice_ = extract_completion_tokens(
@@ -206,7 +206,7 @@ class SDFT(BaseAlgorithm):
         total_logprob = 0.0
         n_tokens = 0
         for out in outputs:
-            logprobs = _coerce_floats(out.get("logprobs") if isinstance(out, dict)
+            logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
                                       else getattr(out, "logprobs", None))
             if not logprobs:
                 continue

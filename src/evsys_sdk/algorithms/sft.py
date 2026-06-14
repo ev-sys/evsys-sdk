@@ -23,9 +23,9 @@ from typing import Any, ClassVar, Literal, cast
 from ..data_types import ChatMessagesRow, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
+from ..training.batch_utils import coerce_floats, extract_weights
 from ..training.loop import TrainingBatch
 from ..training.sft_data import sft_tokenize
-from ..training.step_builder import _coerce_floats, _extract_weights
 from ..training.tinker_backend import TinkerBackend
 from .base import BaseAlgorithm, BaseAlgorithmConfig
 
@@ -111,11 +111,11 @@ class SFT(BaseAlgorithm):
         total_logprob = 0.0
         total_weight = 0.0
         for datum, out in zip(batch.data, outputs):
-            logprobs = _coerce_floats(out.get("logprobs") if isinstance(out, dict)
-                                      else getattr(out, "logprobs", None))
+            logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
+                                     else getattr(out, "logprobs", None))
             if logprobs is None:
                 continue
-            weights = _coerce_floats(_extract_weights(datum))
+            weights = coerce_floats(extract_weights(datum))
             if weights is None or len(weights) == 0:
                 continue
             # Truncate to min length so a token-count mismatch between the

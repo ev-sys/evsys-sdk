@@ -25,7 +25,7 @@ except ImportError:
     pass
 
 try:
-    from .native_rl import NativeRL  # noqa: F401  — native loop
+    from .rl import RL  # noqa: F401  — SDK-native loop
 except ImportError:
     pass
 

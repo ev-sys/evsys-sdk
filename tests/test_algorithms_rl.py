@@ -1,4 +1,4 @@
-"""End-to-end test of `evsys_sdk.algorithms.native_rl.NativeRL`.
+"""End-to-end test of `evsys_sdk.algorithms.rl.RL`.
 
 Like the SFT/SDFT composer tests: stub TinkerBackend.create + the sampler
 factory so the full RL pipeline (rows → builders → rollout → advantage →
@@ -17,8 +17,8 @@ import pytest
 pytest.importorskip("tinker")  # optional dep; not installed in base CI
 pytest.importorskip("torch")
 
-import evsys_sdk.algorithms.native_rl as native_rl_module
-from evsys_sdk.algorithms.native_rl import NativeRL, NativeRLConfig
+import evsys_sdk.algorithms.rl as rl_module
+from evsys_sdk.algorithms.rl import RL, RLConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend
@@ -87,7 +87,7 @@ def patched_tinker_backend(monkeypatch):
         backend._model_name = kwargs.get("model_name")  # type: ignore[attr-defined]
         return backend
 
-    monkeypatch.setattr(native_rl_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(rl_module.TinkerBackend, "create", _factory)
     return backend
 
 
@@ -131,12 +131,12 @@ def ctx(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_registered_under_native_rl():
-    assert get_algorithm("native_rl") is NativeRL
+def test_registered_under_rl():
+    assert get_algorithm("rl") is RL
 
 
 def test_config_defaults():
-    cfg = NativeRLConfig()
+    cfg = RLConfig()
     assert cfg.batch_size == 4
     assert cfg.num_samples == 1
     assert cfg.drop_constant_reward is True
@@ -145,7 +145,7 @@ def test_config_defaults():
 
 def test_config_rejects_unknown_kwarg():
     with pytest.raises(Exception):
-        NativeRLConfig(bogus_field=True)
+        RLConfig(bogus_field=True)
 
 
 # ---------------------------------------------------------------------------
@@ -158,14 +158,14 @@ def test_rejects_non_tinker_backend(ctx):
         name = "mock"
     ctx.backend = _M()
     with pytest.raises(RuntimeError, match="backend=tinker"):
-        NativeRL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
+        RL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
 def test_rejects_missing_train_rows_and_no_env_builders(ctx, patched_tinker_backend):
     ctx.extras["train_rows"] = []
     ctx.extras.pop("env_builders", None)
     with pytest.raises(RuntimeError, match="env_builders.*train_rows|train_rows.*env_builders"):
-        NativeRL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
+        RL(max_steps=2, batch_size=4, verifier_name="exact_match").train(ctx)
 
 
 def test_rejects_unknown_verifier(ctx, patched_tinker_backend):
@@ -176,7 +176,7 @@ def test_rejects_unknown_verifier(ctx, patched_tinker_backend):
                      "expected": "x"},
     }]
     with pytest.raises(RuntimeError, match="unknown verifier_name"):
-        NativeRL(max_steps=2, batch_size=1).train(ctx)
+        RL(max_steps=2, batch_size=1).train(ctx)
 
 
 def test_rejects_missing_verifier_when_rows_path_chosen(ctx, patched_tinker_backend):
@@ -186,14 +186,14 @@ def test_rejects_missing_verifier_when_rows_path_chosen(ctx, patched_tinker_back
         "verifier": {"kind": "in_process", "fn_name": "", "expected": "x"},
     }]
     with pytest.raises(RuntimeError, match="no verifier fn_name"):
-        NativeRL(max_steps=2, batch_size=1).train(ctx)
+        RL(max_steps=2, batch_size=1).train(ctx)
 
 
 def test_rejects_non_harbor_task_rows(ctx, patched_tinker_backend):
     # Wrong format entirely → parse_rows rejects strictly.
     ctx.extras["train_rows"] = [{"prompt": "P0", "expected": "x"}]
     with pytest.raises(ValueError, match="expected 'harbor_task'"):
-        NativeRL(max_steps=2, batch_size=1, verifier_name="exact_match").train(ctx)
+        RL(max_steps=2, batch_size=1, verifier_name="exact_match").train(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ def test_rejects_non_harbor_task_rows(ctx, patched_tinker_backend):
 def test_train_runs_end_to_end(patched_tinker_backend, ctx):
     """drop_constant_reward=False so the rewards (all 1.0 from the canned
     sampler) don't get filtered out — keeps the test's batch non-empty."""
-    algo = NativeRL(
+    algo = RL(
         max_steps=2, batch_size=4, num_samples=1,
         verifier_name="exact_match", drop_constant_reward=False,
     )
@@ -221,7 +221,7 @@ def test_train_runs_end_to_end(patched_tinker_backend, ctx):
 
 
 def test_train_logs_reward_metrics_per_step(patched_tinker_backend, ctx):
-    algo = NativeRL(
+    algo = RL(
         max_steps=2, batch_size=4, num_samples=1,
         verifier_name="exact_match", drop_constant_reward=False,
     )
@@ -235,12 +235,12 @@ def test_train_logs_reward_metrics_per_step(patched_tinker_backend, ctx):
 
 
 def test_train_logs_hyperparams(patched_tinker_backend, ctx):
-    NativeRL(
+    RL(
         max_steps=2, batch_size=4, num_samples=1,
         verifier_name="exact_match", drop_constant_reward=False,
     ).train(ctx)
     hp = ctx.log_store.hyperparams
     assert hp is not None
-    assert hp["algorithm"] == "native_rl"
+    assert hp["algorithm"] == "rl"
     assert hp["n_builders"] == 20
     assert hp["total_steps"] == 2

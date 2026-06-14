@@ -45,7 +45,7 @@ def test_tinker_rl_emits_deprecation():
         TinkerRL()
     msgs = [str(w.message) for w in caught
             if issubclass(w.category, DeprecationWarning)]
-    assert any("native_rl" in m for m in msgs)
+    assert any("`rl`" in m for m in msgs)
 
 
 def test_sft_emits_no_deprecation():
