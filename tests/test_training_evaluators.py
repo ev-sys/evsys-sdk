@@ -215,7 +215,7 @@ def test_loop_respects_per_evaluator_run_every(tmp_path: Path):
     class _Ev:
         name: str
         run_every: int = 0
-        async def evaluate(self, sampler):
+        async def evaluate(self, sampler, **kwargs):
             fired.append((self.name, _Ev.last_step))
             return {"pass_rate": 1.0}
 
@@ -259,7 +259,7 @@ def test_loop_fallback_to_eval_every_when_evaluator_has_no_run_every(tmp_path: P
     @dataclass
     class _Ev:
         name: str = "legacy"
-        async def evaluate(self, sampler):
+        async def evaluate(self, sampler, **kwargs):
             fired.append(1)
             return {"pass_rate": 0.5}
 

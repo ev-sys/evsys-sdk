@@ -200,6 +200,7 @@ class MockSamplingClient:
     def __init__(self, *, canned: list[str] | None = None, name: str = "mock") -> None:
         self.canned = canned or [""]
         self.name = name
+        self.model_path: str | None = None
         self.sample_calls: list[dict] = []
         self.logprob_calls: list[tinker.ModelInput] = []
         self._idx = 0
@@ -296,8 +297,13 @@ class MockBackend:
 
     async def snapshot_sampling_client(self, name: str | None = None) -> SamplingClient:
         label = name or f"snapshot_{len(self.save_sampler_calls)}"
-        await self.save_for_sampler(label)
-        return self._sampler_factory(label)
+        path = await self.save_for_sampler(label)
+        client = self._sampler_factory(label)
+        try:
+            client.model_path = path  # harbor-backed evaluators re-sample from this
+        except Exception:
+            pass
+        return client
 
     def get_tokenizer(self) -> Any:
         return self._tokenizer

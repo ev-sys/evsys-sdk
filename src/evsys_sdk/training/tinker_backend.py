@@ -69,6 +69,7 @@ class TinkerSamplingClient:
     def __init__(self, raw: Any, *, name: str = "tinker") -> None:
         self.raw = raw
         self.name = name
+        self.model_path: str | None = None
 
     async def sample_async(
         self,
@@ -217,7 +218,9 @@ class TinkerBackend:
         raw = self._service.create_sampling_client(
             base_model=self._model_name, model_path=sampler_path,
         )
-        return TinkerSamplingClient(raw, name=label)
+        client = TinkerSamplingClient(raw, name=label)
+        client.model_path = sampler_path  # harbor-backed evaluators re-sample from this
+        return client
 
     def get_tokenizer(self) -> Any:
         return self._tokenizer

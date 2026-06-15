@@ -193,6 +193,7 @@ class Experiment:
         self.config = config
         self.store = store
         self.train_fn = train_fn or _default_train_fn
+        self._train_fn_is_default = train_fn is None
         self._benchmark_override = benchmark
         self.inference_factory = inference_factory
 
@@ -400,7 +401,17 @@ class Experiment:
             update={"run": run_cfg, "runs": None, "matrix": None}
         )
         t0 = time.time()
-        results = self.train_fn(single_cfg)
+        from .runner import run_experiment
+        if self._train_fn_is_default:
+            # Hand the dashboard store + run_id down to the runner so in-loop
+            # validation (harbor engine) can upload its eval rollouts tagged
+            # with this run. Custom train_fns get the plain (cfg) contract.
+            results = run_experiment(
+                single_cfg,
+                extra_context={"store": self.store, "dashboard_run_id": arm.run_id},
+            )
+        else:
+            results = self.train_fn(single_cfg)
         arm.train_seconds = time.time() - t0
         if not results:
             raise RuntimeError(f"train_fn returned no results for arm {run_cfg.name!r}")
@@ -472,6 +483,11 @@ class Experiment:
         for bench, bench_meta in benchmarks:
             if bench_meta.get("run_every"):
                 continue  # in-loop entry — scored by the algorithm wrapper
+            if str(bench_meta.get("engine", "")).lower() == "harbor":
+                # Opt-in: score this benchmark through harbor's rollout engine
+                # (and upload the eval rollouts). Default path below is untouched.
+                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta)
+                continue
             client = factory(arm.run_result, run_cfg)
             # Auto-wrap with chat templating when configured. Lets researchers
             # declare a system_prompt + user_template in YAML instead of
@@ -507,6 +523,78 @@ class Experiment:
             arm.eval_breakdowns = dict(primary.breakdowns)
             arm.eval_seconds = primary.eval_seconds
         return arm
+
+    def _eval_arm_harbor(
+        self, arm: ArmResult, run_cfg: RunConfig, bench: Benchmark, bench_meta: dict,
+    ) -> None:
+        """Score one benchmark through harbor's rollout engine and upload the
+        eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``."""
+        import asyncio
+        import tempfile
+
+        from .training.harbor_eval import (
+            eval_metrics,
+            eval_predictions,
+            score_via_harbor,
+            upload_eval_rollouts,
+        )
+
+        model_path = self._final_checkpoint(arm)
+        limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
+        tasks = bench.tasks if limit is None else bench.tasks[: max(0, limit)]
+        ct = bench_meta.get("chat_template") or {}
+        workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
+
+        t0 = time.time()
+        groups = asyncio.run(score_via_harbor(
+            tasks,
+            model_name=run_cfg.model.name,
+            model_path=model_path,
+            workspace_dir=workspace,
+            num_samples=int(bench_meta.get("num_samples", 1)),
+            max_tokens=int(bench_meta.get("max_tokens", 512)),
+            temperature=float(bench_meta.get("temperature", 0.0)),
+            renderer_name=run_cfg.model.renderer_name,
+            system_prompt=ct.get("system_prompt"),
+        ))
+        seconds = time.time() - t0
+
+        metrics = eval_metrics(groups)
+        arm.evals.append(EvalResult(
+            name=str(bench_meta.get("name", "benchmark")),
+            benchmark_id=bench_meta.get("id"),
+            metrics=metrics,
+            breakdowns={},
+            eval_seconds=seconds,
+            step=None,
+            tags=list(bench_meta.get("tags") or []),
+        ))
+        eval_id = self._record_eval(
+            arm, bench, bench_meta, BenchmarkScore(metrics=metrics, per_task=[], breakdowns={}),
+        )
+        # Upload eval rollouts only (training rollouts are never uploaded), and
+        # only once they have an eval_id to hang off of — orphan predictions
+        # can't be told apart from other evals on the same run.
+        if self.store is not None and arm.run_id:
+            if eval_id is None:
+                logger.warning(
+                    "skipping eval rollout upload for arm %r: create_eval gave no id",
+                    arm.name,
+                )
+            else:
+                preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
+                upload_eval_rollouts(self.store, arm.run_id, preds)
+
+    @staticmethod
+    def _final_checkpoint(arm: ArmResult) -> str | None:
+        """The trained sampler checkpoint URI from the arm's artifacts."""
+        arts = (arm.run_result.artifacts if arm.run_result else {}) or {}
+        return (
+            arts.get("checkpoint-final")
+            or arts.get("sampler_path")
+            or next((v for k, v in arts.items()
+                     if "sampler" in str(k) or "checkpoint" in str(k)), None)
+        )
 
     # -- store passthroughs (each guarded so store=None is fine) ---------
 
@@ -561,16 +649,18 @@ class Experiment:
         score: BenchmarkScore,
     ) -> None:
         if self.store is None or arm.run_id is None:
-            return
+            return None
         try:
-            self.store.create_eval(
+            ev = self.store.create_eval(
                 run_id=arm.run_id,
                 benchmark_id=bench_meta.get("id"),
                 metrics=dict(score.metrics),
                 breakdowns=dict(score.breakdowns) or None,
             )
+            return ev.get("id") if isinstance(ev, dict) else None
         except Exception:
             logger.exception("failed to record eval for arm %r", arm.name)
+            return None
 
     def _finalize_experiment(
         self,

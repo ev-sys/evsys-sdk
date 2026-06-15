@@ -224,6 +224,7 @@ def _execute_run(
     cfg: ExperimentConfig,
     run: RunConfig,
     base_output_dir: Path,
+    extra_context: dict[str, Any] | None = None,
 ) -> RunResult:
     safe_name = run.name.replace("/", "_").replace(" ", "_")
     run_dir = base_output_dir / safe_name
@@ -287,6 +288,10 @@ def _execute_run(
     validation = _load_validation(run)
     if validation is not None:
         extras["validation"] = validation
+    # Dashboard plumbing (store + run_id) so in-loop validation can upload its
+    # rollouts; injected by Experiment, absent for bare run_experiment calls.
+    if extra_context:
+        extras.update(extra_context)
 
     ctx = RunContext(
         run_id=safe_name,
@@ -340,8 +345,13 @@ def _execute_run(
 # ---------------------------------------------------------------------------
 
 
-def run_experiment(cfg_or_path) -> list[RunResult]:
-    """Run an experiment from a parsed config or YAML file."""
+def run_experiment(cfg_or_path, *, extra_context: dict[str, Any] | None = None) -> list[RunResult]:
+    """Run an experiment from a parsed config or YAML file.
+
+    ``extra_context`` is merged into each run's ``RunContext.extras`` — used by
+    ``Experiment`` to pass the dashboard ``store`` + ``dashboard_run_id`` so
+    in-loop validation can upload its rollouts.
+    """
     if isinstance(cfg_or_path, ExperimentConfig):
         cfg = cfg_or_path
     else:
@@ -361,5 +371,8 @@ def run_experiment(cfg_or_path) -> list[RunResult]:
 
     results: list[RunResult] = []
     for run in runs:
-        results.append(_execute_run(cfg=cfg, run=run, base_output_dir=base_output_dir))
+        results.append(_execute_run(
+            cfg=cfg, run=run, base_output_dir=base_output_dir,
+            extra_context=extra_context,
+        ))
     return results

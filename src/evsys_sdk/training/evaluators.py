@@ -123,8 +123,26 @@ class BenchmarkEvaluator:
     limit: int | None = None
     """Cap the number of tasks scored per eval — useful when the benchmark
     is large and you want quick in-loop snapshots."""
+    engine: str = ""
+    """``"harbor"`` → score through harbor's rollout engine (off the eval
+    checkpoint). Anything else → the live-sampler InferenceClient path."""
+    model_name: str | None = None
+    workspace_dir: Any = None
+    num_samples: int = 1
+    # Dashboard upload wiring. When ``store`` + ``run_id`` are present, the
+    # harbor branch records one ``eval`` per invocation (tagged with ``step``,
+    # so the many validations across a run stay distinct) and uploads its
+    # per-task rollouts as ``kind='eval'`` predictions.
+    store: Any = None
+    run_id: str | None = None
+    benchmark_id: str | None = None
 
-    async def evaluate(self, sampler: Any) -> dict[str, float]:
+    async def evaluate(
+        self, sampler: Any, *,
+        model_path: str | None = None, step: int | None = None,
+    ) -> dict[str, float]:
+        if self.engine.lower() == "harbor" and model_path and self.model_name:
+            return await self._evaluate_harbor(model_path, step=step)
         loop = asyncio.get_running_loop()
         client: Any = _AsyncToSyncSampler(sampler, self.tokenizer, loop)
         if self.chat_template:
@@ -139,6 +157,78 @@ class BenchmarkEvaluator:
         )
         return dict(score.metrics)
 
+    async def _evaluate_harbor(
+        self, model_path: str, *, step: int | None = None,
+    ) -> dict[str, float]:
+        """Score the validation benchmark through harbor (same engine as
+        training); reward = each task's verifier. Returns the metric dict and,
+        when ``store`` + ``run_id`` are set, uploads the eval rollouts."""
+        import tempfile
+        from pathlib import Path
+
+        from .harbor_eval import eval_metrics, score_via_harbor
+
+        tasks = (self.benchmark.tasks if self.limit is None
+                 else self.benchmark.tasks[: max(0, self.limit)])
+        ws = Path(self.workspace_dir) if self.workspace_dir else Path(
+            tempfile.mkdtemp(prefix="evsys_val_")
+        )
+        if step is not None:
+            ws = ws / f"step_{step}"
+        groups = await score_via_harbor(
+            tasks,
+            model_name=self.model_name,
+            model_path=model_path,
+            workspace_dir=ws,
+            num_samples=self.num_samples,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            system_prompt=(self.chat_template or {}).get("system_prompt"),
+        )
+        metrics = eval_metrics(groups)
+        if self.store is not None and self.run_id:
+            self._upload(tasks, groups, metrics, step)
+        return metrics
+
+    def _upload(
+        self, tasks: list[Any], groups: list[Any],
+        metrics: dict[str, float], step: int | None,
+    ) -> None:
+        """Record one ``eval`` (per step) + its per-task rollout predictions on
+        the dashboard. Best-effort: a dashboard hiccup must not kill training."""
+        from .harbor_eval import eval_predictions, upload_eval_rollouts
+
+        eval_id: str | None = None
+        create_eval = getattr(self.store, "create_eval", None)
+        if callable(create_eval):
+            try:
+                rec = create_eval(
+                    run_id=self.run_id,
+                    benchmark_id=self.benchmark_id,
+                    step=step,
+                    metrics=metrics,
+                )
+                if isinstance(rec, dict):
+                    eval_id = rec.get("id") or rec.get("eval_id")
+                else:
+                    eval_id = getattr(rec, "id", None)
+            except Exception:  # pragma: no cover — defensive
+                logger.exception("create_eval failed for run %s", self.run_id)
+        # Each validation mints its own eval (tagged with `step`); the per-task
+        # predictions hang off that eval_id so step-5 / step-10 / final evals
+        # stay distinguishable. No eval_id → don't upload orphan predictions.
+        if eval_id is None:
+            logger.warning(
+                "skipping val rollout upload for run %s step %s: no eval_id",
+                self.run_id, step,
+            )
+            return
+        try:
+            preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step)
+            upload_eval_rollouts(self.store, self.run_id, preds)
+        except Exception:  # pragma: no cover — defensive
+            logger.exception("eval rollout upload failed for run %s", self.run_id)
+
 
 # ---------------------------------------------------------------------------
 # Factory — translate metadata.benchmark list entries → evaluators
@@ -150,6 +240,9 @@ def build_in_loop_evaluators(
     *,
     tokenizer: Any,
     store: Any = None,
+    model_name: str | None = None,
+    workspace_dir: Any = None,
+    run_id: str | None = None,
 ) -> list[BenchmarkEvaluator]:
     """Read ``metadata.benchmark`` and return one
     :class:`BenchmarkEvaluator` per entry whose ``run_every`` > 0.
@@ -199,6 +292,13 @@ def build_in_loop_evaluators(
             breakdown_keys=list(spec.get("breakdown_keys") or []),
             chat_template=dict(spec.get("chat_template") or {}),
             limit=int(spec["limit"]) if spec.get("limit") is not None else None,
+            engine=str(spec.get("engine", "")),
+            model_name=model_name,
+            workspace_dir=workspace_dir,
+            num_samples=int(spec.get("num_samples", 1)),
+            store=store,
+            run_id=run_id,
+            benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out
 

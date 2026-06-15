@@ -112,6 +112,39 @@ def test_runner_mock_rl_end_to_end(tmp_path: Path, sample_rows):
     assert any(k.startswith("ckpt_step_") for k in results[0].artifacts)
 
 
+def test_runner_merges_extra_context_into_ctx_extras(tmp_path: Path, sample_rows):
+    """``extra_context`` (store + dashboard_run_id from Experiment) lands in
+    ``RunContext.extras`` so in-loop validation can upload."""
+    from evsys_sdk.registry import register_algorithm
+
+    captured: dict = {}
+
+    @register_algorithm("capture_extras")
+    class _Capture:
+        name = "capture_extras"
+        Config = type("C", (), {})
+
+        def __init__(self, **kwargs):
+            pass
+
+        def train(self, ctx):
+            captured.update(ctx.extras)
+            from evsys_sdk.protocols import RunResult
+            return RunResult(run_id=ctx.run_id, status="completed", metrics={}, artifacts={})
+
+    cfg = _make_cfg(tmp_path, sample_rows).model_copy()
+    cfg.run.algorithm = AlgorithmConfig(kind="capture_extras", params={})
+    cfg.run.eval = EvalConfig(enabled=False)
+
+    sentinel_store = object()
+    run_experiment(
+        cfg,
+        extra_context={"store": sentinel_store, "dashboard_run_id": "run_xyz"},
+    )
+    assert captured.get("store") is sentinel_store
+    assert captured.get("dashboard_run_id") == "run_xyz"
+
+
 def test_runner_yaml_path(tmp_path: Path, sample_rows):
     cfg = _make_cfg(tmp_path, sample_rows)
     yaml_path = tmp_path / "exp.yaml"
