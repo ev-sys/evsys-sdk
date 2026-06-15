@@ -19,14 +19,17 @@ from evsys_sdk.training.data_processing import (
     compute_advantages,
     compute_trajectory_metrics,
 )
-from evsys_sdk.training.env import Trajectory, TrajectoryGroup
+from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
 
 
 def _traj(prompt_ids, completion, *, reward, logprobs=None):
+    """Single-turn trajectory helper."""
     return Trajectory(
-        prompt=tinker.ModelInput.from_ints(prompt_ids),
-        completion_tokens=list(completion),
-        completion_logprobs=list(logprobs or [-0.1] * len(completion)),
+        turns=[Turn(
+            prompt_tokens=list(prompt_ids),
+            completion_tokens=list(completion),
+            logprobs=list(logprobs or [-0.1] * len(completion)),
+        )],
         reward=float(reward),
     )
 

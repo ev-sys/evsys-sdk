@@ -53,21 +53,12 @@ from .data_processing import (
     compute_advantages,
     compute_trajectory_metrics,
 )
-from .env import (
-    EnvGroupBuilder,
-    Observation,
-    SingleTurnEnv,
-    StepResult,
-    Trajectory,
-    TrajectoryGroup,
-    VerifierFn,
-)
+from .trajectory import Trajectory, TrajectoryGroup
 from .batch_utils import (
     coerce_floats,
     extract_completion_tokens_from_response,
     extract_weights,
 )
-from .rollouts import do_group_rollout, do_group_rollouts
 from .sft_data import row_to_datum, sft_tokenize
 from .sdft_data import SDFTDataset, SimpleSDFTDataset
 from .templates import (
@@ -105,17 +96,12 @@ __all__ = [
     "MockSamplingClient",
     "OptimStepResult",
     "DatumMetadata",
-    "EnvGroupBuilder",
-    "Observation",
     "SDFTDataset",
     "SamplingClient",
     "SimpleSDFTDataset",
-    "SingleTurnEnv",
     "StepBuilder",
-    "StepResult",
     "Trajectory",
     "TrajectoryGroup",
-    "VerifierFn",
     "assemble_training_data",
     "build_callbacks",
     "coerce_floats",
@@ -124,8 +110,6 @@ __all__ = [
     "build_in_loop_evaluators",
     "compute_advantages",
     "compute_trajectory_metrics",
-    "do_group_rollout",
-    "do_group_rollouts",
     "TinkerBackend",
     "TinkerSamplingClient",
     "TrainingBatch",

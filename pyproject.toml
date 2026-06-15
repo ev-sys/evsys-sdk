@@ -10,6 +10,9 @@ dependencies = [
     "pyyaml>=6.0",
     "typing-extensions>=4.12",
     "requests>=2.32",
+    # Harbor is THE rollout engine for RL/SDFT (Job/Trial runner + TinkerLLM
+    # sampler). Not optional — the SDK has no built-in rollout loop of its own.
+    "harbor>=0.13.2",
 ]
 
 [project.optional-dependencies]

@@ -116,13 +116,26 @@ class _SDFTMockSampler:
 # ---------------------------------------------------------------------------
 
 
+async def _fake_run_harbor_generations(prompts, **kwargs):
+    """Stand-in for the harbor engine's student generation: one canned 4-token
+    completion per prompt (the teacher topK path still runs against the mock
+    teacher client)."""
+    from evsys_sdk.training.trajectory import Trajectory, Turn
+
+    return [
+        Trajectory(turns=[Turn(
+            prompt_tokens=[1, 2, 3], completion_tokens=[11, 12, 13, 14],
+            logprobs=[-0.5, -0.5, -0.5, -0.5],
+        )])
+        for _ in prompts
+    ]
+
+
 @pytest.fixture
 def patched_tinker_backend(monkeypatch):
-    """Replace TinkerBackend.create with a factory that returns _SDFTMockBackend.
-
-    The backend's sampler factory returns _SDFTMockSampler so both student
-    rollouts AND teacher topK scoring exercise the right code paths.
-    """
+    """TinkerBackend.create → _SDFTMockBackend; student rollout → mocked harbor
+    generations; teacher topK still runs against the mock teacher client
+    (_SDFTMockSampler via backend._service)."""
     backend = _SDFTMockBackend(tokenizer=_StubTokenizer())
     backend._sampler_factory = lambda name: _SDFTMockSampler(name=name)  # type: ignore[assignment]
 
@@ -131,6 +144,10 @@ def patched_tinker_backend(monkeypatch):
         return backend
 
     monkeypatch.setattr(sdft_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(
+        "evsys_sdk.training.harbor_engine.run_harbor_generations",
+        _fake_run_harbor_generations,
+    )
     return backend
 
 
