@@ -99,7 +99,7 @@ class Backend(Protocol):
     """Wraps a training client + factory for sampling clients.
 
     A `Backend` is constructed once per run (typically by the Algorithm
-    composer, see :mod:`evsys_sdk.algorithms.native_sft`). It owns the
+    composer, see :mod:`evsys_sdk.algorithms.sft`). It owns the
     live training client; everything else in the package operates against
     this Protocol.
     """

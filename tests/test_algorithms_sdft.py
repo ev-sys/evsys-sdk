@@ -1,6 +1,6 @@
-"""End-to-end test of ``evsys_sdk.algorithms.native_sdft.NativeSDFT``.
+"""End-to-end test of ``evsys_sdk.algorithms.sdft.SDFT``.
 
-Mirrors the SFT composer test (test_algorithms_native_sft.py) but for the
+Mirrors the SFT composer test (test_algorithms_sft.py) but for the
 self-distillation path. Uses MockBackend + canned MockSamplingClient
 responses so the full rollout → teacher score → CE train cycle runs
 without a real tinker session.
@@ -17,8 +17,8 @@ import pytest
 pytest.importorskip("tinker")  # optional dep; not installed in base CI
 pytest.importorskip("torch")
 
-import evsys_sdk.algorithms.native_sdft as native_sdft_module
-from evsys_sdk.algorithms.native_sdft import NativeSDFT, NativeSDFTConfig
+import evsys_sdk.algorithms.sdft as sdft_module
+from evsys_sdk.algorithms.sdft import SDFT, SDFTConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend, MockSamplingClient
@@ -60,7 +60,7 @@ class _StubTokenizer:
 
 class _SDFTMockBackend(MockBackend):
     """MockBackend that exposes a fake ``_service`` for the teacher-client
-    construction NativeSDFT does. Returns a stub teacher SamplingClient."""
+    construction SDFT does. Returns a stub teacher SamplingClient."""
 
     def __init__(self, *, tokenizer):
         super().__init__(tokenizer=tokenizer)
@@ -130,7 +130,7 @@ def patched_tinker_backend(monkeypatch):
         backend._model_name = kwargs.get("model_name")  # type: ignore[attr-defined]
         return backend
 
-    monkeypatch.setattr(native_sdft_module.TinkerBackend, "create", _factory)
+    monkeypatch.setattr(sdft_module.TinkerBackend, "create", _factory)
     return backend
 
 
@@ -165,12 +165,12 @@ def ctx(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_registered_under_native_sdft():
-    assert get_algorithm("native_sdft") is NativeSDFT
+def test_registered_under_sdft():
+    assert get_algorithm("sdft") is SDFT
 
 
 def test_config_defaults():
-    cfg = NativeSDFTConfig()
+    cfg = SDFTConfig()
     assert cfg.topk == 20
     assert cfg.batch_size == 4
     assert cfg.teacher_sync_every is None  # static teacher
@@ -179,7 +179,7 @@ def test_config_defaults():
 
 def test_config_rejects_unknown_kwarg():
     with pytest.raises(Exception):
-        NativeSDFTConfig(bogus=True)
+        SDFTConfig(bogus=True)
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +192,7 @@ def test_rejects_non_tinker_backend(ctx):
         name = "mock"
     ctx.backend = _M()
     with pytest.raises(RuntimeError, match="backend=tinker"):
-        NativeSDFT(max_steps=2, batch_size=4).train(ctx)
+        SDFT(max_steps=2, batch_size=4).train(ctx)
 
 
 def test_rejects_rows_missing_question(ctx):
@@ -202,21 +202,21 @@ def test_rejects_rows_missing_question(ctx):
         {"inputs": {}, "expected": "a2"},
     ]
     with pytest.raises(ValueError, match="question"):
-        NativeSDFT(max_steps=2, batch_size=2).train(ctx)
+        SDFT(max_steps=2, batch_size=2).train(ctx)
 
 
 def test_rejects_non_prompt_dataset_rows(ctx):
     # Wrong format entirely → parse_rows rejects strictly.
     ctx.extras["train_rows"] = [{"question": "q1", "golden_answer": "a1"}]
     with pytest.raises(ValueError, match="expected 'prompt_dataset'"):
-        NativeSDFT(max_steps=2, batch_size=2).train(ctx)
+        SDFT(max_steps=2, batch_size=2).train(ctx)
 
 
 def test_rejects_missing_model_name(ctx):
     ctx.extras["backend_handles"] = {}
     ctx.extras.pop("model_name", None)
     with pytest.raises(RuntimeError, match="model_name"):
-        NativeSDFT(max_steps=2, batch_size=4).train(ctx)
+        SDFT(max_steps=2, batch_size=4).train(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ def test_rejects_missing_model_name(ctx):
 
 
 def test_train_runs_end_to_end(patched_tinker_backend, ctx):
-    algo = NativeSDFT(
+    algo = SDFT(
         max_steps=3, batch_size=4, save_at_fractions=[1.0],
         system_prompt="SYS", user_template="Query: {question}",
         skip_first_n_tokens=0,   # so every completion position contributes
@@ -241,8 +241,8 @@ def test_train_runs_end_to_end(patched_tinker_backend, ctx):
 
 
 def test_train_logs_per_step_sdft_metrics(patched_tinker_backend, ctx):
-    """SDFTStepBuilder.batch.metrics should land in each per-step row."""
-    algo = NativeSDFT(max_steps=2, batch_size=4, skip_first_n_tokens=0)
+    """SDFT.build_batch's batch.metrics should land in each per-step row."""
+    algo = SDFT(max_steps=2, batch_size=4, skip_first_n_tokens=0)
     algo.train(ctx)
     train_rows = [r for r in ctx.log_store.metric_rows if r["split"] == "train"]
     assert len(train_rows) == 2
@@ -256,9 +256,9 @@ def test_train_logs_per_step_sdft_metrics(patched_tinker_backend, ctx):
 
 
 def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
-    NativeSDFT(max_steps=2, batch_size=4).train(ctx)
+    SDFT(max_steps=2, batch_size=4).train(ctx)
     hp = ctx.log_store.hyperparams
     assert hp is not None
-    assert hp["algorithm"] == "native_sdft"
+    assert hp["algorithm"] == "sdft"
     assert hp["model_name"] == "Qwen/Qwen3-4B"
     assert hp["total_steps"] == 2

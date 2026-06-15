@@ -194,10 +194,10 @@ class _RowsRLDatasetBuilder(RLDatasetBuilder):
 
 _DEPRECATION_MSG = (
     "TinkerRL (algorithm.kind: tinker_rl) delegates to tinker_cookbook "
-    "and is deprecated in favor of `native_rl`, which runs the loop "
+    "and is deprecated in favor of `rl`, which runs the loop "
     "natively in the SDK with the new EnvGroupBuilder Protocol "
     "(single-turn out of the box; multi-turn extends via the same "
-    "Protocol). Flip algorithm.kind to 'native_rl' when ready."
+    "Protocol). Flip algorithm.kind to 'rl' when ready."
 )
 
 

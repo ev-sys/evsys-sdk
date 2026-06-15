@@ -25,7 +25,7 @@ def test_tinker_sft_emits_deprecation():
         TinkerSFT()
     msgs = [str(w.message) for w in caught
             if issubclass(w.category, DeprecationWarning)]
-    assert any("native_sft" in m for m in msgs)
+    assert any("`sft`" in m for m in msgs)
 
 
 def test_tinker_sdft_emits_deprecation():
@@ -35,7 +35,7 @@ def test_tinker_sdft_emits_deprecation():
         TinkerSDFT()
     msgs = [str(w.message) for w in caught
             if issubclass(w.category, DeprecationWarning)]
-    assert any("native_sdft" in m for m in msgs)
+    assert any("`sdft`" in m for m in msgs)
 
 
 def test_tinker_rl_emits_deprecation():
@@ -45,14 +45,14 @@ def test_tinker_rl_emits_deprecation():
         TinkerRL()
     msgs = [str(w.message) for w in caught
             if issubclass(w.category, DeprecationWarning)]
-    assert any("native_rl" in m for m in msgs)
+    assert any("`rl`" in m for m in msgs)
 
 
-def test_native_sft_emits_no_deprecation():
+def test_sft_emits_no_deprecation():
     """The replacements should NOT emit a warning themselves."""
-    from evsys_sdk.algorithms.native_sft import NativeSFT
+    from evsys_sdk.algorithms.sft import SFT
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        NativeSFT()
+        SFT()
     assert not [w for w in caught
                 if issubclass(w.category, DeprecationWarning)]

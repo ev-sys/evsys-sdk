@@ -138,7 +138,13 @@ class LoopArtifacts:
     checkpoints: list[ManifestRow]
     """Manifest rows the loop wrote, in order. The last one is the
     final sampler — the URI eval consumes."""
-    total_steps: int
+    total_requested_steps: int
+    """The step horizon passed to :meth:`TrainingLoop.run` (``num_steps``) —
+    NOT the number of steps actually executed. These differ when a callback
+    early-stops the loop via ``state.request_stop()``: this field still reads
+    the requested ceiling. For "how many steps actually ran", read
+    ``state.step + 1`` inside ``on_train_end`` (``state.step`` is the last
+    executed index)."""
     train_seconds: float
 
     def as_dict(self) -> dict[str, str]:
@@ -246,7 +252,7 @@ class TrainingLoop:
             run_dir=self.output_dir,
             manifest_path=self.checkpoint_mgr.manifest_path,
             checkpoints=self.checkpoint_mgr.rows,
-            total_steps=num_steps,
+            total_requested_steps=num_steps,
             train_seconds=time.time() - t_start,
         )
         self._dispatch("on_train_end", state, artifacts)

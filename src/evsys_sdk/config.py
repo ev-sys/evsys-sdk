@@ -53,6 +53,14 @@ class TransformSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class CallbackSpec(_Strict):
+    """A training-loop callback to attach, by registry name + params. e.g.
+    ``{kind: early_stopping, params: {metric: pass_rate, patience: 3}}``."""
+
+    kind: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class InferenceSpec(_Strict):
     kind: str
     params: dict[str, Any] = Field(default_factory=dict)

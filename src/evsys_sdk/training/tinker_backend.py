@@ -36,6 +36,28 @@ from .backend import LossCallable
 logger = logging.getLogger(__name__)
 
 
+class _CoroFuture:
+    """Bridge tinker's coroutine-returning ``*_async`` methods to the
+    :class:`~evsys_sdk.training.loop.TrainingLoop` contract.
+
+    The loop fires forward_backward / optim WITHOUT awaiting, then awaits each
+    one's ``result_async()`` (the shape :class:`MockBackend` implements). But
+    tinker's ``forward_backward_async`` / ``optim_step_async`` are *coroutine
+    functions* — calling them returns an un-awaited coroutine, not a future.
+    This wraps that coroutine so ``await wrapper.result_async()`` awaits the
+    coroutine to obtain the tinker future, then awaits the future's result.
+    """
+
+    __slots__ = ("_coro",)
+
+    def __init__(self, coro: Any) -> None:
+        self._coro = coro
+
+    async def result_async(self) -> Any:
+        future = await self._coro
+        return await future.result_async()
+
+
 class TinkerSamplingClient:
     """Wrap a ``tinker.SamplingClient`` to satisfy the
     :class:`~evsys_sdk.training.backend.SamplingClient` Protocol shape.
@@ -161,19 +183,19 @@ class TinkerBackend:
         kwargs: dict[str, Any] = {"data": data, "loss_fn": loss_fn}
         if loss_fn_config:
             kwargs["loss_fn_config"] = loss_fn_config
-        return self._training.forward_backward_async(**kwargs)
+        return _CoroFuture(self._training.forward_backward_async(**kwargs))
 
     def forward_backward_custom_async(
         self,
         data: list[tinker.Datum],
         loss_fn: LossCallable,
     ) -> Any:
-        return self._training.forward_backward_custom_async(
+        return _CoroFuture(self._training.forward_backward_custom_async(
             data=data, loss_fn=loss_fn,
-        )
+        ))
 
     def optim_step_async(self, adam: tinker.AdamParams) -> Any:
-        return self._training.optim_step_async(adam)
+        return _CoroFuture(self._training.optim_step_async(adam))
 
     # --- save / snapshot ----------------------------------------------------
 

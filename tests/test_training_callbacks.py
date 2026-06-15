@@ -123,7 +123,7 @@ def test_callback_failure_does_not_kill_loop(tmp_path: Path):
     )
     artifacts = asyncio.run(loop.run(num_steps=3))
     # loop completed all 3 steps despite the failing callback
-    assert artifacts.total_steps == 3
+    assert artifacts.total_requested_steps == 3
     assert sum(1 for r in log.rows if r["split"] == "train") == 3
 
 
@@ -226,6 +226,65 @@ def test_csv_metrics_writes_header_plus_one_row_per_step(tmp_path: Path):
     assert len(rows) == 4
     assert rows[0][0] == "step"
     assert {int(r[0]) for r in rows[1:]} == {0, 1, 2}
+
+
+# ---------------------------------------------------------------------------
+# build_callbacks — registry/{kind, params} factory (the YAML surface)
+# ---------------------------------------------------------------------------
+
+
+def test_build_callbacks_resolves_and_validates():
+    from evsys_sdk.training import build_callbacks
+
+    cbs = build_callbacks([
+        {"kind": "early_stopping", "params": {"metric": "pass_rate", "patience": 5}},
+        {"kind": "csv_metrics", "params": {"out_path": "/tmp/m.csv"}},
+        {"kind": "print_progress", "params": {"every": 3}},
+    ])
+    assert [type(c).__name__ for c in cbs] == [
+        "EarlyStoppingCallback", "CsvMetricsCallback", "PrintProgressCallback",
+    ]
+    assert cbs[0].patience == 5
+    assert cbs[2].every == 3
+
+
+def test_build_callbacks_unknown_kind_raises():
+    from evsys_sdk.training import build_callbacks
+
+    with pytest.raises(KeyError, match="callback"):
+        build_callbacks([{"kind": "nope", "params": {}}])
+
+
+def test_build_callbacks_rejects_unknown_param():
+    from evsys_sdk.training import build_callbacks
+
+    with pytest.raises(Exception):  # pydantic ValidationError (extra=forbid)
+        build_callbacks([{"kind": "early_stopping",
+                          "params": {"metric": "x", "bogus": 1}}])
+
+
+def test_register_custom_callback_then_build():
+    """Users can register their own callback and reach it from {kind, params}."""
+    from evsys_sdk.registry import _callbacks, register_callback
+    from evsys_sdk.training import Callback, build_callbacks
+    from pydantic import BaseModel
+
+    class _MyConfig(BaseModel):
+        tag: str = "x"
+
+    @register_callback("custom_probe_test")
+    @dataclass
+    class _MyProbe(Callback):
+        name = "custom_probe_test"
+        Config = _MyConfig
+        tag: str = "x"
+
+    try:
+        cbs = build_callbacks([{"kind": "custom_probe_test", "params": {"tag": "hi"}}])
+        assert isinstance(cbs[0], _MyProbe)
+        assert cbs[0].tag == "hi"
+    finally:
+        _callbacks.unregister("custom_probe_test")
 
 
 def test_csv_metrics_closes_file_on_train_end(tmp_path: Path):
