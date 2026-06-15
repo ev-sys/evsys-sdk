@@ -9,9 +9,10 @@ tinker ``SamplingResponse`` objects. These helpers normalize both.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import tinker
+if TYPE_CHECKING:  # tinker is an optional dep; this module is pure-Python at runtime
+    import tinker
 
 
 def coerce_floats(value: Any) -> list[float] | None:

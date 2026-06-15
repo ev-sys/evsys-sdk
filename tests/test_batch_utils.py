@@ -15,6 +15,11 @@ import asyncio
 
 import pytest
 
+# Importing anything under evsys_sdk.training runs the package __init__, which
+# pulls tinker_backend (tinker) — an optional dep not installed in base CI.
+pytest.importorskip("tinker")
+pytest.importorskip("torch")
+
 from evsys_sdk.training.batch_utils import coerce_floats
 
 
