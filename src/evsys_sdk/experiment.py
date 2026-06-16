@@ -546,7 +546,17 @@ class Experiment:
         limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
         tasks = bench.tasks if limit is None else bench.tasks[: max(0, limit)]
         ct = bench_meta.get("chat_template") or {}
-        workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
+        # Persist eval rollouts under the run's output dir — alongside training's
+        # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
+        # trial dirs survive the run instead of vanishing with a tempdir. One
+        # subdir per benchmark (a run can score several) avoids collisions.
+        run_dir = self._resolve_run_dir(arm)
+        if run_dir is not None:
+            safe_bench = str(bench_meta.get("name", "benchmark")).replace("/", "_").replace(" ", "_")
+            workspace = run_dir / "harbor_eval" / safe_bench
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:  # no resolvable run dir → fall back to an ephemeral workspace
+            workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
         t0 = time.time()
         groups = asyncio.run(score_via_harbor(
