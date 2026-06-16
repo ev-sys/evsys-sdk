@@ -1,6 +1,6 @@
 """SDFT — self-distillation fine-tuning on the SDK training loop.
 
-Replaces :class:`~evsys_sdk.algorithms.tinker_sdft.TinkerSDFT`. All the
+All the
 composer plumbing lives in
 :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`; SDFT supplies the two
 per-algorithm pieces:
