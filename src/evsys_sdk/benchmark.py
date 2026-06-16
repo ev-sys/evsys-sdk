@@ -155,6 +155,7 @@ class Benchmark:
         breakdown_keys: list[str] | None = None,
         limit: int | None = None,
         metrics: list[str] | None = None,
+        num_samples: int = 1,
     ) -> BenchmarkScore:
         """Run each task through `client` and score the completion.
 
@@ -174,31 +175,38 @@ class Benchmark:
         if breakdown_keys is None:
             breakdown_keys = []
         tasks_iter = self.tasks if limit is None else self.tasks[: max(0, int(limit))]
+        n_samples = max(1, int(num_samples))
 
         per_task: list[BenchmarkTaskResult] = []
+        task_rewards: list[list[float]] = []
         for task in tasks_iter:
             prompt = prompt_builder(task) if prompt_builder else task.instruction
-            completion = client.generate(
-                prompt=prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
-            )
-            reward, expected = _score_task(task, completion)
+            sample_rewards: list[float] = []
+            last_completion, last_expected = "", None
+            for _ in range(n_samples):
+                completion = client.generate(
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop=stop,
+                )
+                reward, expected = _score_task(task, completion)
+                sample_rewards.append(reward)
+                last_completion, last_expected = completion, expected
+            task_rewards.append(sample_rewards)
             per_task.append(
                 BenchmarkTaskResult(
                     task_id=task.task_id,
                     instruction=task.instruction,
-                    model_output=completion,
-                    expected=expected,
-                    reward=reward,
+                    model_output=last_completion,
+                    expected=last_expected,
+                    # Per-task mean reward — drives the breakdown buckets.
+                    reward=sum(sample_rewards) / len(sample_rewards),
                     metadata=dict(task.metadata),
                 )
             )
 
         n = len(per_task)
-        # One generation per task here, so each task is a single-sample group.
-        task_rewards = [[r.reward] for r in per_task]
         names = list(metrics) if metrics else ["mean_reward", "pass_rate"]
         score_metrics: dict[str, float] = {"n_tasks": float(n)}
         for name in names:

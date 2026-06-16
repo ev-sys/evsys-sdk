@@ -156,6 +156,8 @@ class BenchmarkEvaluator:
             temperature=self.temperature,
             breakdown_keys=list(self.breakdown_keys),
             limit=self.limit,
+            metrics=list(self.metrics),
+            num_samples=self.num_samples,
         )
         return dict(score.metrics)
 

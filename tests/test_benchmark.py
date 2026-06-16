@@ -217,6 +217,23 @@ def test_score_aggregates(benchmark_dir: Path):
     assert score.per_task[0].expected == "A"
 
 
+def test_score_num_samples_drives_pass_at_k(benchmark_dir: Path):
+    bench = Benchmark.from_dir(benchmark_dir)
+    # 2 tasks (limit=2), 3 samples each. t1 expects "A", t2 expects "B".
+    #   t1 samples: A, A, X  -> any pass (pass@3), not all (pass^3)
+    #   t2 samples: B, B, B  -> all pass
+    client = _ScriptedInference(["A", "A", "X", "B", "B", "B"])
+    score = bench.score(
+        client, limit=2, num_samples=3, metrics=["pass@3", "pass^3", "avg"]
+    )
+    assert score.metrics["n_tasks"] == 2.0
+    assert score.metrics["pass@3"] == pytest.approx(1.0)   # both have ≥1 pass
+    assert score.metrics["pass^3"] == pytest.approx(0.5)   # only t2 all-pass
+    assert score.metrics["avg"] == pytest.approx((2 / 3 + 1.0) / 2)
+    # 3 generations per task were issued.
+    assert len(client.calls) == 6
+
+
 def test_score_empty_benchmark(tmp_path: Path):
     root = tmp_path / "empty"
     root.mkdir()

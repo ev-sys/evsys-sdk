@@ -506,6 +506,7 @@ class Experiment:
                 breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
                 limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
                 metrics=bench_meta.get("metrics"),
+                num_samples=int(bench_meta.get("num_samples", 1)),
             )
             seconds = time.time() - t0
             arm.evals.append(EvalResult(
