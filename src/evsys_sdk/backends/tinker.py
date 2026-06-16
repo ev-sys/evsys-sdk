@@ -45,13 +45,13 @@ class TinkerBackend:
             raise RuntimeError(
                 f"{self.api_key_env} not set in env — needed for TinkerBackend.prepare()"
             )
-        kwargs: dict[str, Any] = {}
-        if self.base_url:
-            kwargs["base_url"] = self.base_url
         # tinker.ServiceClient picks up the API key from env automatically;
         # we set it explicitly so the active env wins over any earlier export.
         os.environ[self.api_key_env] = api_key
-        service_client = tinker.ServiceClient(**kwargs)
+        # make_service_client resolves base_url (arg → TINKER_BASE_URL env) and
+        # re-exports it so harbor's rollout client targets the same backend.
+        from ..tinker_service import make_service_client
+        service_client = make_service_client(self.base_url)
         return {
             "backend": "tinker",
             "service_client": service_client,

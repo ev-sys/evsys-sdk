@@ -37,7 +37,8 @@ class TinkerInference:
             raise RuntimeError(f"{api_key_env} not set in env")
         self.model_name = model_name
         self.checkpoint_path = checkpoint_path
-        sc = tinker.ServiceClient()
+        from ..tinker_service import make_service_client
+        sc = make_service_client()
         from tinker_cookbook.tokenizer_utils import get_tokenizer
         self._tokenizer = get_tokenizer(model_name)
         if checkpoint_path:
