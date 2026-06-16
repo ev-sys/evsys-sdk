@@ -1,8 +1,7 @@
 """SFT data shaping — turn ``{messages: [...]}`` rows into ``tinker.Datum``s.
 
-Extracted from ``evsys_sdk/algorithms/tinker_sft.py:_row_to_datum``. Pure
-function over the tokenizer + max_seq_len + enable_thinking; no tinker_cookbook
-imports, no global state. The new ``SFTStepBuilder`` (commit #61) calls
+Pure function over the tokenizer + max_seq_len + enable_thinking; no
+tinker_cookbook imports, no global state. The ``SFT`` algorithm calls
 ``sft_tokenize`` once at construction time and reads tokenized Datums out of
 the result in each ``build_batch`` call.
 

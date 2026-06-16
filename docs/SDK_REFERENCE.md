@@ -73,7 +73,7 @@ For real Tinker runs: `export TINKER_API_KEY=...`.
 evsys validate config.yaml --deep   # structure + each kind/params block
 evsys run config.yaml                # execute, writes outputs/<run>/run_result.json
 evsys list                           # everything in the registries
-evsys schema algorithm tinker_sft    # JSON schema for one extension's params
+evsys schema algorithm sft           # JSON schema for one extension's params
 ```
 
 **From Python:**
@@ -103,7 +103,7 @@ run:
     transforms:
       - { kind: jsonl_to_chat, params: {} }
   model: { name: Qwen/Qwen3-4B, renderer_name: qwen3 }
-  algorithm: { kind: tinker_sft, params: { learning_rate: 1e-5, num_epochs: 1 } }
+  algorithm: { kind: sft, params: { learning_rate: 1e-5, num_epochs: 1 } }
   backend: { kind: tinker }
   eval:
     enabled: true
@@ -125,7 +125,7 @@ ExperimentConfig (the YAML root)
       │                 └─ TransformSpec[]  ──► Transform
       ├─ model     : ModelConfig   (name, load_checkpoint_path, renderer_name)
       ├─ backend   : BackendConfig ──► Backend  (mock / local / tinker)
-      ├─ algorithm : AlgorithmConfig ──► Algorithm (tinker_sft / local_rl / ...)
+      ├─ algorithm : AlgorithmConfig ──► Algorithm (sft / sdft / rl / local_* / mock_*)
       └─ eval      : EvalConfig
          ├─ inference : InferenceSpec ──► InferenceClient
          └─ metrics   : MetricSpec[]   ──► Metric
@@ -239,7 +239,7 @@ matrix:
     name: sweep            # full RunConfig template
     data: { ... }
     model: { name: Qwen/Qwen3-4B }
-    algorithm: { kind: tinker_sft, params: { lora_rank: 8, learning_rate: 1e-4 } }
+    algorithm: { kind: sft, params: { lora_rank: 8, learning_rate: 1e-4 } }
   axes:
     algorithm.params.lora_rank:     [1, 8, 32]
     algorithm.params.learning_rate: [1e-4, 5e-5]
@@ -328,7 +328,7 @@ key); most also declare `Config: ClassVar[type]` (a Pydantic model for `params`)
 
 The `Algorithm` protocol is intentionally **not** parameterized by `Backend`:
 the registry routes a `(recipe.kind, backend.kind)` pair to a concrete algorithm
-implementation (e.g. `tinker_sft` vs `local_sft` vs `mock_sft`).
+implementation (e.g. `sft` vs `local_sft` vs `mock_sft`).
 
 ---
 
@@ -338,7 +338,7 @@ All self-register on `import evsys_sdk`.
 
 | Registry | Built-in `kind`s |
 |---|---|
-| **algorithms** | `tinker_sft`, `tinker_rl`, `local_sft`, `local_rl`, `mock_sft`, `mock_rl`, `combo`, `gepa_prompt` |
+| **algorithms** | `sft`, `sdft`, `rl`, `local_sft`, `local_rl`, `mock_sft`, `mock_rl`, `combo`, `gepa_prompt` |
 | **backends** | `mock`, `local`, `tinker` |
 | **metrics** | `exact_match`, `pass_at_k`, `mean_reward`, `toolkit_match` |
 | **transforms** | `identity`, `jsonl_to_chat` (write your own via `@register_transform`) |
