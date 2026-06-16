@@ -16,7 +16,6 @@ from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    EvalConfig,
     ExperimentConfig,
     ModelConfig,
     RunConfig,
@@ -71,7 +70,6 @@ def main():
                 },
             ),
             backend=BackendConfig(kind="mock"),
-            eval=EvalConfig(enabled=False),
         ),
     )
     [result] = run_experiment(cfg)

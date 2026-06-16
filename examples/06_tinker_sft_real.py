@@ -17,7 +17,6 @@ from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    EvalConfig,
     ExperimentConfig,
     ModelConfig,
     RunConfig,
@@ -59,7 +58,6 @@ def main():
                     "save_at_fractions": [1.0],
                 },
             ),
-            eval=EvalConfig(enabled=False),
         ),
     )
 

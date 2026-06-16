@@ -28,7 +28,7 @@ def test_builtin_backends_include_mock():
 
 def test_builtin_metrics():
     names = list_metrics()
-    for k in ("exact_match", "toolkit_match", "mean_reward", "pass_at_k"):
+    for k in ("mean_reward", "avg", "pass_rate", "pass@1", "pass@3", "pass^3"):
         assert k in names
 
 

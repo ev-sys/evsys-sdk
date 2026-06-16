@@ -13,7 +13,7 @@ For everything else:
         Benchmark, BenchmarkScore, Checkpoint,
         # Config models
         ExperimentConfig, RunConfig, AlgorithmConfig, DataConfig, ModelConfig,
-        BackendConfig, EvalConfig, MetricSpec, VerifierSpec,
+        BackendConfig, VerifierSpec,
         # YAML
         load_yaml, dump_yaml, validate_yaml,
         # Registries (decorators for extensions)
@@ -36,11 +36,8 @@ from .config import (
     CallbackSpec,
     DataConfig,
     DataStoreSpec,
-    EvalConfig,
     ExperimentConfig,
-    InferenceSpec,
     LogStoreSpec,
-    MetricSpec,
     ModelConfig,
     RunConfig,
     TransformSpec,
@@ -148,11 +145,8 @@ __all__ = [
     "DataConfig",
     "DataStoreSpec",
     "CallbackSpec",
-    "EvalConfig",
     "ExperimentConfig",
-    "InferenceSpec",
     "LogStoreSpec",
-    "MetricSpec",
     "ModelConfig",
     "RunConfig",
     "TransformSpec",

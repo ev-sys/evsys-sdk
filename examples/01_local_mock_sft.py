@@ -17,7 +17,6 @@ from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    EvalConfig,
     ExperimentConfig,
     LogStoreSpec,
     ModelConfig,
@@ -51,7 +50,6 @@ def main():
                 params={"num_epochs": 1, "batch_size": 1, "save_at_fractions": [0.5, 1.0]},
             ),
             backend=BackendConfig(kind="mock"),
-            eval=EvalConfig(enabled=False),
         ),
     )
 

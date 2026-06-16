@@ -43,11 +43,6 @@ class VerifierSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class MetricSpec(_Strict):
-    kind: str
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
 class TransformSpec(_Strict):
     kind: str
     params: dict[str, Any] = Field(default_factory=dict)
@@ -57,11 +52,6 @@ class CallbackSpec(_Strict):
     """A training-loop callback to attach, by registry name + params. e.g.
     ``{kind: early_stopping, params: {metric: pass_rate, patience: 3}}``."""
 
-    kind: str
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
-class InferenceSpec(_Strict):
     kind: str
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -134,19 +124,6 @@ class BackendConfig(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class EvalConfig(_Strict):
-    """Optional eval pass after training."""
-
-    enabled: bool = True
-    metrics: list[MetricSpec] = Field(default_factory=list)
-    inference: InferenceSpec | None = None
-    """How to query the trained model for eval. Defaults to a backend-native client."""
-    eval_data: DataConfig | None = None
-    """Eval set; if absent, training data's eval split is used."""
-    n_samples: int | None = None
-    """Cap on how many examples to eval (None = all)."""
-
-
 # ---------------------------------------------------------------------------
 # RunConfig — one training run.
 # ---------------------------------------------------------------------------
@@ -161,7 +138,6 @@ class RunConfig(_Strict):
     model: ModelConfig
     algorithm: AlgorithmConfig
     backend: BackendConfig = Field(default_factory=BackendConfig)
-    eval: EvalConfig = Field(default_factory=EvalConfig)
     seed: int = 42
     tags: list[str] = Field(default_factory=list)
 
