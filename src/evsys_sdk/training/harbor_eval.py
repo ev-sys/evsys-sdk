@@ -15,11 +15,14 @@ The metrics / prediction builders are pure functions over
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Sequence
 
 from ..data_types import HarborTask
 from .trajectory import TrajectoryGroup
+
+logger = logging.getLogger(__name__)
 
 
 async def score_via_harbor(
@@ -66,26 +69,30 @@ async def score_via_harbor(
 # ---------------------------------------------------------------------------
 
 
-def eval_metrics(groups: Sequence[TrajectoryGroup]) -> dict[str, float]:
-    """Aggregate reward stats → ``{mean_reward, pass_rate, n_tasks}`` (a
-    completion passes when its reward >= 1.0). Mean over the per-task mean
-    reward (so ``num_samples`` > 1 averages within a task first)."""
-    task_means: list[float] = []
-    passes = 0
-    total = 0
-    for g in groups:
-        rewards = g.rewards
-        if not rewards:
-            continue
-        task_means.append(sum(rewards) / len(rewards))
-        passes += sum(1 for r in rewards if r >= 1.0)
-        total += len(rewards)
-    n = len(task_means)
-    return {
-        "mean_reward": (sum(task_means) / n) if n else 0.0,
-        "pass_rate": (passes / total) if total else 0.0,
-        "n_tasks": float(n),
-    }
+def eval_metrics(
+    groups: Sequence[TrajectoryGroup],
+    *,
+    metrics: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """Reduce per-task rollout rewards to the benchmark's declared metrics.
+
+    ``metrics`` is a list of registered metric names (e.g. ``["pass@3",
+    "pass^3", "avg"]``); each is looked up via :func:`get_metric` and applied
+    to the per-task sample rewards (one inner list per task, holding that
+    task's ``num_samples`` rewards). ``n_tasks`` is always included. When no
+    metrics are declared, defaults to ``mean_reward`` + ``pass_rate`` for
+    back-compat."""
+    from ..registry import get_metric
+
+    task_rewards = [list(g.rewards) for g in groups if g.rewards]
+    names = list(metrics) if metrics else ["mean_reward", "pass_rate"]
+    out: dict[str, float] = {"n_tasks": float(len(task_rewards))}
+    for name in names:
+        try:
+            out[name] = float(get_metric(name)().compute(task_rewards))
+        except Exception:
+            logger.warning("eval metric %r failed; skipping", name, exc_info=True)
+    return out
 
 
 def eval_predictions(
