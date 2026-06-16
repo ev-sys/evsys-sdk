@@ -344,6 +344,165 @@ def _make_topk_datum(
 
 
 # ---------------------------------------------------------------------------
+# Reverse-KL (Step 4 alt) — analytical reverse KL over the teacher's top-K
+# ---------------------------------------------------------------------------
+#
+# The datums are *identical* to the forward-KL CE datums from
+# :func:`build_topk_targets` (``(N, K)`` ``target_tokens`` + ``weights`` holding
+# the renormalized teacher probability ``q_renorm``). Only the loss differs:
+# forward-KL uses the server-side ``cross_entropy``; reverse-KL uses this
+# client-side custom loss via ``forward_backward_custom``. Port of the cookbook's
+# ``reverse_kl_custom_loss`` (tinker_cookbook.distillation.sdft).
+
+
+def reverse_kl_custom_loss(
+    data: list[tinker.Datum],
+    logprobs_list: list[torch.Tensor],
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Analytical reverse-KL loss over the teacher's top-K (REINFORCE form).
+
+    Consumes datums built by :func:`build_topk_targets` (``weights`` carries the
+    renormalized teacher probability ``q_renorm`` at valid top-K slots, ``0`` at
+    padding/masked slots). The server returns student logprobs at the teacher
+    top-K ``target_tokens`` (shape ``(N, K)``); we renormalize the student over
+    those K slots, stop-grad the ``[log p_renorm - log q_renorm]`` bracket, and
+    take the mass-weighted sum, so the gradient flows only through the outer
+    ``p_renorm`` weight (matching tinker's ``importance_sampling`` convention)::
+
+        L = sum_t sum_{k in S_t} p_renorm(x_k|t) * sg[log p_renorm - log q_renorm]
+    """
+    device = logprobs_list[0].device if logprobs_list else torch.device("cpu")
+    total_loss = torch.zeros((), device=device)
+    sum_kl = 0.0
+    sum_student_entropy = 0.0
+    sum_positions = 0.0
+
+    for i, datum in enumerate(data):
+        student_logp_NK = logprobs_list[i]
+        weights_NK = datum.loss_fn_inputs["weights"].to_torch()  # q_renorm or 0
+
+        slot_mask_NK = weights_NK > 0  # (N, K)
+        position_mask_N = slot_mask_NK.any(dim=-1).float()  # (N,)
+
+        # Reconstruct log q_renorm safely; clamp away from 0 for the log op.
+        safe_weights = weights_NK.clamp(min=1e-30)
+        teacher_log_renorm_NK = torch.where(
+            slot_mask_NK, torch.log(safe_weights), torch.zeros_like(weights_NK)
+        )
+
+        neg_inf = torch.full_like(student_logp_NK, float("-inf"))
+        masked_logp = torch.where(slot_mask_NK, student_logp_NK, neg_inf)
+        log_p_renorm = torch.log_softmax(masked_logp, dim=-1)
+        # Invalid slots land at 0 (→ p_renorm=1) but are zeroed below via the mask.
+        log_p_renorm = torch.nan_to_num(log_p_renorm, nan=0.0, neginf=0.0)
+        p_renorm = log_p_renorm.exp()
+
+        adv_NK = (log_p_renorm - teacher_log_renorm_NK).detach()
+        per_pos_NK = p_renorm * adv_NK * slot_mask_NK.float()
+        per_pos_N = per_pos_NK.sum(dim=-1)
+        loss_d = (per_pos_N * position_mask_N).sum()
+        total_loss = total_loss + loss_d
+
+        with torch.no_grad():
+            kl_NK = p_renorm * (log_p_renorm - teacher_log_renorm_NK) * slot_mask_NK.float()
+            sum_kl += (kl_NK.sum(dim=-1) * position_mask_N).sum().item()
+            ent_NK = -(p_renorm * log_p_renorm * slot_mask_NK.float())
+            sum_student_entropy += (ent_NK.sum(dim=-1) * position_mask_N).sum().item()
+            sum_positions += position_mask_N.sum().item()
+
+    metrics: dict[str, float] = {"sdft/reverse_kl_loss": total_loss.item()}
+    if sum_positions > 0:
+        metrics["sdft/reverse_kl_mean"] = sum_kl / sum_positions
+        metrics["sdft/student_entropy_mean"] = sum_student_entropy / sum_positions
+    metrics["sdft/reverse_kl_positions"] = sum_positions
+    return total_loss, metrics
+
+
+# ---------------------------------------------------------------------------
+# Importance sampling (Step 4 alt) — single-sample reverse-KL approximation
+# ---------------------------------------------------------------------------
+
+
+def build_importance_sampling_targets(
+    *,
+    student_data: list[tinker.Datum],
+    student_logprobs: list[Sequence[float]],
+    completion_slices: list[CompletionSlice],
+    teacher_logprobs: list[Sequence[float | None] | None],
+) -> tuple[list[tinker.Datum], dict[str, float]]:
+    """Build ``importance_sampling`` Datums approximating reverse KL.
+
+    Single-sample per token: the per-token advantage is ``teacher_lp -
+    student_lp`` (the teacher's vs. the student's logprob of the student's
+    *actual* sampled token), trained with tinker's ``importance_sampling`` loss.
+    This is the ``topk == 0`` fallback in the cookbook — a cheaper,
+    higher-variance approximation of the analytical reverse KL. Port of
+    ``compute_sdft_advantages``.
+
+    Parameters
+    ----------
+    student_data:
+        Student Datums from :func:`student_datum_from_rollout` (supply
+        ``model_input`` / ``target_tokens`` / ``mask``).
+    student_logprobs:
+        Per datum, the student's per-completion-token sampling logprobs (from
+        the rollout ``Turn.logprobs``).
+    completion_slices:
+        Output of :func:`extract_completion_tokens` (teacher_prompt_len +
+        possibly-truncated completion tokens).
+    teacher_logprobs:
+        Per datum, the teacher's per-position logprobs over the teacher-forced
+        sequence (from ``compute_logprobs_async``); ``None`` entries count as 0.
+    """
+    new_datums: list[tinker.Datum] = []
+    total_adv = 0.0
+    total_positions = 0.0
+
+    for i, datum in enumerate(student_data):
+        mask = datum.loss_fn_inputs["mask"].to_torch()
+        completion_indices = torch.where(mask > 0)[0]
+        N = datum.model_input.length
+        advantages_N = torch.zeros(N, dtype=torch.float32)
+        logprobs_N = torch.zeros(N, dtype=torch.float32)
+
+        slice_ = completion_slices[i]
+        completion_len = len(slice_.tokens)
+        s_lps = list(student_logprobs[i]) if i < len(student_logprobs) else []
+        t_all = teacher_logprobs[i] if i < len(teacher_logprobs) else None
+
+        if completion_len and len(completion_indices) and t_all is not None:
+            tp_len = slice_.teacher_prompt_len
+            teacher_comp = [
+                float(lp) if lp is not None else 0.0
+                for lp in t_all[tp_len : tp_len + completion_len]
+            ]
+            n = min(len(teacher_comp), len(completion_indices), len(s_lps))
+            for t in range(n):
+                idx = int(completion_indices[t].item())
+                s_lp = float(s_lps[t])
+                advantages_N[idx] = teacher_comp[t] - s_lp
+                logprobs_N[idx] = s_lp
+                total_adv += teacher_comp[t] - s_lp
+                total_positions += 1
+
+        new_datums.append(tinker.Datum(
+            model_input=datum.model_input,
+            loss_fn_inputs={
+                "target_tokens": datum.loss_fn_inputs["target_tokens"],
+                "mask": datum.loss_fn_inputs["mask"],
+                "logprobs": tinker.TensorData.from_torch(logprobs_N),
+                "advantages": tinker.TensorData.from_torch(advantages_N),
+            },
+        ))
+
+    metrics: dict[str, float] = {"sdft/num_datums": float(len(student_data))}
+    if total_positions > 0:
+        metrics["sdft/mean_advantage"] = total_adv / total_positions
+        metrics["sdft/is_positions"] = total_positions
+    return new_datums, metrics
+
+
+# ---------------------------------------------------------------------------
 # Per-step dataset (consumed by the SDFT algorithm)
 # ---------------------------------------------------------------------------
 
@@ -411,9 +570,11 @@ __all__ = [
     "DEFAULT_DEMO_TEMPLATE",
     "SDFTDataset",
     "SimpleSDFTDataset",
+    "build_importance_sampling_targets",
     "build_teacher_forced_sequence",
     "build_teacher_prompt",
     "build_topk_targets",
     "extract_completion_tokens",
+    "reverse_kl_custom_loss",
     "student_datum_from_rollout",
 ]

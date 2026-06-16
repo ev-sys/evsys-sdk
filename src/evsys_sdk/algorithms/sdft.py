@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import tinker
+from pydantic import model_validator
 
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
@@ -30,10 +31,12 @@ from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
     CompletionSlice,
     SimpleSDFTDataset,
+    build_importance_sampling_targets,
     build_teacher_forced_sequence,
     build_teacher_prompt,
     build_topk_targets,
     extract_completion_tokens,
+    reverse_kl_custom_loss,
     student_datum_from_rollout,
 )
 from ..training.loop import TrainingBatch
@@ -51,6 +54,13 @@ class SDFTConfig(BaseAlgorithmConfig):
     from :class:`BaseAlgorithmConfig`; adds SDFT-only fields."""
 
     # SDFT knobs
+    loss_mode: str = "forward_kl"
+    """Distillation objective (cookbook parity):
+    - ``forward_kl`` (default): top-K cross-entropy (teacher → student).
+    - ``reverse_kl``: analytical reverse KL over the teacher's top-K (custom
+      loss); requires ``topk > 0``.
+    - ``importance_sampling``: single-sample reverse-KL approximation
+      (advantage = teacher_lp - student_lp); ignores ``topk``."""
     topk: int = 20
     teacher_sync_every: int | None = None  # reserved; static teacher for now
     max_context_length: int = 2048
@@ -62,6 +72,20 @@ class SDFTConfig(BaseAlgorithmConfig):
     # Student rollout generation knobs
     max_tokens: int = 256
     temperature: float = 1.0
+
+    @model_validator(mode="after")
+    def _check_loss_mode(self) -> "SDFTConfig":
+        valid = {"forward_kl", "reverse_kl", "importance_sampling"}
+        if self.loss_mode not in valid:
+            raise ValueError(
+                f"loss_mode must be one of {sorted(valid)} (got {self.loss_mode!r})"
+            )
+        if self.loss_mode == "reverse_kl" and self.topk <= 0:
+            raise ValueError(
+                "loss_mode='reverse_kl' requires topk > 0 (the analytical reverse "
+                "KL runs over the teacher's top-K set)."
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +162,11 @@ class SDFT(BaseAlgorithm):
             system_prompt=self.cfg.system_prompt,
         )
 
-        # 3. Wrap each rollout as a student Datum (carrying the completion mask).
+        # 3. Wrap each rollout as a student Datum (+ keep student logprobs for IS).
         student_datums: list[tinker.Datum] = []
         completion_slices: list[CompletionSlice] = []
         teacher_forced_seqs: list[tinker.ModelInput] = []
+        student_logprobs: list[list[float]] = []
 
         for tp, traj in zip(teacher_prompts, student_trajs):
             turn = traj.turns[0] if traj.turns else None
@@ -154,11 +179,26 @@ class SDFT(BaseAlgorithm):
                 max_context_length=self.cfg.max_context_length,
             )
             completion_slices.append(slice_)
-            teacher_forced_seqs.append(
-                build_teacher_forced_sequence(tp, slice_.tokens)
+            teacher_forced_seqs.append(build_teacher_forced_sequence(tp, slice_.tokens))
+            student_logprobs.append(list(turn.logprobs) if turn else [])
+
+        # 4. Importance-sampling mode: teacher per-token logprob of the student's
+        #    actual tokens → advantage = teacher_lp - student_lp (single sample).
+        if self.cfg.loss_mode == "importance_sampling":
+            teacher_lps = await asyncio.gather(*[
+                self._teacher.compute_logprobs_async(seq) for seq in teacher_forced_seqs
+            ])
+            is_datums, sdft_metrics = build_importance_sampling_targets(
+                student_data=student_datums,
+                student_logprobs=student_logprobs,
+                completion_slices=completion_slices,
+                teacher_logprobs=teacher_lps,
+            )
+            return TrainingBatch(
+                data=is_datums, loss_fn="importance_sampling", metrics=sdft_metrics,
             )
 
-        # 4. Teacher topK at each completion position (one parallel call per datum).
+        # 4'. forward_kl / reverse_kl: teacher top-K at each completion position.
         teacher_responses = await asyncio.gather(*[
             self._teacher.sample_async(
                 prompt=seq,
@@ -173,8 +213,8 @@ class SDFT(BaseAlgorithm):
             getattr(r, "topk_prompt_logprobs", None) for r in teacher_responses
         ]
 
-        # 5. Build CE Datums with (N, K) soft targets.
-        ce_datums, sdft_metrics = build_topk_targets(
+        # 5. Build (N, K) soft-target Datums — identical for both KL directions.
+        kl_datums, sdft_metrics = build_topk_targets(
             student_data=student_datums,
             completion_slices=completion_slices,
             teacher_topk_logprobs=teacher_topk,
@@ -183,10 +223,14 @@ class SDFT(BaseAlgorithm):
             skip_first_n=self.cfg.skip_first_n_tokens,
         )
 
+        # 6. Forward KL → server-side cross_entropy; reverse KL → client-side
+        #    custom loss over the same teacher top-K targets.
+        if self.cfg.loss_mode == "reverse_kl":
+            return TrainingBatch(
+                data=kl_datums, loss_fn=reverse_kl_custom_loss, metrics=sdft_metrics,
+            )
         return TrainingBatch(
-            data=ce_datums,
-            loss_fn="cross_entropy",
-            metrics=sdft_metrics,
+            data=kl_datums, loss_fn="cross_entropy", metrics=sdft_metrics,
         )
 
     def step_metrics(
