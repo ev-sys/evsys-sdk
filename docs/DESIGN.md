@@ -125,28 +125,33 @@ id never changes).
 
 ### Benchmark (test) vs. validation (in-loop)
 
-A **benchmark** is the *final goal / test set*: scored once after training via
-``Benchmark.score(client)`` and read from ``metadata.benchmark``. Model
-selection must never key off it.
+Both test and validation are entries in the same ``metadata.benchmark`` list;
+``tags`` declare the role and ``run_every`` declares the cadence.
 
-A **validation set** is scored *during* training to drive model selection. It's
-also harbor-format (referenced by id from ``evsys validation upload``, or by a
-local ``path``), but lives as its own dashboard entity and is declared per-run:
+A **test benchmark** is the *final goal*: scored once after training (no
+``run_every``), tagged ``[test]``. Model selection must never key off it.
+
+A **validation benchmark** is scored *during* training to drive model
+selection — same harbor format, tagged ``[val]`` with a positive
+``run_every``:
 
 ```yaml
-run:
-  # ...
-  validation:                       # in-loop — scored every N steps
-    dataset_id: <id from `evsys validation upload`>   # or dataset_name: <name> (→ latest version); or path: data/validation/<name>
-    eval_for_every: 50              # run validation every 50 training steps
-    metrics: [{kind: exact_match}]  # metrics.py kinds applied to predictions
+metadata:
+  benchmark:
+    - name: val_set                 # in-loop — scored every N steps
+      id: <benchmark id>            # or path: data/benchmark/<name>
+      tags: [val]
+      run_every: 50                 # score every 50 training steps off the live model
+      engine: harbor
+    - name: full_test               # post-training only
+      id: <benchmark id>
+      tags: [test]
+      engine: harbor
 ```
 
-Every ``eval_for_every`` steps the tinker algorithm (SFT/RL) generates on the
-validation tasks, scores them with the listed ``metrics.py`` metrics, and
-records ``val/<metric>`` curves under ``split="val"`` — separate from the
-post-training benchmark eval. (Recording only for now; automatic
-best-checkpoint selection is a follow-up.)
+Every ``run_every`` steps the training loop scores the live model on the
+``[val]`` entry and records ``val/<name>/<metric>`` curves under
+``split="val"`` — separate from the post-training ``[test]`` eval.
 
 ## OOP entry points
 

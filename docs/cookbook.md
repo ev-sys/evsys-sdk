@@ -85,7 +85,7 @@ produce a single combined plot.
 ```bash
 evsys list                       # everything in the registries
 evsys list --kind algorithms
-evsys schema algorithm tinker_sft   # print Pydantic JSON schema
+evsys schema algorithm sft          # print Pydantic JSON schema
 evsys validate config.yaml --deep   # validate top-level + each kind/params block
 evsys run config.yaml            # run an experiment
 ```
@@ -102,7 +102,7 @@ ExperimentConfig (YAML)
       │            └─ Transform (jsonl_to_chat / identity / your own)
       ├─ model: name, load_checkpoint_path, renderer_name
       ├─ backend: kind+params  ───►  Backend  (tinker / local / mock)
-      ├─ algorithm: kind+params ──►  Algorithm (tinker_sft / tinker_rl / local_sft / local_rl / mock_*)
+      ├─ algorithm: kind+params ──►  Algorithm (sft / sdft / rl / local_sft / local_rl / mock_*)
       └─ eval:
          ├─ inference: kind+params ► InferenceClient (tinker / local / mock)
          └─ metrics[]: kind+params  ► Metric (exact_match / pass_at_k / mean_reward / ...)

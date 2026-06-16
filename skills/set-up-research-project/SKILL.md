@@ -185,12 +185,11 @@ scripts — one at a time, each as its own PR if possible.
   * `evsys benchmark upload data/benchmark/<name>` whenever a benchmark
     (the TEST set, scored after training) changes content (idempotent
     re-upload returns "unchanged").
-  * `evsys validation upload data/validation/<name>` for an in-loop
-    VALIDATION set — scored every N steps during training to drive model
-    selection. Paste the printed id into the run's `validation.dataset_id`
-    and set `validation.eval_for_every` + `validation.metrics` (metrics.py
-    kinds). Benchmark = final test; validation = model selection. Keep them
-    separate so selection never keys off the test set.
+  * For an in-loop VALIDATION signal during training, add a
+    `metadata.benchmark` entry tagged `[val]` with `run_every: <N>` — it's
+    scored every N steps off the live model. Keep the final TEST benchmark
+    a separate entry (no `run_every`, tagged `[test]`) so model selection
+    never keys off the test set.
   * `using-evsys-sdk` skill for the day-to-day patterns
     (`Experiment.from_yaml(...).run()`, sweep / matrix syntax, scoring).
   * `getting-experiment-context` skill if they want to recall prior results

@@ -103,9 +103,8 @@ class BenchmarkEvaluator:
     """Score a :class:`~evsys_sdk.Benchmark` against the live sampler.
 
     The :class:`~evsys_sdk.training.loop.TrainingLoop` checks
-    ``run_every`` per evaluator (see
-    :meth:`TrainingLoop._is_due`); a value of ``0`` means "inherit the
-    loop's ``eval_every``", so a single shared cadence still works.
+    ``run_every`` per evaluator (see :meth:`TrainingLoop._is_due`);
+    a value of ``0`` disables the evaluator (it never fires).
 
     ``chat_template`` mirrors the post-training eval spec
     (``system_prompt`` + ``user_template`` + ``enable_thinking``) so the

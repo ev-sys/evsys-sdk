@@ -20,27 +20,12 @@ except ImportError:
     pass
 
 try:
-    from .tinker_sft import TinkerSFT  # noqa: F401  — deprecated, removed after one release
-except ImportError:
-    pass
-
-try:
     from .rl import RL  # noqa: F401  — SDK-native loop
 except ImportError:
     pass
 
 try:
-    from .tinker_rl import TinkerRL  # noqa: F401  — deprecated
-except ImportError:
-    pass
-
-try:
     from .sdft import SDFT  # noqa: F401  — SDK-native loop
-except ImportError:
-    pass
-
-try:
-    from .tinker_sdft import TinkerSDFT  # noqa: F401  — deprecated
 except ImportError:
     pass
 

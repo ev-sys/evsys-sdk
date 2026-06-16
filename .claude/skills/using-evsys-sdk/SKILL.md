@@ -68,7 +68,7 @@ matrix:
       name: Qwen/Qwen3-4B
       renderer_name: qwen3_5
     algorithm:
-      kind: tinker_sft
+      kind: sft
       params:
         learning_rate: 1.0e-4
         num_epochs: 10

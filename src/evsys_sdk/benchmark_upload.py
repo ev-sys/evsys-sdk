@@ -8,8 +8,8 @@ content registers a new version.
 CLI entry point: ``evsys benchmark upload data/benchmark/<name>``.
 Programmatic: ``upload_benchmark(store, path)``.
 
-The harbor upload body is shared with ``validation_upload`` via
-``_harbor_upload.upload_harbor`` — this module only wires the benchmark store
+The harbor upload body lives in ``_harbor_upload.upload_harbor`` (reusable for
+other harbor-format entities) — this module only wires the benchmark store
 methods and keeps the historical ``UploadResult`` shape.
 """
 

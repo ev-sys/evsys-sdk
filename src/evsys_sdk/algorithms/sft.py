@@ -1,6 +1,6 @@
 """SFT — supervised fine-tuning on the SDK training loop.
 
-Replaces :class:`~evsys_sdk.algorithms.tinker_sft.TinkerSFT`. All the composer
+All the composer
 plumbing (backend, step/save cadence, evaluators, loop wiring, artifacts)
 lives in :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`. SFT only has to
 say *how a batch is built*:
@@ -37,9 +37,7 @@ from .base import BaseAlgorithm, BaseAlgorithmConfig
 
 class SFTConfig(BaseAlgorithmConfig):
     """Config for :class:`SFT`. Inherits the shared training/save/eval knobs
-    from :class:`BaseAlgorithmConfig`; adds SFT-only fields. Field semantics
-    match ``TinkerSFTConfig`` so existing experiment configs flip
-    ``algorithm.kind: tinker_sft`` → ``sft`` without touching anything else."""
+    from :class:`BaseAlgorithmConfig`; adds SFT-only fields."""
 
     max_seq_len: int = 2048
 

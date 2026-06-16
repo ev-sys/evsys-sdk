@@ -41,7 +41,7 @@ def main():
         name="example_06_tinker_real",
         output_dir=str(HERE / "outputs" / "06"),
         run=RunConfig(
-            name="tinker_sft_smoke",
+            name="sft_smoke",
             data=DataConfig(
                 source_kind="in_memory",
                 rows=rows,
@@ -50,7 +50,7 @@ def main():
             model=ModelConfig(name="Qwen/Qwen3.5-4B"),
             backend=BackendConfig(kind="tinker"),
             algorithm=AlgorithmConfig(
-                kind="tinker_sft",
+                kind="sft",
                 params={
                     "learning_rate": 1.0e-4,
                     "max_steps": 2,

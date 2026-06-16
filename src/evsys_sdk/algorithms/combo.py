@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class ComboPhaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: str
-    """Registry name of the sub-algorithm to run (e.g. 'mock_sft', 'tinker_rl')."""
+    """Registry name of the sub-algorithm to run (e.g. 'mock_sft', 'rl')."""
     config: dict[str, Any] = Field(default_factory=dict)
     """Per-phase config dict passed to the sub-algorithm's Config constructor."""
     name: str | None = None
