@@ -48,7 +48,7 @@ class Workspace:
         gi = self.root / ".gitignore"
         if not gi.exists():
             gi.write_text("*\n")  # self-ignoring: workspace is never tracked
-        for sub in ("datasets", "benchmarks", "validation", "scripts", "outputs"):
+        for sub in ("datasets", "benchmarks", "scripts", "outputs"):
             (self.root / sub).mkdir(exist_ok=True)
 
     # -- materialization ------------------------------------------------------
@@ -67,13 +67,6 @@ class Workspace:
             get_rows=self.store.get_benchmark_rows,
         )
 
-    def pull_validation_dataset(self, validation_dataset_id: str, *, force: bool = False) -> MaterializedDataset:
-        return self._materialize(
-            "validation", validation_dataset_id, force,
-            get_meta=self.store.get_validation_dataset,
-            get_rows=self.store.get_validation_dataset_rows,
-        )
-
     # -- name → id resolution (latest version wins) ---------------------------
 
     def dataset_id_for_name(self, name: str) -> str:
@@ -81,11 +74,6 @@ class Workspace:
 
     def benchmark_id_for_name(self, name: str) -> str:
         return self._id_for_name(self.store.list_benchmarks, name, "benchmark")
-
-    def validation_dataset_id_for_name(self, name: str) -> str:
-        return self._id_for_name(
-            self.store.list_validation_datasets, name, "validation dataset"
-        )
 
     def _id_for_name(self, list_fn: Callable[[], list[dict] | None], name: str, kind: str) -> str:
         """Resolve a name to the highest-version record's id for this project."""

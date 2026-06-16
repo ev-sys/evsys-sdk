@@ -1,9 +1,9 @@
-"""Shared upload logic for harbor-format directories (benchmarks + validation sets).
+"""Shared upload logic for harbor-format directories.
 
-Both ``benchmark_upload`` and ``validation_upload`` register a local
-``<dir>/`` (``tasks.jsonl`` + ``metadata.yaml``) with the dashboard. The only
-differences are the entity name and which store methods are called, so the body
-lives here once and each wrapper passes in its create/add-rows/list callables.
+``benchmark_upload`` registers a local ``<dir>/`` (``tasks.jsonl`` +
+``metadata.yaml``) with the dashboard. The reusable body lives here and the
+wrapper passes in its create/add-rows/list callables, so a future harbor-style
+entity can reuse it.
 
 Re-uploading the same content is a no-op (we hash ``tasks.jsonl``);
 re-uploading changed content registers a new version.
@@ -24,7 +24,7 @@ HARBOR_FORMAT = "harbor"
 
 @dataclass(frozen=True)
 class HarborUploadResult:
-    """Result of one harbor upload call (benchmark or validation set)."""
+    """Result of one harbor upload call."""
 
     id: str
     name: str

@@ -200,34 +200,6 @@ class EvsysStore:
     def get_benchmark_rows(self, benchmark_id: str, *, limit: int = 100, offset: int = 0) -> list[dict]:
         return self._call("get_benchmark_rows", benchmark_id=benchmark_id, limit=limit, offset=offset)
 
-    # -- validation datasets --------------------------------------------------
-    # Harbor-format like benchmarks, but scored *during* training (every N
-    # steps) to drive model selection — never the final/test measurement.
-    # Stored as their own entity so val and test never share an id.
-
-    def create_validation_dataset(self, *, name: str, format: str, project_id: str | None = None,
-                                  version: int = 1, source_kind: str | None = None,
-                                  transform: list | None = None, storage_uri: str | None = None,
-                                  metadata: dict | None = None) -> dict:
-        return self._call("create_validation_dataset", project_id=self._project(project_id),
-                          name=name, format=format, version=version, source_kind=source_kind,
-                          transform=transform, storage_uri=storage_uri, metadata=metadata)
-
-    def add_validation_dataset_rows(self, validation_dataset_id: str, rows: list[dict],
-                                    *, start_idx: int = 0) -> list[dict]:
-        return self._call("add_validation_dataset_rows", validation_dataset_id=validation_dataset_id,
-                          rows=rows, start_idx=start_idx)
-
-    def get_validation_dataset(self, validation_dataset_id: str) -> dict | None:
-        return self._call("get_validation_dataset", validation_dataset_id=validation_dataset_id)
-
-    def list_validation_datasets(self, project_id: str | None = None) -> list[dict]:
-        return self._call("list_validation_datasets", project_id=self._project(project_id))
-
-    def get_validation_dataset_rows(self, validation_dataset_id: str, *, limit: int = 100,
-                                    offset: int = 0) -> list[dict]:
-        return self._call("get_validation_dataset_rows", validation_dataset_id=validation_dataset_id,
-                          limit=limit, offset=offset)
 
     # -- checkpoints ----------------------------------------------------------
 
@@ -243,12 +215,10 @@ class EvsysStore:
     # -- evals ----------------------------------------------------------------
 
     def create_eval(self, *, run_id: str, benchmark_id: str | None = None,
-                   validation_dataset_id: str | None = None,
                    checkpoint_id: str | None = None, model_ref: str | None = None,
                    step: int | None = None, metrics: dict | None = None,
                    breakdowns: dict | None = None, sdk_version: str | None = None) -> dict:
         return self._call("create_eval", run_id=run_id, benchmark_id=benchmark_id,
-                          validation_dataset_id=validation_dataset_id,
                           checkpoint_id=checkpoint_id, model_ref=model_ref, step=step,
                           metrics=metrics or {}, breakdowns=breakdowns, sdk_version=sdk_version)
 
