@@ -28,6 +28,21 @@ def _group(rewards):
     ])
 
 
+def _group_with_usage(rewards, *, latency, prompt_tokens, completion_tokens, cost_usd):
+    return TrajectoryGroup(trajectories=[
+        Trajectory(
+            turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
+            reward=r,
+            metadata={"usage": {
+                "latency_s": latency, "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens, "cost_usd": cost_usd,
+                "cached_tokens": None,
+            }},
+        )
+        for r in rewards
+    ])
+
+
 # --- metrics ---------------------------------------------------------------
 
 
@@ -51,6 +66,32 @@ def test_eval_metrics_empty():
     assert he.eval_metrics([]) == {"mean_reward": 0.0, "pass_rate": 0.0, "n_tasks": 0.0}
 
 
+def test_eval_metrics_includes_time_tokens_cost_when_present():
+    groups = [
+        _group_with_usage([1.0], latency=2.0, prompt_tokens=10, completion_tokens=5, cost_usd=0.01),
+        _group_with_usage([0.0], latency=4.0, prompt_tokens=20, completion_tokens=5, cost_usd=0.03),
+    ]
+    m = he.eval_metrics(groups)
+    assert m["time_per_task"] == pytest.approx(3.0)       # mean(2, 4)
+    assert m["tokens_per_task"] == pytest.approx(20.0)    # mean(10+5, 20+5)
+    assert m["cost_per_task"] == pytest.approx(0.02)      # mean(0.01, 0.03)
+
+
+def test_eval_metrics_omits_cost_when_no_api_price():
+    # tinker-style: latency + tokens present, cost is None → cost_per_task omitted.
+    groups = [_group_with_usage([1.0], latency=1.0, prompt_tokens=8, completion_tokens=2, cost_usd=None)]
+    m = he.eval_metrics(groups)
+    assert "cost_per_task" not in m
+    assert m["time_per_task"] == pytest.approx(1.0)
+    assert m["tokens_per_task"] == pytest.approx(10.0)
+
+
+def test_eval_metrics_no_usage_keeps_legacy_shape():
+    # Trajectories with no usage metadata → only the reward stats, no econ keys.
+    m = he.eval_metrics([_group([1.0])])
+    assert set(m) == {"mean_reward", "pass_rate", "n_tasks"}
+
+
 # --- predictions -----------------------------------------------------------
 
 
@@ -66,6 +107,20 @@ def test_eval_predictions_rows():
     assert rows[0]["expected"] == "42"
     assert rows[0]["reward"] == 1.0
     assert rows[0]["completion_token_ids"] == [2, 3]
+
+
+def test_eval_predictions_store_time_and_tokens_in_metadata():
+    # Per-task time + tokens are stored in metadata (the JSON column both stores
+    # persist), not top-level columns the remote backend would drop.
+    tasks = [_task("a")]
+    groups = [_group_with_usage([1.0], latency=2.5, prompt_tokens=12, completion_tokens=3, cost_usd=0.02)]
+    rows = he.eval_predictions(tasks, groups, eval_id="ev", step=None)
+    md = rows[0]["metadata"]
+    assert md["latency_s"] == pytest.approx(2.5)
+    assert md["prompt_tokens"] == 12
+    assert md["completion_tokens"] == 3
+    assert md["tags"] == ["t"]                 # task metadata preserved
+    assert "cost_usd" not in rows[0] and "latency_s" not in rows[0]  # not top-level
 
 
 # --- upload (eval only) ----------------------------------------------------
@@ -101,6 +156,21 @@ def test_upload_falls_back_to_add_prediction():
     assert len(store.rows) == 1
     assert store.rows[0]["task_id"] == "a"
     assert store.rows[0]["metadata"]["completion_token_ids"] == [2, 3]
+
+
+def test_upload_add_prediction_preserves_time_and_token_metadata():
+    # eval_predictions already put time+tokens in metadata; the add_prediction
+    # fallback must round-trip it (and fold in the token ids).
+    store = _StoreLike()
+    rows = [{"kind": "eval", "task_id": "a", "reward": 1.0,
+             "completion_token_ids": [2, 3],
+             "metadata": {"latency_s": 2.5, "prompt_tokens": 12, "completion_tokens": 3}}]
+    he.upload_eval_rollouts(store, "run1", rows)
+    md = store.rows[0]["metadata"]
+    assert md["latency_s"] == 2.5
+    assert md["prompt_tokens"] == 12
+    assert md["completion_tokens"] == 3
+    assert md["completion_token_ids"] == [2, 3]
 
 
 def test_upload_noop_without_store_or_rows():

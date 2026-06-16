@@ -7,6 +7,7 @@ in the RL composer test.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -96,3 +97,69 @@ def test_harvest_drops_trials_with_no_rollout():
     empty = SimpleNamespace(trial_name="t0__s0", agent_result=None, verifier_result=None)
     groups = he._harvest(SimpleNamespace(trial_results=[empty]), tasks, num_samples=1)
     assert groups[0].trajectories == []
+
+
+# --- usage (cost / tokens / timing) ----------------------------------------
+
+
+def _phase(seconds):
+    start = datetime(2026, 1, 1, 0, 0, 0)
+    return SimpleNamespace(started_at=start, finished_at=start + timedelta(seconds=seconds))
+
+
+def test_trial_usage_reads_harbor_native_cost_tokens_timing():
+    # When harbor populates agent_result + agent_execution, surface those verbatim.
+    tr = SimpleNamespace(
+        trial_name="t0__s0",
+        agent_result=SimpleNamespace(
+            rollout_details=[{
+                "prompt_token_ids": [[1, 2, 3]],
+                "completion_token_ids": [[9, 9]],
+                "logprobs": [[-0.1, -0.2]],
+            }],
+            cost_usd=0.0123, n_input_tokens=15, n_output_tokens=2, n_cache_tokens=4,
+        ),
+        verifier_result=SimpleNamespace(rewards={"reward": 1.0}),
+        agent_execution=_phase(2.5),
+        started_at=None, finished_at=None,
+    )
+    traj = he._trial_to_trajectory(tr)
+    assert traj is not None
+    u = traj.metadata["usage"]
+    assert u["cost_usd"] == pytest.approx(0.0123)
+    assert u["prompt_tokens"] == 15          # harbor's count, not the token-id length
+    assert u["completion_tokens"] == 2
+    assert u["cached_tokens"] == 4
+    assert u["latency_s"] == pytest.approx(2.5)
+
+
+def test_trial_usage_backfills_tokens_and_falls_back_to_trial_timing():
+    # No token counts on agent_result → count harvested ids; no agent_execution
+    # → use the whole-trial span; no cost (on-policy tinker has no API price).
+    start = datetime(2026, 1, 1)
+    tr = SimpleNamespace(
+        trial_name="t0__s0",
+        agent_result=SimpleNamespace(
+            rollout_details=[{
+                "prompt_token_ids": [[1, 2, 3]],
+                "completion_token_ids": [[7, 8]],
+                "logprobs": [[-0.1, -0.2]],
+            }],
+            cost_usd=None, n_input_tokens=None, n_output_tokens=None, n_cache_tokens=None,
+        ),
+        verifier_result=SimpleNamespace(rewards={"reward": 1.0}),
+        agent_execution=None,
+        started_at=start, finished_at=start + timedelta(seconds=4.0),
+    )
+    traj = he._trial_to_trajectory(tr)
+    assert traj is not None
+    u = traj.metadata["usage"]
+    assert u["cost_usd"] is None
+    assert u["prompt_tokens"] == 3           # counted from prompt_token_ids
+    assert u["completion_tokens"] == 2       # counted from completion_token_ids
+    assert u["latency_s"] == pytest.approx(4.0)
+
+
+def test_phase_seconds_none_when_bounds_missing():
+    assert he._phase_seconds(None) is None
+    assert he._phase_seconds(SimpleNamespace(started_at=datetime(2026, 1, 1), finished_at=None)) is None
