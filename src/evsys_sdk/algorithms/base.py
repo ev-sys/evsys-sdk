@@ -168,6 +168,7 @@ class BaseAlgorithm:
             lora_rank=self.cfg.lora_rank,
             renderer_name=self.cfg.renderer_name or handles.get("renderer_name"),
             resume_state_path=handles.get("load_checkpoint_path"),
+            init_weights_path=handles.get("init_from_checkpoint"),
         )
 
         # 2. per-algorithm prep (sets self._steps_per_epoch + stashes state)

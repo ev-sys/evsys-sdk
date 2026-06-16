@@ -231,14 +231,17 @@ class Experiment:
             for p in primaries:
                 group_id_by_name[p.name] = self._create_group(experiment_id, p.name)
 
-        arms: list[ArmResult] = []
-        for primary in primaries:
-            for arm_cfg, group_name in self._replicates_for(primary):
-                group_id = group_id_by_name.get(group_name) if group_name else None
-                arms.append(self._execute_arm(
-                    experiment_id, arm_cfg, benchmarks, meta,
-                    group_id=group_id, group_name=group_name,
-                ))
+        if self.config.continual is not None:
+            arms = self._run_continual(experiment_id, benchmarks, meta)
+        else:
+            arms = []
+            for primary in primaries:
+                for arm_cfg, group_name in self._replicates_for(primary):
+                    group_id = group_id_by_name.get(group_name) if group_name else None
+                    arms.append(self._execute_arm(
+                        experiment_id, arm_cfg, benchmarks, meta,
+                        group_id=group_id, group_name=group_name,
+                    ))
 
         best_arm = self._pick_best(arms, success_metric) if success_metric else None
         best_score = best_arm.score(success_metric) if (best_arm and success_metric) else None
@@ -594,6 +597,69 @@ class Experiment:
             or arts.get("sampler_path")
             or next((v for k, v in arts.items()
                      if "sampler" in str(k) or "checkpoint" in str(k)), None)
+        )
+
+    # -- continual learning -------------------------------------------------
+
+    def _run_continual(
+        self,
+        experiment_id: str | None,
+        benchmarks: list[tuple[Benchmark, dict]],
+        meta: dict,
+    ) -> list[ArmResult]:
+        """Train the base ``run`` once per dataset in ``continual.datasets``, in
+        order, chaining each stage's final weights (fresh optimizer) into the
+        next. All stages share one experiment and one dashboard group, and each
+        completed stage is scored on every benchmark via :meth:`_execute_arm`.
+        The chain stops at the first stage that does not complete.
+        """
+        cont = self.config.continual
+        base = self.config.run
+        assert cont is not None and base is not None  # guaranteed by config validator
+        template = cont.name_template or "{base}_stage{i}"
+        group_name = f"{base.name}_continual"
+        group_id = self._create_group(experiment_id, group_name)
+
+        arms: list[ArmResult] = []
+        prev_ckpt: str | None = None
+        for i, dataset in enumerate(cont.datasets):
+            model = base.model
+            if prev_ckpt is not None:
+                model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
+            stage = base.model_copy(update={
+                "name": template.format(base=base.name, i=i),
+                "data": dataset,
+                "model": model,
+                "tags": [*base.tags, "continual", f"stage:{i}"],
+            })
+            arm = self._execute_arm(
+                experiment_id, stage, benchmarks, meta,
+                group_id=group_id, group_name=group_name,
+            )
+            arms.append(arm)
+            if arm.status != "completed":
+                logger.warning(
+                    "continual: chain stopped at stage %d (status=%s)", i, arm.status,
+                )
+                break
+            prev_ckpt = self._final_state_checkpoint(arm)
+            if prev_ckpt is None and i + 1 < len(cont.datasets):
+                logger.warning(
+                    "continual: stage %d produced no resumable state checkpoint; "
+                    "stage %d will start from the base model", i, i + 1,
+                )
+        return arms
+
+    @staticmethod
+    def _final_state_checkpoint(arm: ArmResult) -> str | None:
+        """The full training-state path (weights + optimizer) of an arm's final
+        checkpoint. Continual learning loads *weights only* from this into the
+        next stage. Distinct from :meth:`_final_checkpoint`, which returns the
+        inference-only sampler path."""
+        arts = (arm.run_result.artifacts if arm.run_result else {}) or {}
+        return (
+            arts.get("state-final")
+            or next((v for k, v in arts.items() if str(k).startswith("state-")), None)
         )
 
     # -- store passthroughs (each guarded so store=None is fine) ---------

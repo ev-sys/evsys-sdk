@@ -131,15 +131,19 @@ class TinkerBackend:
         lora_rank: int = 32,
         renderer_name: str | None = None,
         resume_state_path: str | None = None,
+        init_weights_path: str | None = None,
         api_key_env: str = "TINKER_API_KEY",
         user_metadata: dict[str, str] | None = None,
     ) -> "TinkerBackend":
         """Async factory.
 
         ``resume_state_path``: when provided, the training client is created
-        from that prior ``state_path`` (preserves optimizer state). When
-        ``None``, a fresh LoRA training client is allocated at
-        ``model_name`` with ``lora_rank``.
+        from that prior ``state_path`` *with* optimizer state (full resume).
+        ``init_weights_path``: load *weights only* from that prior state path
+        and start a fresh optimizer (used to chain continual-learning stages).
+        When both are ``None``, a fresh LoRA training client is allocated at
+        ``model_name`` with ``lora_rank``. ``resume_state_path`` wins if both
+        are set.
 
         ``renderer_name`` is recorded onto the underlying training client's
         user metadata so the inference path can read it back from a
@@ -156,7 +160,15 @@ class TinkerBackend:
             training = await service.create_training_client_from_state_with_optimizer_async(
                 resume_state_path, user_metadata=meta or None,
             )
-            logger.info("TinkerBackend: resumed from %s", resume_state_path)
+            logger.info("TinkerBackend: resumed (with optimizer) from %s", resume_state_path)
+        elif init_weights_path:
+            # Weights only: fresh optimizer. Used by continual learning so each
+            # stage continues from the prior stage's weights without inheriting
+            # its optimizer moments.
+            training = await service.create_training_client_from_state_async(
+                init_weights_path, user_metadata=meta or None,
+            )
+            logger.info("TinkerBackend: init weights (fresh optimizer) from %s", init_weights_path)
         else:
             training = await service.create_lora_training_client_async(
                 model_name, rank=lora_rank, user_metadata=meta or None,
