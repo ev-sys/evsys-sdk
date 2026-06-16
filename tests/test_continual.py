@@ -27,7 +27,6 @@ def _cfg(tmp_path, n: int) -> ExperimentConfig:
             "model": {"name": "m"},
             "algorithm": {"kind": "mock_sft"},
             "backend": {"kind": "mock"},
-            "eval": {"enabled": False},
         },
         continual={"datasets": [_ds(i + 1) for i in range(n)]},
     )
