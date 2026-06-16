@@ -102,19 +102,17 @@ class Evaluator(Protocol):
     """Periodic in-loop evaluator.
 
     Each evaluator owns one metric source (a Benchmark, a custom probe,
-    etc.). The loop checks each Evaluator's own ``run_every`` per step;
-    when ``run_every == 0`` the evaluator inherits the loop's global
-    ``eval_every`` cadence. This lets a single training run mix a fast
-    val benchmark (``run_every: 50``) with a heavier test benchmark
-    (``run_every: 500``).
+    etc.) and carries its own ``run_every`` cadence. This lets a single
+    training run mix a fast val benchmark (``run_every: 50``) with a
+    heavier test benchmark (``run_every: 500``).
     """
 
     name: str
     """Short name; used to prefix the metric keys (``val/<name>/<key>``)."""
 
     run_every: int
-    """Per-evaluator step cadence. ``0`` → inherit the loop's
-    ``eval_every``. Positive → fire when ``(step + 1) % run_every == 0``."""
+    """Per-evaluator step cadence. ``0`` → disabled (never fires).
+    Positive → fire when ``(step + 1) % run_every == 0``."""
 
     async def evaluate(
         self, sampler: SamplingClient, *,
@@ -193,7 +191,6 @@ class TrainingLoop:
         output_dir: str | Path,
         adam_params: tinker.AdamParams,
         save_every: int,
-        eval_every: int = 0,
         evaluators: list[Evaluator] | None = None,
         callbacks: list[Callback] | None = None,
         log_prefix: str = "",
@@ -206,7 +203,6 @@ class TrainingLoop:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.adam_params = adam_params
         self.save_every = save_every
-        self.eval_every = max(0, int(eval_every))
         self.evaluators: list[Evaluator] = list(evaluators or [])
         self.callbacks: list[Callback] = list(callbacks or [])
         self.log_prefix = log_prefix
@@ -333,11 +329,9 @@ class TrainingLoop:
             self._dispatch("on_checkpoint", state, row)
 
     def _is_due(self, ev: Evaluator, step: int) -> bool:
-        """Per-evaluator cadence check. An evaluator with its own
-        ``run_every > 0`` ignores the loop-level ``eval_every`` entirely;
-        otherwise it inherits ``eval_every`` (0 = never)."""
-        per_ev = int(getattr(ev, "run_every", 0) or 0)
-        cadence = per_ev if per_ev > 0 else self.eval_every
+        """Per-evaluator cadence check. ``run_every <= 0`` → disabled;
+        positive → fire when ``(step + 1) % run_every == 0``."""
+        cadence = int(getattr(ev, "run_every", 0) or 0)
         if cadence <= 0:
             return False
         return (step + 1) % cadence == 0

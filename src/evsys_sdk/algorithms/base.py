@@ -77,10 +77,6 @@ class BaseAlgorithmConfig(BaseModel):
     """If 0, computed from ``save_at_fractions`` (GCD-of-marks heuristic)."""
     save_at_fractions: list[float] = Field(default_factory=lambda: [1.0])
 
-    # In-loop eval cadence (separate from the post-training Benchmark eval that
-    # Experiment runs). 0 disables; per-benchmark ``run_every`` can override.
-    eval_every: int = 0
-
     # Training-loop callbacks ({kind, params}); resolved through the callback
     # registry and attached to the loop. e.g.
     #   callbacks: [{kind: early_stopping, params: {metric: pass_rate}}]
@@ -208,7 +204,6 @@ class BaseAlgorithm:
                 eps=self.cfg.adam_eps,
             ),
             save_every=save_every,
-            eval_every=self.cfg.eval_every,
             evaluators=evaluators,
             callbacks=build_callbacks(self.cfg.callbacks),
         )

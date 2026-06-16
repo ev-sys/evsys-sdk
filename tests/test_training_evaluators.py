@@ -236,7 +236,7 @@ def test_loop_respects_per_evaluator_run_every(tmp_path: Path):
         backend=MockBackend(), step_builder=_SB(),
         log_store=_LS(), output_dir=tmp_path,
         adam_params=tinker.AdamParams(learning_rate=1e-4, beta1=0.9, beta2=0.95, eps=1e-8),
-        save_every=100, eval_every=0,
+        save_every=100,
         evaluators=[_Ev(name="fast", run_every=3), _Ev(name="slow", run_every=5)],
     )
     asyncio.run(loop.run(num_steps=10))
@@ -248,9 +248,9 @@ def test_loop_respects_per_evaluator_run_every(tmp_path: Path):
     assert slow_steps == [4, 9]
 
 
-def test_loop_fallback_to_eval_every_when_evaluator_has_no_run_every(tmp_path: Path):
-    """An evaluator without `run_every` (or with 0) inherits the loop's
-    `eval_every`. Preserves PR #18 behaviour."""
+def test_evaluator_with_run_every_zero_never_fires(tmp_path: Path):
+    """An evaluator with ``run_every == 0`` is disabled — there is no
+    loop-level fallback cadence."""
     import tinker
     from evsys_sdk.training import MockBackend, TrainingLoop, TrainingBatch
 
@@ -258,7 +258,8 @@ def test_loop_fallback_to_eval_every_when_evaluator_has_no_run_every(tmp_path: P
 
     @dataclass
     class _Ev:
-        name: str = "legacy"
+        name: str = "disabled"
+        run_every: int = 0
         async def evaluate(self, sampler, **kwargs):
             fired.append(1)
             return {"pass_rate": 0.5}
@@ -279,9 +280,8 @@ def test_loop_fallback_to_eval_every_when_evaluator_has_no_run_every(tmp_path: P
         backend=MockBackend(), step_builder=_SB(),
         log_store=_LS(), output_dir=tmp_path,
         adam_params=tinker.AdamParams(learning_rate=1e-4, beta1=0.9, beta2=0.95, eps=1e-8),
-        save_every=100, eval_every=2,    # → fires at steps 1, 3, 5
+        save_every=100,
         evaluators=[_Ev()],
     )
     asyncio.run(loop.run(num_steps=6))
-    # 3 fires (steps 1, 3, 5)
-    assert len(fired) == 3
+    assert fired == []

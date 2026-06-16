@@ -94,6 +94,7 @@ class _CannedEvaluator:
 
     name: str
     metrics: dict[str, float]
+    run_every: int = 0
     calls: list[Any] = field(default_factory=list)
 
     async def evaluate(self, sampler, **kwargs) -> dict[str, float]:
@@ -209,18 +210,18 @@ def test_manifest_rows_appear_on_disk(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_eval_every_calls_each_evaluator_with_snapshot(tmp_path: Path):
+def test_per_evaluator_run_every_calls_each_evaluator_with_snapshot(tmp_path: Path):
     backend = MockBackend()
-    ev_a = _CannedEvaluator(name="val_a", metrics={"pass_rate": 0.7})
-    ev_b = _CannedEvaluator(name="val_b", metrics={"pass_rate": 0.5})
+    ev_a = _CannedEvaluator(name="val_a", metrics={"pass_rate": 0.7}, run_every=2)
+    ev_b = _CannedEvaluator(name="val_b", metrics={"pass_rate": 0.5}, run_every=2)
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
         log_store=log, output_dir=tmp_path, adam_params=_adam(),
-        save_every=10, eval_every=2, evaluators=[ev_a, ev_b],
+        save_every=10, evaluators=[ev_a, ev_b],
     )
     asyncio.run(loop.run(num_steps=4))
-    # eval_every=2 fires at (step + 1) % 2 == 0 → steps 1 and 3.
+    # run_every=2 fires at (step + 1) % 2 == 0 → steps 1 and 3.
     assert len(ev_a.calls) == 2
     assert len(ev_b.calls) == 2
     eval_rows = [r for r in log.rows if r.get("split") == "val"]
@@ -235,7 +236,7 @@ def test_eval_skipped_when_evaluators_empty(tmp_path: Path):
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
         log_store=log, output_dir=tmp_path, adam_params=_adam(),
-        save_every=10, eval_every=1, evaluators=[],
+        save_every=10, evaluators=[],
     )
     asyncio.run(loop.run(num_steps=3))
     assert all(r.get("split") != "val" for r in log.rows)
@@ -244,6 +245,7 @@ def test_eval_skipped_when_evaluators_empty(tmp_path: Path):
 def test_failing_evaluator_does_not_kill_loop(tmp_path: Path):
     class _BoomEv:
         name = "boom"
+        run_every = 1
         async def evaluate(self, sampler, **kwargs):
             raise RuntimeError("boom")
 
@@ -251,7 +253,7 @@ def test_failing_evaluator_does_not_kill_loop(tmp_path: Path):
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstantStepBuilder(),
         log_store=log, output_dir=tmp_path, adam_params=_adam(),
-        save_every=10, eval_every=1, evaluators=[_BoomEv()],
+        save_every=10, evaluators=[_BoomEv()],
     )
     artifacts = asyncio.run(loop.run(num_steps=2))
     assert artifacts.total_requested_steps == 2  # finished despite the evaluator
