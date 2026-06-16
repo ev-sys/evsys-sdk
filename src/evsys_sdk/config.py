@@ -260,13 +260,10 @@ class ExperimentConfig(_Strict):
             )
         if self.n_repeats < 1:
             raise ValueError(f"n_repeats must be >= 1 (got {self.n_repeats}).")
-        if self.continual is not None:
-            if self.run is None:
-                raise ValueError(
-                    "continual requires a single `run` as the base (not runs/matrix)."
-                )
-            if self.n_repeats != 1:
-                raise ValueError("continual does not support n_repeats > 1.")
+        if self.continual is not None and self.run is None:
+            raise ValueError(
+                "continual requires a single `run` as the base (not runs/matrix)."
+            )
 
 
 class MatrixSpec(_Strict):

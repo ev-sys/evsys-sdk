@@ -69,6 +69,38 @@ def test_continual_chains_weights_and_swaps_data(tmp_path):
     assert "continual" in seen[1]["tags"] and "stage:1" in seen[1]["tags"]
 
 
+def test_continual_repeats_whole_chain_per_seed(tmp_path):
+    """n_repeats > 1 replicates the entire chain once per seed; weights chain
+    only within a chain, and each chain restarts from the base model."""
+    seen: list[dict] = []
+
+    def fake_train(cfg: ExperimentConfig) -> list[RunResult]:
+        run = cfg.run
+        seen.append({"name": run.name, "seed": run.seed,
+                     "init": run.model.init_from_checkpoint})
+        return [RunResult(
+            run_id="r", status="completed", metrics={"loss": 0.1},
+            artifacts={"state-final": f"state::{run.name}"},
+        )]
+
+    cfg = _cfg(tmp_path, 2)                       # 2 datasets
+    cfg = cfg.model_copy(update={"n_repeats": 2})  # 2 seeds → 2 chains
+    exp = Experiment(cfg, train_fn=fake_train)
+    res = exp.run()
+
+    assert len(res.arms) == 4  # 2 chains x 2 stages
+    assert [s["name"] for s in seen] == [
+        "base_stage0__s42", "base_stage1__s42",
+        "base_stage0__s43", "base_stage1__s43",
+    ]
+    assert [s["seed"] for s in seen] == [42, 42, 43, 43]
+    # Each chain starts fresh; stage1 inits from THIS chain's stage0.
+    assert seen[0]["init"] is None
+    assert seen[1]["init"] == "state::base_stage0__s42"
+    assert seen[2]["init"] is None
+    assert seen[3]["init"] == "state::base_stage0__s43"
+
+
 def test_continual_stops_on_failure(tmp_path):
     calls: list[str] = []
 

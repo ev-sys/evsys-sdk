@@ -609,45 +609,71 @@ class Experiment:
     ) -> list[ArmResult]:
         """Train the base ``run`` once per dataset in ``continual.datasets``, in
         order, chaining each stage's final weights (fresh optimizer) into the
-        next. All stages share one experiment and one dashboard group, and each
-        completed stage is scored on every benchmark via :meth:`_execute_arm`.
-        The chain stops at the first stage that does not complete.
+        next. Each completed stage is scored on every benchmark via
+        :meth:`_execute_arm`; a chain stops at the first stage that does not
+        complete.
+
+        With ``n_repeats > 1`` the *whole chain* is replicated once per seed
+        (``[base_seed, base_seed+1, ...]`` or ``[run.seed, ...]``). Stage *i*
+        across all repeats shares one dashboard group, so variance is aggregated
+        per stage. Within a chain, weights are chained only between that chain's
+        own stages.
         """
         cont = self.config.continual
         base = self.config.run
         assert cont is not None and base is not None  # guaranteed by config validator
         template = cont.name_template or "{base}_stage{i}"
-        group_name = f"{base.name}_continual"
-        group_id = self._create_group(experiment_id, group_name)
+        n = self.config.n_repeats
+        base_seed = self.config.base_seed if self.config.base_seed is not None else base.seed
+        seeds = [base_seed + r for r in range(n)]
+
+        # When repeating, group the seed-replicates of each stage together so
+        # mean/stddev is computed per stage across repeats. n == 1 → no groups.
+        stage_group_ids: list[str | None] = [None] * len(cont.datasets)
+        if n > 1:
+            stage_group_ids = [
+                self._create_group(experiment_id, template.format(base=base.name, i=i))
+                for i in range(len(cont.datasets))
+            ]
 
         arms: list[ArmResult] = []
-        prev_ckpt: str | None = None
-        for i, dataset in enumerate(cont.datasets):
-            model = base.model
-            if prev_ckpt is not None:
-                model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
-            stage = base.model_copy(update={
-                "name": template.format(base=base.name, i=i),
-                "data": dataset,
-                "model": model,
-                "tags": [*base.tags, "continual", f"stage:{i}"],
-            })
-            arm = self._execute_arm(
-                experiment_id, stage, benchmarks, meta,
-                group_id=group_id, group_name=group_name,
-            )
-            arms.append(arm)
-            if arm.status != "completed":
-                logger.warning(
-                    "continual: chain stopped at stage %d (status=%s)", i, arm.status,
+        for seed in seeds:
+            prev_ckpt: str | None = None
+            for i, dataset in enumerate(cont.datasets):
+                model = base.model
+                if prev_ckpt is not None:
+                    model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
+                stage_label = template.format(base=base.name, i=i)
+                name = f"{stage_label}__s{seed}" if n > 1 else stage_label
+                tags = [*base.tags, "continual", f"stage:{i}"]
+                if n > 1:
+                    tags.append(f"seed:{seed}")
+                stage = base.model_copy(update={
+                    "name": name,
+                    "data": dataset,
+                    "model": model,
+                    "seed": seed,
+                    "tags": tags,
+                })
+                arm = self._execute_arm(
+                    experiment_id, stage, benchmarks, meta,
+                    group_id=stage_group_ids[i],
+                    group_name=(stage_label if n > 1 else None),
                 )
-                break
-            prev_ckpt = self._final_state_checkpoint(arm)
-            if prev_ckpt is None and i + 1 < len(cont.datasets):
-                logger.warning(
-                    "continual: stage %d produced no resumable state checkpoint; "
-                    "stage %d will start from the base model", i, i + 1,
-                )
+                arms.append(arm)
+                if arm.status != "completed":
+                    logger.warning(
+                        "continual: chain (seed=%s) stopped at stage %d (status=%s)",
+                        seed, i, arm.status,
+                    )
+                    break
+                prev_ckpt = self._final_state_checkpoint(arm)
+                if prev_ckpt is None and i + 1 < len(cont.datasets):
+                    logger.warning(
+                        "continual: stage %d (seed=%s) produced no resumable state "
+                        "checkpoint; stage %d will start from the base model",
+                        i, seed, i + 1,
+                    )
         return arms
 
     @staticmethod
