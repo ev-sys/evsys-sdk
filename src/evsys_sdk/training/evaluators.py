@@ -118,6 +118,9 @@ class BenchmarkEvaluator:
     max_tokens: int = 256
     temperature: float = 0.0
     breakdown_keys: list[str] = field(default_factory=list)
+    metrics: list[str] = field(default_factory=list)
+    """Registered metric names to compute (harbor engine), e.g.
+    ``["pass@3", "pass^3", "avg"]``. Empty → ``mean_reward`` + ``pass_rate``."""
     chat_template: dict[str, Any] = field(default_factory=dict)
     limit: int | None = None
     """Cap the number of tasks scored per eval — useful when the benchmark
@@ -184,7 +187,7 @@ class BenchmarkEvaluator:
             temperature=self.temperature,
             system_prompt=(self.chat_template or {}).get("system_prompt"),
         )
-        metrics = eval_metrics(groups)
+        metrics = eval_metrics(groups, metrics=self.metrics)
         if self.store is not None and self.run_id:
             self._upload(tasks, groups, metrics, step)
         return metrics
@@ -289,6 +292,7 @@ def build_in_loop_evaluators(
             max_tokens=int(spec.get("max_tokens", 256)),
             temperature=float(spec.get("temperature", 0.0)),
             breakdown_keys=list(spec.get("breakdown_keys") or []),
+            metrics=list(spec.get("metrics") or []),
             chat_template=dict(spec.get("chat_template") or {}),
             limit=int(spec["limit"]) if spec.get("limit") is not None else None,
             engine=str(spec.get("engine", "")),

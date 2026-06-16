@@ -66,6 +66,23 @@ def test_eval_metrics_empty():
     assert he.eval_metrics([]) == {"mean_reward": 0.0, "pass_rate": 0.0, "n_tasks": 0.0}
 
 
+def test_eval_metrics_honors_declared_metric_names():
+    # 4 tasks × 3 samples: any-of-3 solves 3/4 (pass@3), all-of-3 solves 1/4 (pass^3).
+    groups = [
+        _group([1.0, 1.0, 0.0]),
+        _group([1.0, 0.0, 0.0]),
+        _group([0.0, 0.0, 0.0]),
+        _group([1.0, 1.0, 1.0]),
+    ]
+    m = he.eval_metrics(groups, metrics=["pass@3", "pass^3", "avg"])
+    assert m["pass@3"] == pytest.approx(0.75)
+    assert m["pass^3"] == pytest.approx(0.25)
+    assert m["avg"] == pytest.approx(0.5)
+    assert m["n_tasks"] == 4.0
+    # Declared list replaces the default mean_reward/pass_rate keys.
+    assert "mean_reward" not in m
+
+
 def test_eval_metrics_includes_time_tokens_cost_when_present():
     groups = [
         _group_with_usage([1.0], latency=2.0, prompt_tokens=10, completion_tokens=5, cost_usd=0.01),

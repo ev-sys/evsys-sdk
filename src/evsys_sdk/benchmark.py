@@ -23,9 +23,12 @@ verifier kinds raise a clear error so callers don't silently mis-score.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .data_types import (
     E2BVerifier,
@@ -35,6 +38,7 @@ from .data_types import (
     harbor_task_from_dict,
 )
 from .protocols import InferenceClient
+from .registry import get_metric
 from .verifiers import fns as verifier_fns
 
 
@@ -150,6 +154,7 @@ class Benchmark:
         prompt_builder: "callable | None" = None,
         breakdown_keys: list[str] | None = None,
         limit: int | None = None,
+        metrics: list[str] | None = None,
     ) -> BenchmarkScore:
         """Run each task through `client` and score the completion.
 
@@ -192,13 +197,16 @@ class Benchmark:
             )
 
         n = len(per_task)
-        mean_reward = sum(r.reward for r in per_task) / n if n else 0.0
-        pass_rate = sum(1 for r in per_task if r.reward >= 1.0) / n if n else 0.0
-        metrics = {
-            "mean_reward": mean_reward,
-            "pass_rate": pass_rate,
-            "n_tasks": float(n),
-        }
+        # One generation per task here, so each task is a single-sample group.
+        task_rewards = [[r.reward] for r in per_task]
+        names = list(metrics) if metrics else ["mean_reward", "pass_rate"]
+        score_metrics: dict[str, float] = {"n_tasks": float(n)}
+        for name in names:
+            try:
+                score_metrics[name] = float(get_metric(name)().compute(task_rewards))
+            except Exception:
+                logger.warning("benchmark metric %r failed; skipping", name, exc_info=True)
+        metrics = score_metrics
 
         breakdowns: dict[str, dict[str, dict[str, float]]] = {}
         for key in breakdown_keys:

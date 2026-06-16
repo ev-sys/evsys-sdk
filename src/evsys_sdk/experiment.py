@@ -505,6 +505,7 @@ class Experiment:
                 temperature=float(bench_meta.get("temperature", 0.0)),
                 breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
                 limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
+                metrics=bench_meta.get("metrics"),
             )
             seconds = time.time() - t0
             arm.evals.append(EvalResult(
@@ -572,7 +573,7 @@ class Experiment:
         ))
         seconds = time.time() - t0
 
-        metrics = eval_metrics(groups)
+        metrics = eval_metrics(groups, metrics=bench_meta.get("metrics"))
         arm.evals.append(EvalResult(
             name=str(bench_meta.get("name", "benchmark")),
             benchmark_id=bench_meta.get("id"),
