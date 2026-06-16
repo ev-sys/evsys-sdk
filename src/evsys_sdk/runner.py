@@ -267,6 +267,7 @@ def _execute_run(
             model={
                 "name": run.model.name,
                 "load_checkpoint_path": run.model.load_checkpoint_path,
+                "init_from_checkpoint": run.model.init_from_checkpoint,
                 "renderer_name": run.model.renderer_name,
             },
             run_dir=str(run_dir),
