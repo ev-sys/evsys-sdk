@@ -231,14 +231,17 @@ class Experiment:
             for p in primaries:
                 group_id_by_name[p.name] = self._create_group(experiment_id, p.name)
 
-        arms: list[ArmResult] = []
-        for primary in primaries:
-            for arm_cfg, group_name in self._replicates_for(primary):
-                group_id = group_id_by_name.get(group_name) if group_name else None
-                arms.append(self._execute_arm(
-                    experiment_id, arm_cfg, benchmarks, meta,
-                    group_id=group_id, group_name=group_name,
-                ))
+        if self.config.continual is not None:
+            arms = self._run_continual(experiment_id, benchmarks, meta)
+        else:
+            arms = []
+            for primary in primaries:
+                for arm_cfg, group_name in self._replicates_for(primary):
+                    group_id = group_id_by_name.get(group_name) if group_name else None
+                    arms.append(self._execute_arm(
+                        experiment_id, arm_cfg, benchmarks, meta,
+                        group_id=group_id, group_name=group_name,
+                    ))
 
         best_arm = self._pick_best(arms, success_metric) if success_metric else None
         best_score = best_arm.score(success_metric) if (best_arm and success_metric) else None
@@ -543,7 +546,17 @@ class Experiment:
         limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
         tasks = bench.tasks if limit is None else bench.tasks[: max(0, limit)]
         ct = bench_meta.get("chat_template") or {}
-        workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
+        # Persist eval rollouts under the run's output dir — alongside training's
+        # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
+        # trial dirs survive the run instead of vanishing with a tempdir. One
+        # subdir per benchmark (a run can score several) avoids collisions.
+        run_dir = self._resolve_run_dir(arm)
+        if run_dir is not None:
+            safe_bench = str(bench_meta.get("name", "benchmark")).replace("/", "_").replace(" ", "_")
+            workspace = run_dir / "harbor_eval" / safe_bench
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:  # no resolvable run dir → fall back to an ephemeral workspace
+            workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
         t0 = time.time()
         groups = asyncio.run(score_via_harbor(
@@ -594,6 +607,95 @@ class Experiment:
             or arts.get("sampler_path")
             or next((v for k, v in arts.items()
                      if "sampler" in str(k) or "checkpoint" in str(k)), None)
+        )
+
+    # -- continual learning -------------------------------------------------
+
+    def _run_continual(
+        self,
+        experiment_id: str | None,
+        benchmarks: list[tuple[Benchmark, dict]],
+        meta: dict,
+    ) -> list[ArmResult]:
+        """Train the base ``run`` once per dataset in ``continual.datasets``, in
+        order, chaining each stage's final weights (fresh optimizer) into the
+        next. Each completed stage is scored on every benchmark via
+        :meth:`_execute_arm`; a chain stops at the first stage that does not
+        complete.
+
+        With ``n_repeats > 1`` the *whole chain* is replicated once per seed
+        (``[base_seed, base_seed+1, ...]`` or ``[run.seed, ...]``). Stage *i*
+        across all repeats shares one dashboard group, so variance is aggregated
+        per stage. Within a chain, weights are chained only between that chain's
+        own stages.
+        """
+        cont = self.config.continual
+        base = self.config.run
+        assert cont is not None and base is not None  # guaranteed by config validator
+        template = cont.name_template or "{base}_stage{i}"
+        n = self.config.n_repeats
+        base_seed = self.config.base_seed if self.config.base_seed is not None else base.seed
+        seeds = [base_seed + r for r in range(n)]
+
+        # When repeating, group the seed-replicates of each stage together so
+        # mean/stddev is computed per stage across repeats. n == 1 → no groups.
+        stage_group_ids: list[str | None] = [None] * len(cont.datasets)
+        if n > 1:
+            stage_group_ids = [
+                self._create_group(experiment_id, template.format(base=base.name, i=i))
+                for i in range(len(cont.datasets))
+            ]
+
+        arms: list[ArmResult] = []
+        for seed in seeds:
+            prev_ckpt: str | None = None
+            for i, dataset in enumerate(cont.datasets):
+                model = base.model
+                if prev_ckpt is not None:
+                    model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
+                stage_label = template.format(base=base.name, i=i)
+                name = f"{stage_label}__s{seed}" if n > 1 else stage_label
+                tags = [*base.tags, "continual", f"stage:{i}"]
+                if n > 1:
+                    tags.append(f"seed:{seed}")
+                stage = base.model_copy(update={
+                    "name": name,
+                    "data": dataset,
+                    "model": model,
+                    "seed": seed,
+                    "tags": tags,
+                })
+                arm = self._execute_arm(
+                    experiment_id, stage, benchmarks, meta,
+                    group_id=stage_group_ids[i],
+                    group_name=(stage_label if n > 1 else None),
+                )
+                arms.append(arm)
+                if arm.status != "completed":
+                    logger.warning(
+                        "continual: chain (seed=%s) stopped at stage %d (status=%s)",
+                        seed, i, arm.status,
+                    )
+                    break
+                prev_ckpt = self._final_state_checkpoint(arm)
+                if prev_ckpt is None and i + 1 < len(cont.datasets):
+                    logger.warning(
+                        "continual: stage %d (seed=%s) produced no resumable state "
+                        "checkpoint; stage %d will start from the base model",
+                        i, seed, i + 1,
+                    )
+        return arms
+
+    @staticmethod
+    def _final_state_checkpoint(arm: ArmResult) -> str | None:
+        """The full training-state path (weights + optimizer) of an arm's final
+        checkpoint. Continual learning loads *weights only* from this into the
+        next stage. Distinct from :meth:`_final_checkpoint`, which returns the
+        inference-only sampler path."""
+        arts = (arm.run_result.artifacts if arm.run_result else {}) or {}
+        return (
+            arts.get("state-final")
+            or next((v for k, v in arts.items() if str(k).startswith("state-")), None)
         )
 
     # -- store passthroughs (each guarded so store=None is fine) ---------

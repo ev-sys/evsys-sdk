@@ -89,6 +89,43 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     assert rows[0]["completion_token_ids"] == [2, 3]
 
 
+def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
+    # Eval rollouts must land under the run's output dir (harbor_eval/<bench>),
+    # not an ephemeral tempdir — so they survive the run like training/val do.
+    captured: dict = {}
+
+    async def _fake_score(tasks, **kwargs):
+        captured["workspace_dir"] = kwargs.get("workspace_dir")
+        return [
+            TrajectoryGroup(
+                trajectories=[Trajectory(
+                    turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
+                    reward=1.0,
+                )],
+                tags=["test"],
+            )
+            for _ in tasks
+        ]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+
+    run_cfg = _run_cfg()
+    cfg = ExperimentConfig(name="x", run=run_cfg, output_dir=str(tmp_path))
+    e = Experiment(cfg, store=_Store())
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed",
+                             artifacts={"checkpoint-final": "tinker://ckpt"}),
+    )
+
+    e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]})
+
+    ws = captured["workspace_dir"]
+    assert ws == tmp_path / "r" / "harbor_eval" / "b"   # persisted under the run dir
+    assert ws.exists()                                   # created, not a vanished tempdir
+    assert str(ws).startswith(str(tmp_path))             # never a system tempdir
+
+
 def test_final_checkpoint_picks_from_artifacts():
     arm = ArmResult(
         name="r", run_config=None, status="completed",  # type: ignore[arg-type]

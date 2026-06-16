@@ -37,6 +37,11 @@ class Trajectory:
     turns: list[Turn]
     reward: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
+    """Free-form per-rollout extras. The harbor harvest stamps a ``"usage"``
+    dict here — ``{cost_usd, prompt_tokens, completion_tokens, cached_tokens,
+    latency_s}`` (any field harbor didn't report is ``None``) — which the eval
+    aggregator turns into the default ``time_per_task`` / ``tokens_per_task`` /
+    ``cost_per_task`` metrics."""
 
 
 @dataclass

@@ -112,7 +112,10 @@ class ModelConfig(_Strict):
     name: str
     """HuggingFace identifier, e.g. 'Qwen/Qwen3-4B'."""
     load_checkpoint_path: str | None = None
-    """Resume from a previous Tinker / local checkpoint."""
+    """Resume from a previous checkpoint *with* optimizer state (full resume)."""
+    init_from_checkpoint: str | None = None
+    """Initialise weights from a previous checkpoint but start a *fresh*
+    optimizer (weights-only). Used to chain continual-learning stages."""
     renderer_name: str | None = None
     """Tinker chat renderer hint, e.g. 'qwen3'."""
 
@@ -171,6 +174,13 @@ class ExperimentConfig(_Strict):
     runs: list[RunConfig] | None = None
     matrix: MatrixSpec | None = None
 
+    # -- Continual learning ---------------------------------------------------
+    # Optional modifier (not a fourth mode): when set, the single ``run`` is
+    # trained once per dataset in ``continual.datasets``, in order, where each
+    # stage starts from the previous stage's weights (fresh optimizer). All
+    # stages live in one experiment and each is scored on all benchmarks.
+    continual: ContinualConfig | None = None
+
     # -- Run groups (variance studies) ---------------------------------------
     # When ``n_repeats > 1``, each primary RunConfig (from ``run`` / ``runs`` /
     # ``matrix``) becomes a *group*: it's replicated N times with seeds
@@ -197,6 +207,10 @@ class ExperimentConfig(_Strict):
             )
         if self.n_repeats < 1:
             raise ValueError(f"n_repeats must be >= 1 (got {self.n_repeats}).")
+        if self.continual is not None and self.run is None:
+            raise ValueError(
+                "continual requires a single `run` as the base (not runs/matrix)."
+            )
 
 
 class MatrixSpec(_Strict):
@@ -216,6 +230,31 @@ class MatrixSpec(_Strict):
     axes: dict[str, list[Any]] = Field(default_factory=dict)
     name_template: str | None = None
     """Optional template for run names. Uses {key} for axis values + {base}."""
+
+
+class ContinualConfig(_Strict):
+    """Continual-learning stages over a single base ``run``.
+
+    Each entry in ``datasets`` becomes one training stage: the base ``run`` is
+    copied with its ``data`` replaced by that entry, trained in order, and each
+    stage starts from the previous stage's weights (fresh optimizer). All stages
+    run inside one experiment and are scored on all configured benchmarks.
+
+    Example:
+        run:
+          data: {...}            # ignored; the per-stage data below is used
+          model: {...}
+          algorithm: {kind: sft, ...}
+        continual:
+          datasets:
+            - {dataset_name: corpus_a, transforms: [...]}
+            - {dataset_name: corpus_b, transforms: [...]}
+            - {dataset_name: corpus_c, transforms: [...]}
+    """
+
+    datasets: list[DataConfig] = Field(min_length=1)
+    name_template: str | None = None
+    """Optional stage-name template; uses {base} and {i}. Default '{base}_stage{i}'."""
 
 
 # pydantic v2 forward-ref resolution

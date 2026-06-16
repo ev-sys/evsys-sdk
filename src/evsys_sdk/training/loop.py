@@ -155,6 +155,11 @@ class LoopArtifacts:
         for row in self.checkpoints:
             if row.sampler_path:
                 out[f"checkpoint-{row.name}"] = row.sampler_path
+            # Full training-state path (weights + optimizer). Surfaced so
+            # continual learning can chain a stage's final weights into the
+            # next stage (see Experiment continual mode).
+            if row.state_path:
+                out[f"state-{row.name}"] = row.state_path
         return out
 
 

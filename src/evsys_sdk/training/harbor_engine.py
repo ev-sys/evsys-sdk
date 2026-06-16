@@ -298,7 +298,49 @@ def _trial_to_trajectory(tr: Any) -> Trajectory | None:
 
     rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None) or {}
     reward = float(rewards.get("reward", 0.0))
-    return Trajectory(turns=turns, reward=reward)
+
+    usage = _trial_usage(tr)
+    # Backfill token counts from the harvested turns when harbor didn't report
+    # them (e.g. on-policy tinker rollouts populate token ids, not n_*_tokens).
+    if usage["prompt_tokens"] is None:
+        usage["prompt_tokens"] = sum(len(t.prompt_tokens) for t in turns)
+    if usage["completion_tokens"] is None:
+        usage["completion_tokens"] = sum(len(t.completion_tokens) for t in turns)
+    return Trajectory(turns=turns, reward=reward, metadata={"usage": usage})
+
+
+def _trial_usage(tr: Any) -> dict[str, Any]:
+    """Pull harbor's native cost / token / timing info off a trial result.
+
+    Harbor records ``cost_usd`` and token counts on ``agent_result``
+    (its ``AgentContext``) and per-phase wall-clock timing on the trial
+    (``agent_execution``, with the whole-trial span as fallback). Any field
+    harbor didn't populate stays ``None`` — e.g. on-policy tinker rollouts have
+    no API ``cost_usd``, and the caller backfills token counts from the turns.
+    Pure + harbor-free (duck-typed getattr) so it's directly testable.
+    """
+    ar = getattr(tr, "agent_result", None)
+    return {
+        "cost_usd": getattr(ar, "cost_usd", None),
+        "prompt_tokens": getattr(ar, "n_input_tokens", None),
+        "completion_tokens": getattr(ar, "n_output_tokens", None),
+        "cached_tokens": getattr(ar, "n_cache_tokens", None),
+        "latency_s": _phase_seconds(getattr(tr, "agent_execution", None))
+        or _phase_seconds(tr),
+    }
+
+
+def _phase_seconds(phase: Any) -> float | None:
+    """Wall-clock seconds for a harbor timing phase — anything carrying
+    ``started_at`` / ``finished_at`` datetimes. ``None`` when either is missing."""
+    started = getattr(phase, "started_at", None)
+    finished = getattr(phase, "finished_at", None)
+    if started is None or finished is None:
+        return None
+    try:
+        return (finished - started).total_seconds()
+    except (TypeError, AttributeError):  # pragma: no cover - defensive
+        return None
 
 
 def _trial_name(task_id: str, sample: int) -> str:

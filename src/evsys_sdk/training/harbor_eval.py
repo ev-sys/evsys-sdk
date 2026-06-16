@@ -74,14 +74,18 @@ def eval_metrics(
     *,
     metrics: Sequence[str] | None = None,
 ) -> dict[str, float]:
-    """Reduce per-task rollout rewards to the benchmark's declared metrics.
+    """Reduce per-task rollout rewards to the benchmark's declared metrics,
+    plus per-task economics.
 
     ``metrics`` is a list of registered metric names (e.g. ``["pass@3",
     "pass^3", "avg"]``); each is looked up via :func:`get_metric` and applied
-    to the per-task sample rewards (one inner list per task, holding that
-    task's ``num_samples`` rewards). ``n_tasks`` is always included. When no
-    metrics are declared, defaults to ``mean_reward`` + ``pass_rate`` for
-    back-compat."""
+    to the per-task sample rewards (one inner list per task, holding that task's
+    ``num_samples`` rewards). ``n_tasks`` is always included; when no metrics
+    are declared it defaults to ``mean_reward`` + ``pass_rate``.
+
+    Independently, ``{time_per_task, tokens_per_task, cost_per_task}`` are added
+    whenever harbor reported the underlying usage (cost is omitted for runs with
+    no API price, e.g. on-policy tinker)."""
     from ..registry import get_metric
 
     task_rewards = [list(g.rewards) for g in groups if g.rewards]
@@ -92,7 +96,51 @@ def eval_metrics(
             out[name] = float(get_metric(name)().compute(task_rewards))
         except Exception:
             logger.warning("eval metric %r failed; skipping", name, exc_info=True)
+
+    # Per-task economics (independent of the reward metrics above).
+    times: list[float] = []
+    tokens: list[float] = []
+    costs: list[float] = []
+    for g in groups:
+        if not g.rewards:
+            continue
+        u = _task_usage_means(g)
+        if u["latency_s"] is not None:
+            times.append(u["latency_s"])
+        if u["tokens"] is not None:
+            tokens.append(u["tokens"])
+        if u["cost_usd"] is not None:
+            costs.append(u["cost_usd"])
+    if times:
+        out["time_per_task"] = sum(times) / len(times)
+    if tokens:
+        out["tokens_per_task"] = sum(tokens) / len(tokens)
+    if costs:
+        out["cost_per_task"] = sum(costs) / len(costs)
     return out
+
+
+def _task_usage_means(group: TrajectoryGroup) -> dict[str, float | None]:
+    """Per-task mean latency / token count / cost over the group's
+    trajectories, reading the ``metadata['usage']`` harbor_engine stamps on
+    each rollout. A field is ``None`` when no trajectory reported it."""
+    lat: list[float] = []
+    toks: list[float] = []
+    cost: list[float] = []
+    for t in group.trajectories:
+        u = (t.metadata or {}).get("usage") or {}
+        if u.get("latency_s") is not None:
+            lat.append(float(u["latency_s"]))
+        pt, ct = u.get("prompt_tokens"), u.get("completion_tokens")
+        if pt is not None or ct is not None:
+            toks.append(float(pt or 0) + float(ct or 0))
+        if u.get("cost_usd") is not None:
+            cost.append(float(u["cost_usd"]))
+    return {
+        "latency_s": (sum(lat) / len(lat)) if lat else None,
+        "tokens": (sum(toks) / len(toks)) if toks else None,
+        "cost_usd": (sum(cost) / len(cost)) if cost else None,
+    }
 
 
 def eval_predictions(
@@ -108,6 +156,7 @@ def eval_predictions(
     for task, group in zip(tasks, groups):
         for sample_idx, traj in enumerate(group.trajectories):
             last = traj.turns[-1] if traj.turns else None
+            usage = (traj.metadata or {}).get("usage") or {}
             rows.append({
                 "kind": "eval",
                 "eval_id": eval_id,
@@ -118,7 +167,16 @@ def eval_predictions(
                 "expected": getattr(task.verifier, "expected", None),
                 "reward": traj.reward,
                 "completion_token_ids": last.completion_tokens if last else [],
-                "metadata": dict(task.metadata),
+                # Per-task time + tokens are persisted inside ``metadata`` — the
+                # one JSON column both the local and remote prediction stores
+                # keep. Top-level prediction columns are fixed, so anything
+                # outside ``metadata`` is dropped by the remote backend.
+                "metadata": {
+                    **dict(task.metadata),
+                    "latency_s": usage.get("latency_s"),
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                },
             })
     return rows
 
@@ -150,6 +208,9 @@ def upload_eval_rollouts(store: Any, run_id: str, predictions: list[dict]) -> No
                 step=p.get("step"),
                 sample_idx=p.get("sample_idx", 0),
                 metadata={
+                    # ``metadata`` already carries per-task latency_s +
+                    # prompt/completion_tokens (built in eval_predictions);
+                    # fold in the rollout token ids alongside them.
                     **(p.get("metadata") or {}),
                     "completion_token_ids": p.get("completion_token_ids", []),
                 },
