@@ -215,8 +215,8 @@ class BasicLoopAgent(BaseAgent):
         logger.info(
             "[harbor] agent.run completion=%r (prompt_tokens=%s completion_tokens=%s)",
             _trunc(resp.content or ""),
-            len(rd.get("prompt_token_ids") or []) or None,
-            len(rd.get("completion_token_ids") or []) or None,
+            _ntokens(rd.get("prompt_token_ids")),
+            _ntokens(rd.get("completion_token_ids")),
         )
         # Write the completion to the agent dir so the host-side EvsysVerifier
         # (run by harbor) can read it (self.logs_dir == trial_paths.agent_dir).
@@ -259,6 +259,15 @@ def _trunc(s: str, n: int = 200) -> str:
     """Single-line, length-capped string for debug logs."""
     s = " ".join((s or "").split())
     return s if len(s) <= n else s[:n] + f"…(+{len(s) - n} chars)"
+
+
+def _ntokens(turns: Any) -> int:
+    """Total token count across a rollout_details token field, which is a
+    list-of-turns (each turn a list of ids). Falls back to a flat list."""
+    turns = turns or []
+    if turns and isinstance(turns[0], (list, tuple)):
+        return sum(len(t) for t in turns)
+    return len(turns)
 
 
 def _read_text(path: Path) -> str:
