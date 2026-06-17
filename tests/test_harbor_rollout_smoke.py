@@ -49,15 +49,14 @@ def test_real_harbor_rollout_scores_and_harvests(tmp_path):
     hit, miss = groups
     # n_attempts=2 → two trajectories per task
     assert len(hit.trajectories) == 2 and len(miss.trajectories) == 2
-    # Python scoring from the harvested completion
+    # reward from harbor's verifier (our host-side EvsysVerifier over the registered fn)
     assert all(t.reward == 1.0 for t in hit.trajectories)
     assert all(t.reward == 0.0 for t in miss.trajectories)
-    # harvest populated turns + usage + completion text
+    # harvest populated the rollout (turns) + usage from the agent context
     tr = hit.trajectories[0]
     assert tr.turns and tr.turns[0].completion_tokens
     u = tr.metadata["usage"]
     assert u["prompt_tokens"] is not None and u["completion_tokens"] is not None
-    assert tr.metadata["completion"].startswith("ECHO:solve A")
 
 
 def test_real_harbor_generations(tmp_path):
@@ -69,5 +68,5 @@ def test_real_harbor_generations(tmp_path):
         n_concurrent=2, max_retries=0,
     ))
     assert len(trajs) == 2
-    assert all(t.turns and t.reward == 0.0 for t in trajs)   # generation-only, no reward
-    assert trajs[0].metadata["completion"].startswith("ECHO:write a poem")
+    # generation-only: rollout harvested, no reward (verifier disabled)
+    assert all(t.turns and t.turns[0].completion_tokens and t.reward == 0.0 for t in trajs)

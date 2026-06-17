@@ -32,16 +32,18 @@ def _task(task_id="t0", instruction="solve it", expected="42"):
 # --- materialize_task ------------------------------------------------------
 
 
-def test_materialize_writes_minimal_dir_no_dockerfile_no_testsh(tmp_path: Path):
-    dest = he.materialize_task(_task(), tmp_path / "task")
+def test_materialize_writes_task_dir_with_verifier_spec_and_dummy_test(tmp_path: Path):
+    import json
+    dest = he.materialize_task(_task(expected="42"), tmp_path / "task")
     assert (dest / "instruction.md").read_text() == "solve it"
-    toml = (dest / "task.toml").read_text()
-    assert 'environment_mode = "separate"' in toml      # skips test.sh at load
-    # No harbor verifier in the task — reward is scored in Python (harbor 0.13.2's
-    # verifier is container-coupled; we disable it at the job level).
-    assert "import_path" not in toml
+    # SHARED mode (no environment_mode); our EvsysVerifier is the job-level verifier.
+    assert 'environment_mode' not in (dest / "task.toml").read_text()
+    # dummy test.sh only satisfies harbor's load check (never executed)
+    assert (dest / "tests" / "test.sh").exists()
+    # per-task verifier spec the host-side EvsysVerifier reads
+    spec = json.loads((dest / "evsys_verifier.json").read_text())
+    assert spec == {"fn_name": "exact_match", "expected": "42", "params": {}}
     assert not (dest / "environment" / "Dockerfile").exists()
-    assert not (dest / "tests").exists()
 
 
 def test_materialize_rejects_non_in_process_verifier(tmp_path: Path):
@@ -53,9 +55,9 @@ def test_materialize_rejects_non_in_process_verifier(tmp_path: Path):
 # --- harvest ---------------------------------------------------------------
 
 
-def _trial(task_name, *, tokens, completion=""):
-    # Harbor 0.13.2: trials are grouped by task_name (the dir basename), and the
-    # completion is read off agent_result.metadata; reward is scored in Python.
+def _trial(task_name, *, tokens, reward):
+    # Harbor 0.13.2: trials are grouped by task_name (the dir basename); the
+    # reward comes from verifier_result (our host-side EvsysVerifier produced it).
     rollout = {
         "prompt_token_ids": [[1, 2, 3]],
         "completion_token_ids": [list(tokens)],
@@ -64,32 +66,32 @@ def _trial(task_name, *, tokens, completion=""):
     return SimpleNamespace(
         trial_name=f"{task_name}__abc",
         task_name=task_name,
-        agent_result=SimpleNamespace(rollout_details=[rollout], metadata={"completion": completion}),
+        agent_result=SimpleNamespace(rollout_details=[rollout], metadata={}),
+        verifier_result=SimpleNamespace(rewards={"reward": reward}),
     )
 
 
-def test_harvest_maps_trials_to_groups_and_scores():
-    # exact_match: completion == expected → 1.0, else 0.0
-    tasks = [_task("t0", expected="42"), _task("t1", expected="7")]
+def test_harvest_maps_trials_to_groups_with_verifier_reward():
+    tasks = [_task("t0"), _task("t1")]
     job_result = SimpleNamespace(trial_results=[
-        _trial("t0", tokens=[10, 11], completion="42"),
-        _trial("t1", tokens=[20], completion="nope"),
+        _trial("t0", tokens=[10, 11], reward=1.0),
+        _trial("t1", tokens=[20], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks, score=True)
+    groups = he._harvest(job_result, tasks)
     assert len(groups) == 2
     assert groups[0].tags == ["x"]
-    assert groups[0].trajectories[0].reward == 1.0       # scored in Python
+    assert groups[0].trajectories[0].reward == 1.0       # from verifier_result
     assert groups[0].trajectories[0].turns[0].completion_tokens == [10, 11]
     assert groups[1].trajectories[0].reward == 0.0
 
 
 def test_harvest_groups_n_attempts_per_task():
-    tasks = [_task("t0", expected="42")]
+    tasks = [_task("t0")]
     job_result = SimpleNamespace(trial_results=[
-        _trial("t0", tokens=[1], completion="42"),
-        _trial("t0", tokens=[2], completion="nope"),
+        _trial("t0", tokens=[1], reward=1.0),
+        _trial("t0", tokens=[2], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks, score=True)
+    groups = he._harvest(job_result, tasks)
     assert len(groups) == 1
     assert len(groups[0].trajectories) == 2              # both attempts (samples)
     assert {t.reward for t in groups[0].trajectories} == {1.0, 0.0}
@@ -98,7 +100,7 @@ def test_harvest_groups_n_attempts_per_task():
 def test_harvest_drops_trials_with_no_rollout():
     tasks = [_task("t0")]
     empty = SimpleNamespace(trial_name="t0__abc", task_name="t0", agent_result=None)
-    groups = he._harvest(SimpleNamespace(trial_results=[empty]), tasks, score=True)
+    groups = he._harvest(SimpleNamespace(trial_results=[empty]), tasks)
     assert groups[0].trajectories == []
 
 

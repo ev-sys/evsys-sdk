@@ -7,22 +7,24 @@ which harbor loads at trial runtime). So ``rl`` / ``sdft`` can import this
 module, and tests can mock the runners, with no ``harbor`` install.
 
 Flow (harbor 0.13.2): materialize each :class:`~evsys_sdk.data_types.HarborTask`
-→ a minimal task dir (``instruction.md`` + a ``task.toml`` whose
-``environment_mode="separate"`` skips the ``test.sh`` requirement) → build a
-``JobConfig`` over ``tasks`` × one ``agent``, ``n_attempts = num_samples``,
-verifier **disabled** → ``Job.run()`` → harvest each trial's ``agent_result``
-(``rollout_details`` + completion text + token/cost usage) into a
-:class:`Trajectory`, then **score the reward in Python** from the completion and
-the task's verifier fn.
+→ a task dir (``instruction.md`` + ``task.toml`` + a per-task
+``evsys_verifier.json`` spec + a dummy ``tests/test.sh``) → build a ``JobConfig``
+over ``tasks`` × one ``agent``, ``n_attempts = num_samples`` → ``Job.run()`` →
+harvest each trial's ``agent_result`` (``rollout_details`` + completion +
+token/cost usage) and ``verifier_result`` (reward) into a :class:`Trajectory`.
 
-Why Python scoring: harbor 0.13.2's verifier runs host-side against files synced
-out of a *container*. Our agents run in-process with a no-op environment, so
-there's nothing to sync — we disable the harbor verifier and score completions
-ourselves (same registered verifier fns the rest of the SDK uses).
+The reward is produced by harbor running our
+:class:`~evsys_sdk.training.harbor_agents.EvsysVerifier` (the job-level verifier)
+**host-side, no container**: it wraps the task's registered verifier fn over the
+completion the agent wrote. SHARED verifier mode (the default) keeps it in the
+agent's no-op environment; the dummy ``tests/test.sh`` only satisfies harbor's
+task-load check and is never executed. (Generation-only rollouts disable the
+verifier and use ``environment_mode="separate"`` so no ``test.sh`` is needed.)
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -32,26 +34,33 @@ from .trajectory import Trajectory, TrajectoryGroup, Turn
 # Where harbor loads our glue classes from (by string, at trial runtime).
 _AGENTS_PATH = "evsys_sdk.training.harbor_agents"
 
-# task.toml that loads with no test.sh + no per-task verifier (we score in
-# Python, and disable harbor's verifier at the job level).
-_TASK_TOML = (
-    "[agent]\n"
-    "timeout_sec = 600.0\n\n"
-    "[environment]\n\n"
-    "[verifier]\n"
-    'environment_mode = "separate"   # skip the test.sh requirement at load\n'
+# Files the agent writes / the EvsysVerifier reads, host-side (no container).
+_COMPLETION_FILE = "completion.txt"        # agent dir: the model's completion
+_VERIFIER_SPEC_FILE = "evsys_verifier.json"  # task dir: {fn_name, expected, params}
+
+# Rollout task.toml — SHARED verifier mode (default). Our EvsysVerifier (the
+# job-level verifier) runs host-side; a dummy tests/test.sh satisfies harbor's
+# load check and is never executed.
+_ROLLOUT_TASK_TOML = "[agent]\ntimeout_sec = 600.0\n\n[environment]\n"
+# Generation task.toml — verifier-less. environment_mode="separate" skips the
+# test.sh load requirement (the job disables the verifier entirely).
+_GENERATION_TASK_TOML = (
+    '[agent]\ntimeout_sec = 600.0\n\n[environment]\n\n[verifier]\nenvironment_mode = "separate"\n'
 )
+_DUMMY_TEST_SH = "#!/bin/sh\nexit 0\n"
 
 
 # ---------------------------------------------------------------------------
-# Task materializer (minimal dir: task.toml + instruction.md)
+# Task materializer (instruction.md + task.toml + dummy test.sh + verifier spec)
 # ---------------------------------------------------------------------------
 
 
 def materialize_task(task: HarborTask, dest: Path) -> Path:
-    """Write a minimal harbor task dir for ``task`` at ``dest`` — only
-    ``task.toml`` + ``instruction.md``. The reward is scored in Python from the
-    task's verifier fn, so the harbor verifier is disabled (not in task.toml)."""
+    """Write a harbor task dir for ``task`` at ``dest``. The reward is scored by
+    our host-side :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier`
+    (run by harbor, SHARED mode), which reads the per-task verifier spec written
+    to ``evsys_verifier.json``. A dummy ``tests/test.sh`` is written only to pass
+    harbor's task-load check; it is never executed."""
     if not isinstance(task.verifier, InProcessVerifier):
         raise RuntimeError(
             f"harbor_engine: task {task.task_id!r} has a {task.verifier.kind!r} "
@@ -59,7 +68,16 @@ def materialize_task(task: HarborTask, dest: Path) -> Path:
         )
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "instruction.md").write_text(task.instruction)
-    (dest / "task.toml").write_text(_TASK_TOML)
+    (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
+    tests = dest / "tests"
+    tests.mkdir(exist_ok=True)
+    (tests / "test.sh").write_text(_DUMMY_TEST_SH)   # dummy — satisfies load, never run
+    v = task.verifier
+    (dest / _VERIFIER_SPEC_FILE).write_text(json.dumps({
+        "fn_name": v.fn_name,
+        "expected": v.expected,
+        "params": dict(getattr(v, "params", None) or {}),
+    }))
     return dest
 
 
@@ -142,7 +160,8 @@ async def run_harbor_rollouts(
         tasks=task_cfgs,
         agents=[agent],
         environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-        verifier=VerifierConfig(disable=True),     # we score in Python (below)
+        # Our host-side verifier wraps the registered fn (SHARED mode, no container).
+        verifier=VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier"),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
         n_attempts=num_samples,                    # repeats per task = samples
@@ -151,7 +170,7 @@ async def run_harbor_rollouts(
 
     result = await (_job_factory(config) if _job_factory is not None
                     else _run_job(Job, config))
-    return _harvest(result, tasks, score=True)
+    return _harvest(result, tasks)
 
 
 async def _run_job(Job: Any, config: Any) -> Any:
@@ -206,7 +225,7 @@ async def run_harbor_generations(
         dest = workspace_dir / "tasks" / f"gen_{i}"
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "instruction.md").write_text(prompt)
-        (dest / "task.toml").write_text(_TASK_TOML)
+        (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
         task_cfgs.append(TaskConfig(path=dest))
 
     config = JobConfig(
@@ -232,7 +251,7 @@ async def run_harbor_generations(
 
 
 # ---------------------------------------------------------------------------
-# Harvest: JobResult → TrajectoryGroups (one per task), with Python scoring
+# Harvest: JobResult → TrajectoryGroups (one per task); reward from the verifier
 # ---------------------------------------------------------------------------
 
 
@@ -245,36 +264,18 @@ def _trials_by_task(job_result: Any) -> dict[str, list[Any]]:
     return out
 
 
-def _harvest(job_result: Any, tasks: Sequence[HarborTask], *, score: bool) -> list[TrajectoryGroup]:
+def _harvest(job_result: Any, tasks: Sequence[HarborTask]) -> list[TrajectoryGroup]:
     by_task = _trials_by_task(job_result)
     groups: list[TrajectoryGroup] = []
     for t in tasks:
-        trajs: list[Trajectory] = []
-        for tr in by_task.get(_safe(t.task_id), []):
-            traj = _trial_to_trajectory(tr)
-            if traj is None:
-                continue
-            if score:
-                traj.reward = _score_completion(t, traj.metadata.get("completion", ""))
-            trajs.append(traj)
+        trajs = [
+            traj for tr in by_task.get(_safe(t.task_id), [])
+            if (traj := _trial_to_trajectory(tr)) is not None
+        ]
         groups.append(TrajectoryGroup(
             trajectories=trajs, tags=list(t.metadata.get("tags") or []),
         ))
     return groups
-
-
-def _score_completion(task: HarborTask, completion: str) -> float:
-    """Reward = the task's registered verifier fn over the completion + expected."""
-    v = task.verifier
-    if not isinstance(v, InProcessVerifier):
-        return 0.0
-    from ..verifiers import get_verifier_fn
-
-    try:
-        fn = get_verifier_fn(v.fn_name)
-        return float(fn(completion, v.expected, dict(getattr(v, "params", None) or {})))
-    except Exception:  # pragma: no cover - a bad verifier fn shouldn't crash the batch
-        return 0.0
 
 
 def _trial_to_trajectory(tr: Any) -> Trajectory | None:
@@ -307,13 +308,11 @@ def _trial_to_trajectory(tr: Any) -> Trajectory | None:
     if usage["completion_tokens"] is None:
         usage["completion_tokens"] = sum(len(t.completion_tokens) for t in turns)
 
-    completion_text = ""
-    meta = getattr(agent_result, "metadata", None) or {}
-    if isinstance(meta, dict):
-        completion_text = meta.get("completion") or ""
-    # reward is set by the caller (_harvest) via Python scoring.
-    return Trajectory(turns=turns, reward=0.0,
-                      metadata={"usage": usage, "completion": completion_text})
+    # Reward comes from harbor's verifier (our host-side EvsysVerifier); 0.0 for
+    # generation-only rollouts where the verifier is disabled.
+    rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None) or {}
+    reward = float(rewards.get("reward", 0.0))
+    return Trajectory(turns=turns, reward=reward, metadata={"usage": usage})
 
 
 def _trial_usage(tr: Any) -> dict[str, Any]:

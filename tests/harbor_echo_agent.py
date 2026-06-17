@@ -10,6 +10,7 @@ token counts) so the harvest + Python scoring can be exercised.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from harbor.agents.base import BaseAgent
@@ -47,4 +48,9 @@ class EchoAgent(BaseAgent):
             "completion_token_ids": [toks],
             "logprobs": [[-0.1] * len(toks)],
         }]
-        context.metadata = {**(context.metadata or {}), "completion": text}
+        # write the completion to the agent dir so the host-side EvsysVerifier
+        # (run by harbor) can score it
+        logs_dir = getattr(self, "logs_dir", None)
+        if logs_dir is not None:
+            Path(logs_dir).mkdir(parents=True, exist_ok=True)
+            (Path(logs_dir) / "completion.txt").write_text(text)
