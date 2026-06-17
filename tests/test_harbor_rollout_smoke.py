@@ -18,7 +18,7 @@ pytest.importorskip("tinker")  # harbor_agents imports TinkerLLM at module top
 from evsys_sdk.data_types import HarborTask, InProcessVerifier
 from evsys_sdk.training.harbor_engine import run_harbor_rollouts, run_harbor_generations
 
-_ECHO = "evsys_sdk.training.harbor_agents:EchoAgent"
+_ECHO = "tests.harbor_echo_agent:EchoAgent"   # test-only agent (tests/, not shipped)
 
 
 def _task(task_id: str, instruction: str, expected: str) -> HarborTask:

@@ -10,8 +10,6 @@ extra out of the base import path.
 * :class:`BasicLoopAgent` — drives ``Chat(TinkerLLM(model_path))`` on-policy and
   records token-level ``rollout_details`` + the completion text onto the
   ``AgentContext`` (``context.metadata['completion']``). The default agent.
-* :class:`EchoAgent` — a no-model agent that echoes the instruction; used to
-  smoke-test the rollout wiring without tinker / a real model.
 
 Scoring is **not** done by a harbor verifier here. Harbor 0.13.2's verifier runs
 host-side against files synced from a container; our agents run in-process with
@@ -124,41 +122,4 @@ class BasicLoopAgent(BaseAgent):
         context.metadata = {**(context.metadata or {}), "completion": resp.content or ""}
 
 
-class EchoAgent(BaseAgent):
-    """A no-model agent that echoes the instruction — for smoke-testing the
-    rollout wiring (job → harvest → Python scoring) without tinker/a real model.
-    Populates ``context`` exactly like a real agent does."""
-
-    def __init__(self, *, prefix: str = "ECHO:", **kw: Any) -> None:
-        super().__init__(**kw)
-        self._prefix = prefix
-
-    @staticmethod
-    def name() -> str:
-        return "evsys-echo"
-
-    def version(self) -> str | None:
-        return "1.0.0"
-
-    async def setup(self, environment: BaseEnvironment) -> None:
-        return None
-
-    async def run(
-        self,
-        instruction: str,
-        environment: BaseEnvironment,
-        context: AgentContext,
-    ) -> None:
-        text = f"{self._prefix}{instruction}"
-        toks = list(range(1, len(text.split()) + 2))
-        context.n_input_tokens = len(instruction.split())
-        context.n_output_tokens = len(toks)
-        context.rollout_details = [{
-            "prompt_token_ids": [list(range(context.n_input_tokens))],
-            "completion_token_ids": [toks],
-            "logprobs": [[-0.1] * len(toks)],
-        }]
-        context.metadata = {**(context.metadata or {}), "completion": text}
-
-
-__all__ = ["BasicLoopAgent", "EchoAgent", "NoOpEnvironment"]
+__all__ = ["BasicLoopAgent", "NoOpEnvironment"]
