@@ -115,6 +115,28 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     assert rows[0]["completion_token_ids"] == [2, 3]
 
 
+def test_eval_arm_harbor_forwards_n_concurrent_from_bench_meta(monkeypatch):
+    captured: dict = {}
+
+    async def _fake_score(tasks, **kwargs):
+        captured.update(kwargs)
+        return [TrajectoryGroup(trajectories=[Trajectory(turns=[], reward=0.0)], tags=[]) for _ in tasks]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed",
+                             artifacts={"checkpoint-final": "tinker://ckpt"}),
+    )
+    e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "n_concurrent": 32})
+    assert captured["n_concurrent"] == 32                       # config value forwarded
+    captured.clear()
+    e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b"})
+    assert captured["n_concurrent"] == 8                        # default when unset
+
+
 def test_eval_arm_harbor_api_model_uses_litellm_and_per_model_eval(monkeypatch):
     # api_model → score that closed model via litellm (not the checkpoint),
     # recorded as its own per-model eval.

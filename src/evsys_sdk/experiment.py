@@ -580,6 +580,7 @@ class Experiment:
             temperature=float(bench_meta.get("temperature", 0.0)),
             renderer_name=run_cfg.model.renderer_name,
             system_prompt=ct.get("system_prompt"),
+            n_concurrent=int(bench_meta.get("n_concurrent", 8)),
         ))
         seconds = time.time() - t0
 

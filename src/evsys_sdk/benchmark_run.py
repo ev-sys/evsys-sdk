@@ -41,6 +41,7 @@ def run_benchmark(
     temperature: float = 0.0,
     system_prompt: str | None = None,
     limit: int | None = None,
+    n_concurrent: int = 8,
     workspace_dir: str | Path | None = None,
     store: Any = None,
     run_id: str | None = None,
@@ -95,6 +96,7 @@ def run_benchmark(
         max_tokens=max_tokens,
         temperature=temperature,
         system_prompt=system_prompt,
+        n_concurrent=n_concurrent,
     ))
 
     metrics = eval_metrics(groups)

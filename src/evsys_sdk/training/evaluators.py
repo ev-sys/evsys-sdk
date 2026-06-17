@@ -128,6 +128,9 @@ class BenchmarkEvaluator:
     model_name: str | None = None
     workspace_dir: Any = None
     num_samples: int = 1
+    n_concurrent: int = 8
+    """Concurrent harbor trials (harbor engine only). Higher = more rollouts in
+    flight against the sampler; all share one cached sampling client."""
     # Dashboard upload wiring. When ``store`` + ``run_id`` are present, the
     # harbor branch records one ``eval`` per invocation (tagged with ``step``,
     # so the many validations across a run stay distinct) and uploads its
@@ -183,6 +186,7 @@ class BenchmarkEvaluator:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             system_prompt=(self.chat_template or {}).get("system_prompt"),
+            n_concurrent=self.n_concurrent,
         )
         metrics = eval_metrics(groups)
         if self.store is not None and self.run_id:
@@ -295,6 +299,7 @@ def build_in_loop_evaluators(
             model_name=model_name,
             workspace_dir=workspace_dir,
             num_samples=int(spec.get("num_samples", 1)),
+            n_concurrent=int(spec.get("n_concurrent", 8)),
             store=store,
             run_id=run_id,
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
