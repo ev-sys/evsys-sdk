@@ -262,8 +262,37 @@ def _dotted_get(d: dict, dotted_key: str, default: Any) -> Any:
     return cur
 
 
+def load_benchmark(spec: dict[str, Any], *, store: Any = None) -> Benchmark | None:
+    """Resolve a benchmark spec ``{path | id | name}`` to a :class:`Benchmark`.
+
+    The single resolver shared by the experiment config, the standalone
+    ``run_benchmark``, and the CLI — so all three accept the same references:
+
+    * ``path`` → local harbor dir (``Benchmark.from_dir``); offline / dev.
+    * ``id`` → dashboard benchmark id, pulled into the local ``.evsys/`` workspace.
+    * ``name`` → resolved to the latest version's id, then pulled.
+
+    Returns ``None`` when the spec carries none of those. ``store`` is needed
+    only for the id / name paths.
+    """
+    path = spec.get("path")
+    if path:
+        return Benchmark.from_dir(path)
+    bid, dashboard_name = spec.get("id"), spec.get("name")
+    if not (bid or dashboard_name):
+        return None
+    from .workspace import Workspace, read_jsonl_rows
+
+    ws = Workspace(store) if store is not None else Workspace()
+    resolved = str(bid) if bid else ws.benchmark_id_for_name(str(dashboard_name))
+    mat = ws.pull_benchmark(resolved)
+    tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
+    return Benchmark.from_iterable(str(dashboard_name or bid or "benchmark"), tasks)
+
+
 __all__ = [
     "Benchmark",
     "BenchmarkScore",
     "BenchmarkTaskResult",
+    "load_benchmark",
 ]

@@ -89,21 +89,14 @@ def _agent_import_and_kwargs(
     """Pick the harbor agent + its kwargs for a rollout. Pure + harbor-free so
     the agent-selection logic is unit-testable.
 
-    * an explicit ``agent_import_path`` wins (fully self-configured agent, no kwargs);
-    * ``model_client="litellm"`` → ``ApiModelAgent`` over harbor's litellm LLM
-      (closed/API models; ``model_name`` is a litellm string, no checkpoint/renderer);
-    * otherwise ``BasicLoopAgent`` over ``TinkerLLM`` (on-policy, needs ``model_path``).
+    An explicit ``agent_import_path`` wins (fully self-configured agent, no
+    kwargs). Otherwise it's always :class:`BasicLoopAgent`, parameterized by
+    ``model_client``: ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
+    or ``"litellm"`` (closed/API model; ``model_name`` is a litellm string, the
+    tinker-only ``model_path``/``renderer_name`` are ignored).
     """
     if agent_import_path:
         return agent_import_path, {}
-    if model_client == "litellm":
-        return f"{_AGENTS_PATH}:ApiModelAgent", {
-            "model_name": model_name,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "max_turns": max_turns,
-            "system_prompt": system_prompt,
-        }
     return f"{_AGENTS_PATH}:BasicLoopAgent", {
         "model_name": model_name,
         "model_path": model_path,
@@ -112,6 +105,7 @@ def _agent_import_and_kwargs(
         "temperature": temperature,
         "max_turns": max_turns,
         "system_prompt": system_prompt,
+        "model_client": model_client,
     }
 
 

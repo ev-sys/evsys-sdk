@@ -151,24 +151,30 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
 
 
 def _cmd_benchmark_run(args: argparse.Namespace) -> int:
-    """Score a local benchmark on a closed / API model (no training)."""
-    from .benchmark import Benchmark
+    """Score a benchmark (by --path / --id / --name) on a closed/API model."""
     from .benchmark_run import run_benchmark
 
+    # A store is only needed to resolve a dashboard id/name (and to push results).
+    store = None
+    if args.id or args.name:
+        from .store import EvsysStore
+        store = EvsysStore(project_id=args.project_id)
     try:
-        bench = Benchmark.from_dir(args.path)
-    except FileNotFoundError as e:
+        metrics = run_benchmark(
+            path=args.path, id=args.id, name=args.name,
+            model=args.model,
+            num_samples=args.num_samples,
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            limit=args.limit,
+            store=store,
+            run_id=args.run_id,
+        )
+    except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
-    metrics = run_benchmark(
-        bench,
-        model=args.model,
-        num_samples=args.num_samples,
-        max_tokens=args.max_tokens,
-        temperature=args.temperature,
-        limit=args.limit,
-    )
-    print(json.dumps({"model": args.model, "benchmark": bench.name, "metrics": metrics}, indent=2))
+    ref = args.path or args.id or args.name
+    print(json.dumps({"benchmark": ref, "model": args.model, "metrics": metrics}, indent=2))
     return 0
 
 
@@ -230,9 +236,12 @@ def main(argv: list[str] | None = None) -> int:
     p_bup.set_defaults(func=_cmd_benchmark_upload)
 
     p_brun = bench_sub.add_parser(
-        "run", help="Score a local benchmark on a closed/API model (no training)."
+        "run", help="Score a benchmark on a closed/API model (no training)."
     )
-    p_brun.add_argument("path", help="Path to data/benchmark/<name>/.")
+    g_ref = p_brun.add_mutually_exclusive_group(required=True)
+    g_ref.add_argument("--path", help="Local benchmark dir (data/benchmark/<name>/).")
+    g_ref.add_argument("--id", help="Dashboard benchmark id.")
+    g_ref.add_argument("--name", help="Dashboard benchmark name (latest version).")
     p_brun.add_argument(
         "--model", required=True,
         help="litellm model id, e.g. anthropic/claude-opus-4-1 or openai/gpt-4o.",
@@ -241,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
     p_brun.add_argument("--max-tokens", type=int, default=512)
     p_brun.add_argument("--temperature", type=float, default=0.0)
     p_brun.add_argument("--limit", type=int, default=None, help="Cap on tasks scored.")
+    p_brun.add_argument("--run-id", default=None, help="Upload eval rollouts to this dashboard run.")
+    p_brun.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID (for --id/--name).")
     p_brun.set_defaults(func=_cmd_benchmark_run)
 
     p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")

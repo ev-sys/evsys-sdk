@@ -61,6 +61,18 @@ TrainFn = Callable[[ExperimentConfig], list[RunResult]]
 InferenceFactory = Callable[[RunResult, RunConfig], InferenceClient]
 
 
+def _benchmark_models(bench_meta: dict) -> list[str]:
+    """API models a benchmark should also be scored on, from ``models`` (list)
+    or ``model`` (single string) on the benchmark spec. Empty when neither —
+    i.e. checkpoint-only, the existing behavior."""
+    raw = bench_meta.get("models")
+    if raw is None:
+        raw = bench_meta.get("model")
+    if not raw:
+        return []
+    return [str(raw)] if isinstance(raw, str) else [str(m) for m in raw]
+
+
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -337,23 +349,13 @@ class Experiment:
         return out
 
     def _materialize_benchmark(self, spec: dict) -> Benchmark | None:
-        """Resolve one benchmark spec dict to a ``Benchmark`` (or ``None``)."""
-        path = spec.get("path")
-        if path:
-            return Benchmark.from_dir(path)
-        # Preferred: a dashboard benchmark by id (or name → latest version's
-        # id), pulled into the local .evsys/ workspace. path is the
-        # offline / dev fallback above.
-        bid, dashboard_name = spec.get("id"), spec.get("name")
-        if not (bid or dashboard_name):
-            return None
-        from .data_types import harbor_task_from_dict
-        from .workspace import Workspace, read_jsonl_rows
-        ws = Workspace(self.store) if self.store is not None else Workspace()
-        resolved = str(bid) if bid else ws.benchmark_id_for_name(str(dashboard_name))
-        mat = ws.pull_benchmark(resolved)
-        tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
-        return Benchmark.from_iterable(dashboard_name or "benchmark", tasks)
+        """Resolve one benchmark spec dict to a ``Benchmark`` (or ``None``).
+
+        Delegates to the shared :func:`evsys_sdk.benchmark.load_benchmark`
+        resolver (``path`` | ``id`` | ``name``) so the config, ``run_benchmark``,
+        and the CLI all accept the same references."""
+        from .benchmark import load_benchmark
+        return load_benchmark(spec, store=self.store)
 
     def _create_experiment(
         self, hypothesis: str | None, tags: list[str], meta: dict
@@ -486,37 +488,44 @@ class Experiment:
         for bench, bench_meta in benchmarks:
             if bench_meta.get("run_every"):
                 continue  # in-loop entry — scored by the algorithm wrapper
+            # Score the trained checkpoint: harbor rollout engine (opt-in via
+            # engine: harbor) or the default inference-client path.
             if str(bench_meta.get("engine", "")).lower() == "harbor":
-                # Opt-in: score this benchmark through harbor's rollout engine
-                # (and upload the eval rollouts). Default path below is untouched.
                 self._eval_arm_harbor(arm, run_cfg, bench, bench_meta)
-                continue
-            client = factory(arm.run_result, run_cfg)
-            # Auto-wrap with chat templating when configured. Lets researchers
-            # declare a system_prompt + user_template in YAML instead of
-            # writing a per-project ChatTemplatedTinker shim in run.py.
-            ct = bench_meta.get("chat_template") or {}
-            if ct:
-                client = ChatTemplatedInference(client, **ct)
-            t0 = time.time()
-            score = bench.score(
-                client,
-                max_tokens=int(bench_meta.get("max_tokens", 512)),
-                temperature=float(bench_meta.get("temperature", 0.0)),
-                breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
-                limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
-            )
-            seconds = time.time() - t0
-            arm.evals.append(EvalResult(
-                name=str(bench_meta.get("name", "benchmark")),
-                benchmark_id=bench_meta.get("id"),
-                metrics=dict(score.metrics),
-                breakdowns=dict(score.breakdowns),
-                eval_seconds=seconds,
-                step=None,
-                tags=list(bench_meta.get("tags") or []),
-            ))
-            self._record_eval(arm, bench, bench_meta, score)
+            else:
+                client = factory(arm.run_result, run_cfg)
+                # Auto-wrap with chat templating when configured. Lets researchers
+                # declare a system_prompt + user_template in YAML instead of
+                # writing a per-project ChatTemplatedTinker shim in run.py.
+                ct = bench_meta.get("chat_template") or {}
+                if ct:
+                    client = ChatTemplatedInference(client, **ct)
+                t0 = time.time()
+                score = bench.score(
+                    client,
+                    max_tokens=int(bench_meta.get("max_tokens", 512)),
+                    temperature=float(bench_meta.get("temperature", 0.0)),
+                    breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+                    limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
+                )
+                seconds = time.time() - t0
+                arm.evals.append(EvalResult(
+                    name=str(bench_meta.get("name", "benchmark")),
+                    benchmark_id=bench_meta.get("id"),
+                    metrics=dict(score.metrics),
+                    breakdowns=dict(score.breakdowns),
+                    eval_seconds=seconds,
+                    step=None,
+                    tags=list(bench_meta.get("tags") or []),
+                ))
+                self._record_eval(arm, bench, bench_meta, score)
+
+            # In addition to the checkpoint, score each configured API model
+            # (``benchmark.models: ["anthropic/claude-opus-4-1", ...]``) through
+            # harbor's litellm path — same rollout/metrics/upload, one eval per
+            # model. Independent of the benchmark's checkpoint engine/tag.
+            for model in _benchmark_models(bench_meta):
+                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
 
         # Pick the primary post-training eval to mirror into the flat fields.
         post = [e for e in arm.evals if e.step is None]
@@ -529,9 +538,15 @@ class Experiment:
 
     def _eval_arm_harbor(
         self, arm: ArmResult, run_cfg: RunConfig, bench: Benchmark, bench_meta: dict,
+        *, api_model: str | None = None,
     ) -> None:
         """Score one benchmark through harbor's rollout engine and upload the
-        eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``."""
+        eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``.
+
+        ``api_model`` (a litellm string) scores a closed / API model instead of
+        the trained checkpoint — same rollout path, ``model_client='litellm'``,
+        recorded as its own per-model eval. ``None`` → the trained checkpoint.
+        """
         import asyncio
         import tempfile
 
@@ -546,22 +561,21 @@ class Experiment:
         limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
         tasks = bench.tasks if limit is None else bench.tasks[: max(0, limit)]
         ct = bench_meta.get("chat_template") or {}
+        bench_name = str(bench_meta.get("name", "benchmark"))
+        # One eval per (benchmark, model): the checkpoint and each API model are
+        # distinct results, named/tagged by model so they don't collide.
+        eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
         # Persist eval rollouts under the run's output dir — alongside training's
         # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
-        # trial dirs survive the run instead of vanishing with a tempdir. One
-        # subdir per benchmark (a run can score several) avoids collisions.
+        # trial dirs survive the run instead of vanishing with a tempdir.
         run_dir = self._resolve_run_dir(arm)
         if run_dir is not None:
-            safe_bench = str(bench_meta.get("name", "benchmark")).replace("/", "_").replace(" ", "_")
-            workspace = run_dir / "harbor_eval" / safe_bench
+            safe = eval_name.replace("/", "_").replace(" ", "_")
+            workspace = run_dir / "harbor_eval" / safe
             workspace.mkdir(parents=True, exist_ok=True)
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
-        # A benchmark may target a closed / API model via litellm
-        # (``benchmark.model: "anthropic/claude-opus-4-1"``) instead of the
-        # trained checkpoint — same harbor rollout path, different sampler.
-        api_model = bench_meta.get("model")
         t0 = time.time()
         groups = asyncio.run(score_via_harbor(
             tasks,
@@ -578,14 +592,15 @@ class Experiment:
         seconds = time.time() - t0
 
         metrics = eval_metrics(groups)
+        model_tags = [api_model] if api_model else []
         arm.evals.append(EvalResult(
-            name=str(bench_meta.get("name", "benchmark")),
+            name=eval_name,
             benchmark_id=bench_meta.get("id"),
             metrics=metrics,
             breakdowns={},
             eval_seconds=seconds,
             step=None,
-            tags=list(bench_meta.get("tags") or []),
+            tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
         eval_id = self._record_eval(
             arm, bench, bench_meta, BenchmarkScore(metrics=metrics, per_task=[], breakdowns={}),

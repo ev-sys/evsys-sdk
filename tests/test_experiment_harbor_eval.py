@@ -89,9 +89,9 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     assert rows[0]["completion_token_ids"] == [2, 3]
 
 
-def test_eval_arm_harbor_uses_litellm_when_benchmark_sets_model(monkeypatch):
-    # benchmark.model: "anthropic/..." → score the API model via litellm,
-    # not the trained checkpoint (same harbor path, different sampler).
+def test_eval_arm_harbor_api_model_uses_litellm_and_per_model_eval(monkeypatch):
+    # api_model → score that closed model via litellm (not the checkpoint),
+    # recorded as its own per-model eval.
     captured: dict = {}
 
     async def _fake_score(tasks, **kwargs):
@@ -118,13 +118,17 @@ def test_eval_arm_harbor_uses_litellm_when_benchmark_sets_model(monkeypatch):
     )
 
     e._eval_arm_harbor(
-        arm, run_cfg, _bench(),
-        {"engine": "harbor", "name": "b", "model": "anthropic/claude-opus-4-1"},
+        arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]},
+        api_model="anthropic/claude-opus-4-1",
     )
 
     assert captured["model_client"] == "litellm"
     assert captured["model_name"] == "anthropic/claude-opus-4-1"
     assert captured["model_path"] is None              # API model, not the checkpoint
+    # recorded as a distinct per-model eval (name + tag carry the model)
+    ev = arm.evals[0]
+    assert ev.name == "b@anthropic/claude-opus-4-1"
+    assert "anthropic/claude-opus-4-1" in ev.tags
 
 
 def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):

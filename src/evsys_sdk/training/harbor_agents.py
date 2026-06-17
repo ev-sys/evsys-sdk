@@ -7,11 +7,11 @@ string ``import_path`` recorded in the trial/task config at runtime (see
 extra out of the base import path.
 
 * :class:`NoOpEnvironment` — sandbox-free ``BaseEnvironment`` (all no-ops).
-* :class:`BasicLoopAgent` — drives ``Chat(TinkerLLM(model_path))`` (on-policy)
-  and records token-level ``rollout_details``. The default; users can plug any
+* :class:`BasicLoopAgent` — drives ``Chat(<llm>)`` and records token-level
+  ``rollout_details``. ``model_client`` picks the sampler: ``"tinker"`` (default,
+  on-policy ``TinkerLLM``) or ``"litellm"`` (any provider litellm supports, for
+  benchmarking closed/API models through the same path). Users can also plug any
   ``BaseAgent`` via ``agent_import_path``.
-* :class:`ApiModelAgent` — drives ``Chat(LiteLLM(model_name))`` for closed / API
-  models (Claude, GPT, …), selected via ``model_client="litellm"``.
 * :class:`EvsysVerifier` — scores the completion in Python via a registered
   verifier fn (no ``test.sh``).
 """
@@ -77,6 +77,8 @@ class BasicLoopAgent(BaseAgent):
         temperature: float = 1.0,
         max_turns: int = 1,
         system_prompt: str | None = None,
+        model_client: str = "tinker",
+        api_base: str | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
@@ -87,6 +89,8 @@ class BasicLoopAgent(BaseAgent):
         self._temperature = temperature
         self._max_turns = max_turns
         self._system_prompt = system_prompt
+        self._model_client = model_client
+        self._api_base = api_base
 
     @staticmethod
     def name() -> str:
@@ -98,13 +102,23 @@ class BasicLoopAgent(BaseAgent):
     async def setup(self, environment: BaseEnvironment) -> None:
         return None
 
-    async def run(
-        self,
-        instruction: str,
-        environment: BaseEnvironment,
-        context: AgentContext,
-    ) -> None:
-        llm = TinkerLLM(
+    def _build_llm(self) -> Any:
+        """The harbor sampler for this rollout. ``model_client`` picks it:
+        ``"tinker"`` → on-policy ``TinkerLLM`` (needs ``model_path``);
+        ``"litellm"`` → harbor's litellm LLM for any provider (``model_name`` a
+        litellm string, e.g. ``"anthropic/claude-opus-4-1"``; keys from the
+        provider env vars). Both collect rollout details so usage/cost is
+        captured — and for API models the cost is real."""
+        if self._model_client == "litellm":
+            from harbor.llms.lite_llm import LiteLLM  # lazy: tinker rollouts skip litellm
+
+            return LiteLLM(
+                model_name=self._model_name,
+                temperature=self._temperature,
+                api_base=self._api_base,
+                collect_rollout_details=True,
+            )
+        return TinkerLLM(
             model_name=self._model_name,
             model_path=self._model_path,
             renderer_name=self._renderer_name,
@@ -112,59 +126,6 @@ class BasicLoopAgent(BaseAgent):
             max_tokens=self._max_tokens,
             temperature=self._temperature,
         )
-        chat = Chat(llm)
-        if self._system_prompt:
-            chat.messages.append({"role": "system", "content": self._system_prompt})
-        resp = await chat.chat(instruction)
-        # Persist the completion so EvsysVerifier (host-side) can score it.
-        agent_dir = getattr(self, "agent_dir", None)
-        if agent_dir is not None:
-            Path(agent_dir).mkdir(parents=True, exist_ok=True)
-            (Path(agent_dir) / _COMPLETION_FILE).write_text(resp.content or "")
-        context.rollout_details = chat.rollout_details
-
-
-class ApiModelAgent(BaseAgent):
-    """Drive ``Chat(LiteLLM(model_name))`` for closed / API models.
-
-    Same shape as :class:`BasicLoopAgent`, but the sampler is harbor's
-    litellm-backed LLM instead of ``TinkerLLM`` — so any provider litellm
-    supports can be benchmarked through the *same* rollout path. ``model_name``
-    is a litellm string (e.g. ``"anthropic/claude-opus-4-1"``,
-    ``"openai/gpt-4o"``); API keys come from the standard provider env vars
-    (``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``, …). ``collect_rollout_details``
-    captures usage/cost so the eval metrics (time/tokens/cost) populate — and
-    for API models the cost is real.
-    """
-
-    def __init__(
-        self,
-        *,
-        model_name: str,
-        max_tokens: int = 512,
-        temperature: float = 1.0,
-        max_turns: int = 1,
-        system_prompt: str | None = None,
-        api_base: str | None = None,
-        **kw: Any,
-    ) -> None:
-        super().__init__(**kw)
-        self._model_name = model_name
-        self._max_tokens = max_tokens
-        self._temperature = temperature
-        self._max_turns = max_turns
-        self._system_prompt = system_prompt
-        self._api_base = api_base
-
-    @staticmethod
-    def name() -> str:
-        return "evsys-api-model"
-
-    def version(self) -> str | None:
-        return "1.0.0"
-
-    async def setup(self, environment: BaseEnvironment) -> None:
-        return None
 
     async def run(
         self,
@@ -172,19 +133,11 @@ class ApiModelAgent(BaseAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        # Lazy import so tinker rollouts don't pay litellm's import cost.
-        from harbor.llms.lite_llm import LiteLLM
-
-        llm = LiteLLM(
-            model_name=self._model_name,
-            temperature=self._temperature,
-            api_base=self._api_base,
-            collect_rollout_details=True,
-        )
-        chat = Chat(llm)
+        chat = Chat(self._build_llm())
         if self._system_prompt:
             chat.messages.append({"role": "system", "content": self._system_prompt})
         resp = await chat.chat(instruction)
+        # Persist the completion so EvsysVerifier (host-side) can score it.
         agent_dir = getattr(self, "agent_dir", None)
         if agent_dir is not None:
             Path(agent_dir).mkdir(parents=True, exist_ok=True)

@@ -20,28 +20,38 @@ from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
 # --- agent selection (tinker vs litellm) -----------------------------------
 
 
-def test_agent_spec_litellm_uses_api_agent_without_checkpoint():
+def test_agent_spec_litellm_is_basic_loop_with_litellm_client():
+    # No agent copy — the one BasicLoopAgent is parameterized by model_client.
     ip, kw = he._agent_import_and_kwargs(
         "litellm", agent_import_path=None, model_name="anthropic/claude-opus-4-1",
         model_path="tinker://ckpt", renderer_name="qwen3", max_tokens=256,
         temperature=0.0, max_turns=1, system_prompt="sys",
     )
-    assert ip.endswith(":ApiModelAgent")
+    assert ip.endswith(":BasicLoopAgent")
+    assert kw["model_client"] == "litellm"
     assert kw["model_name"] == "anthropic/claude-opus-4-1"
     assert kw["system_prompt"] == "sys"
-    # API model: no on-policy checkpoint / tinker renderer
-    assert "model_path" not in kw and "renderer_name" not in kw
 
 
-def test_agent_spec_tinker_uses_basic_loop_with_checkpoint():
+def test_agent_spec_tinker_is_basic_loop_with_tinker_client():
     ip, kw = he._agent_import_and_kwargs(
         "tinker", agent_import_path=None, model_name="Qwen/Qwen3-4B",
         model_path="tinker://ckpt", renderer_name="qwen3", max_tokens=256,
         temperature=0.0, max_turns=1, system_prompt=None,
     )
     assert ip.endswith(":BasicLoopAgent")
+    assert kw["model_client"] == "tinker"
     assert kw["model_path"] == "tinker://ckpt"
     assert kw["renderer_name"] == "qwen3"
+
+
+def test_benchmark_models_parsing():
+    from evsys_sdk.experiment import _benchmark_models
+    assert _benchmark_models({}) == []
+    assert _benchmark_models({"model": "anthropic/claude-opus-4-1"}) == ["anthropic/claude-opus-4-1"]
+    assert _benchmark_models({"models": ["a", "b"]}) == ["a", "b"]
+    # explicit empty models → checkpoint-only (no API models)
+    assert _benchmark_models({"models": []}) == []
 
 
 def test_agent_spec_explicit_import_path_wins_with_no_kwargs():
