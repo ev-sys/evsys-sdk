@@ -274,7 +274,7 @@ def build_in_loop_evaluators(
         run_every = int(spec.get("run_every") or 0)
         if run_every <= 0:
             continue
-        bench = _materialize_benchmark(spec, store)
+        bench = Benchmark.load(spec, store=store)
         if bench is None:
             logger.warning(
                 "build_in_loop_evaluators: benchmark[%d] (%r) didn't resolve — skipping",
@@ -300,25 +300,6 @@ def build_in_loop_evaluators(
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out
-
-
-def _materialize_benchmark(spec: dict[str, Any], store: Any) -> Benchmark | None:
-    """Same logic as ``Experiment._materialize_benchmark`` — resolve a spec
-    to a :class:`Benchmark`. Duplicated here so the training/ package stays
-    independent of ``Experiment``; the two paths must stay in sync."""
-    path = spec.get("path")
-    if path:
-        return Benchmark.from_dir(path)
-    bid, dashboard_name = spec.get("id"), spec.get("name")
-    if not (bid or dashboard_name):
-        return None
-    from ..data_types import harbor_task_from_dict
-    from ..workspace import Workspace, read_jsonl_rows
-    ws = Workspace(store) if store is not None else Workspace()
-    resolved = str(bid) if bid else ws.benchmark_id_for_name(str(dashboard_name))
-    mat = ws.pull_benchmark(resolved)
-    tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
-    return Benchmark.from_iterable(dashboard_name or "benchmark", tasks)
 
 
 __all__ = ["BenchmarkEvaluator", "build_in_loop_evaluators"]

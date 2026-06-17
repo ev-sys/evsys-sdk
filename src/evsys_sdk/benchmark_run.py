@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .benchmark import Benchmark, load_benchmark
+from .benchmark import Benchmark
 
 _WORKSPACE_ROOT = os.environ.get("EVSYS_WORKSPACE") or "./.evsys"
 
@@ -49,7 +49,7 @@ def run_benchmark(
     """Score a benchmark on a closed / API ``model`` through harbor — no training.
 
     The benchmark is given directly (``benchmark=``) or resolved by
-    ``path`` / ``id`` / ``name`` via the shared :func:`load_benchmark` resolver
+    ``path`` / ``id`` / ``name`` via the shared :meth:`Benchmark.load` resolver
     (same references the config accepts). ``model`` is a litellm string, e.g.
     ``"anthropic/claude-opus-4-1"`` / ``"openai/gpt-4o"``; repeats use the
     per-task ``num_samples`` in one async harbor job. Returns the eval metric
@@ -67,7 +67,7 @@ def run_benchmark(
     )
 
     if benchmark is None:
-        benchmark = load_benchmark({"path": path, "id": id, "name": name}, store=store)
+        benchmark = Benchmark.load({"path": path, "id": id, "name": name}, store=store)
         if benchmark is None:
             raise ValueError("run_benchmark: pass a Benchmark or one of path / id / name")
 

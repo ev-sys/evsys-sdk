@@ -339,7 +339,7 @@ class Experiment:
                 raise ValueError(
                     f"metadata.benchmark[{i}] must be a dict (got {type(spec).__name__})"
                 )
-            bench = self._materialize_benchmark(spec)
+            bench = Benchmark.load(spec, store=self.store)
             if bench is None:
                 continue
             # Default a name when missing — required for list form, harmless for single.
@@ -347,15 +347,6 @@ class Experiment:
             spec.setdefault("name", str(spec.get("id") or spec.get("path") or f"benchmark_{i}"))
             out.append((bench, spec))
         return out
-
-    def _materialize_benchmark(self, spec: dict) -> Benchmark | None:
-        """Resolve one benchmark spec dict to a ``Benchmark`` (or ``None``).
-
-        Delegates to the shared :func:`evsys_sdk.benchmark.load_benchmark`
-        resolver (``path`` | ``id`` | ``name``) so the config, ``run_benchmark``,
-        and the CLI all accept the same references."""
-        from .benchmark import load_benchmark
-        return load_benchmark(spec, store=self.store)
 
     def _create_experiment(
         self, hypothesis: str | None, tags: list[str], meta: dict
