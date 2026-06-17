@@ -1,6 +1,10 @@
 """Fireworks deployer — upload a trained checkpoint and stand up a deployment
-via the ``fireworks-ai`` Python SDK (a single ``pip install``, no separate
-``firectl`` binary).
+via the Fireworks **REST API** (plain ``requests``, a core dependency).
+
+No firectl binary and no ``fireworks-ai`` package: the SDK's own deploy path is
+just these HTTP endpoints, and the heavy ``fireworks-ai`` dependency conflicts
+with harbor (betterproto/grpc), so we call the API directly. Nothing extra to
+install beyond the normal SDK.
 
 Tinker training is always LoRA, so the default path downloads just the LoRA
 adapter from the checkpoint and uploads it as a Fireworks ``HF_PEFT_ADDON`` on a
@@ -10,11 +14,10 @@ deployment.
 
 The external/IO bits sit behind module-level seams (:func:`_download_weights`,
 :func:`_upload_model`, :func:`_create_deployment`) so the orchestration is unit
-testable without ``fireworks-ai`` or ``tinker_cookbook``, and without ever
-standing up a real (billed) deployment.
-
-Install: ``pip install evsys-sdk[deploy]`` (brings ``fireworks-ai`` +
-``tinker-cookbook``). Auth: set ``FIREWORKS_API_KEY``.
+testable without network/``tinker_cookbook`` and without ever standing up a real
+(billed) deployment. The weight download needs ``tinker-cookbook`` (the
+``tinker`` extra), which a tinker checkpoint requires anyway. Auth: set
+``FIREWORKS_API_KEY``.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from ..registry import register_deployer
 logger = logging.getLogger(__name__)
 
 FIREWORKS_ENDPOINT = "https://api.fireworks.ai/inference/v1"
+FIREWORKS_API_BASE = "https://api.fireworks.ai/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -104,68 +108,75 @@ def _upload_model(
     kind: str, base_model: str | None, api_key: str,
 ) -> str:
     """Create the Fireworks model, upload the local files, and validate to READY
-    via the fireworks-ai SDK's REST pipeline. Returns the model ref.
+    via the documented REST pipeline (``requests``). Returns the model ref.
 
     ``kind`` is ``HF_PEFT_ADDON`` (LoRA) or ``HF_BASE_MODEL`` (merged)."""
-    import asyncio
     import time
 
-    import httpx
-    from fireworks.flumina import crud  # type: ignore
+    import requests
 
-    os.environ["FIREWORKS_API_KEY"] = api_key
+    base = FIREWORKS_API_BASE
+    auth = {"Authorization": f"Bearer {api_key}"}
+    json_h = {**auth, "Content-Type": "application/json"}
     files = [f for f in os.listdir(local_dir) if os.path.isfile(os.path.join(local_dir, f))]
     sizes = {f: os.path.getsize(os.path.join(local_dir, f)) for f in files}
-    model_data = _model_data(kind=kind, base_model=base_model, files=files)
 
-    async def _run() -> None:
-        await crud.create_model(account_id, model_id, model_data)
-        ep = await crud.get_model_upload_endpoint(account_id, model_id, sizes)
-        urls = ep["filenameToSignedUrls"]
-        async with httpx.AsyncClient(timeout=None) as client:
-            for fn, url in urls.items():
-                with open(os.path.join(local_dir, fn), "rb") as fh:
-                    resp = await client.put(
-                        url, content=fh.read(),
-                        headers={
-                            "Content-Type": "application/octet-stream",
-                            "x-goog-content-length-range": f"{sizes[fn]},{sizes[fn]}",
-                        },
-                    )
-                    resp.raise_for_status()
-        # validateUpload returns FAILED_PRECONDITION while files finalize.
-        for _ in range(60):
-            try:
-                await crud.validate_model_upload(account_id, model_id)
-                return
-            except Exception as e:  # noqa: BLE001
-                if "FAILED_PRECONDITION" in str(e):
-                    time.sleep(10)
-                    continue
-                raise
+    # 1. Create the model (idempotent — ALREADY_EXISTS is fine on retry).
+    r = requests.post(
+        f"{base}/accounts/{account_id}/models", headers=json_h,
+        json={"modelId": model_id, "model": _model_data(kind=kind, base_model=base_model, files=files)},
+    )
+    if r.status_code not in (200, 201) and "ALREADY_EXISTS" not in r.text:
+        r.raise_for_status()
+
+    # 2. Get a signed URL per file, then 3. upload each.
+    ep = requests.post(
+        f"{base}/accounts/{account_id}/models/{model_id}:getUploadEndpoint",
+        headers=json_h, json={"filenameToSize": sizes},
+    )
+    ep.raise_for_status()
+    for fn, url in ep.json()["filenameToSignedUrls"].items():
+        with open(os.path.join(local_dir, fn), "rb") as fh:
+            up = requests.put(
+                url, data=fh.read(),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "x-goog-content-length-range": f"{sizes[fn]},{sizes[fn]}",
+                },
+            )
+            up.raise_for_status()
+
+    # 4. Validate — poll until READY (FAILED_PRECONDITION = files still landing).
+    validate_url = f"{base}/accounts/{account_id}/models/{model_id}:validateUpload"
+    for _ in range(60):
+        v = requests.get(validate_url, headers=auth)
+        if v.status_code == 200:
+            break
+        if "FAILED_PRECONDITION" in v.text:
+            time.sleep(10)
+            continue
+        v.raise_for_status()
+    else:
         raise RuntimeError(f"model {model_id} did not reach READY in time")
 
-    asyncio.run(_run())
     return f"accounts/{account_id}/models/{model_id}"
 
 
 def _create_deployment(
     *, model_ref: str, account_id: str, api_key: str, params: dict[str, Any],
 ) -> str:
-    """Create a (dedicated) deployment of ``model_ref`` and wait for it. Returns
-    the deployment ref. Uses the fireworks-ai SDK."""
-    import asyncio
+    """Create a (dedicated) deployment of ``model_ref`` via REST. Returns the
+    deployment ref."""
+    import requests
 
-    from fireworks.flumina import crud  # type: ignore
-
-    os.environ["FIREWORKS_API_KEY"] = api_key
-    deployment_data = {"baseModel": model_ref, **params}
-
-    async def _run() -> Any:
-        return await crud.create_deployment(account_id, deployment_data)
-
-    result = asyncio.run(_run())
-    return (result or {}).get("name", model_ref) if isinstance(result, dict) else model_ref
+    r = requests.post(
+        f"{FIREWORKS_API_BASE}/accounts/{account_id}/deployments",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"deployment": {"baseModel": model_ref, **params}},
+    )
+    r.raise_for_status()
+    body = r.json() if r.content else {}
+    return body.get("name", model_ref) if isinstance(body, dict) else model_ref
 
 
 def _model_data(*, kind: str, base_model: str | None, files: list[str]) -> dict[str, Any]:
