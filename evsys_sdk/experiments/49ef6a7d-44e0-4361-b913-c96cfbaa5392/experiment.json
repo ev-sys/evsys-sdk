@@ -1,0 +1,9 @@
+{
+  "id": "49ef6a7d-44e0-4361-b913-c96cfbaa5392",
+  "_created_at": 1781662341.0972779,
+  "experiment_name": "bench_sweep",
+  "status": "completed",
+  "conclusion": "Best arm: base__lora_rank4 at pass_rate=1.0000. 2/2 arms completed.",
+  "best_score": 1.0,
+  "_updated_at": 1781662341.10147
+}

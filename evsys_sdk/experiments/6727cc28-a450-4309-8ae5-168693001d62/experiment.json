@@ -1,0 +1,9 @@
+{
+  "id": "6727cc28-a450-4309-8ae5-168693001d62",
+  "_created_at": 1781662341.079534,
+  "experiment_name": "single",
+  "hypothesis": "h",
+  "status": "failed",
+  "conclusion": "All 1 arms failed.",
+  "_updated_at": 1781662341.0811038
+}

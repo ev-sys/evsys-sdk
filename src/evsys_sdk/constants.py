@@ -105,6 +105,8 @@ LOCAL_GENERATION_FILE = "generation.json"
 LOCAL_METRICS_FILE = "metrics.jsonl"
 LOCAL_EVALS_FILE = "evals.jsonl"
 LOCAL_PREDICTIONS_FILE = "predictions.jsonl"
+LOCAL_GROUPS_FILE = "groups.jsonl"
+LOCAL_CHECKPOINTS_FILE = "checkpoints.jsonl"
 
 
 def truthy_env(value: str | None) -> bool:

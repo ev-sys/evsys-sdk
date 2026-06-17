@@ -1,0 +1,53 @@
+{
+  "id": "cd2fe1f1-ebf7-4d28-9001-e32850c279d0",
+  "_created_at": 1781662341.143976,
+  "experiment_id": "82dac3e9-c87b-4a4d-a774-520aabb3ddba",
+  "seed": 42,
+  "recipe_kind": "mock_sft",
+  "run_config": {
+    "name": "base__lora_rank4",
+    "data": {
+      "source_kind": "in_memory",
+      "dataset_id": null,
+      "dataset_name": null,
+      "path": null,
+      "rows": [
+        {
+          "q": "Q",
+          "a": "A"
+        }
+      ],
+      "hf_dataset": null,
+      "hf_split": "train",
+      "transforms": []
+    },
+    "model": {
+      "name": "m",
+      "load_checkpoint_path": null,
+      "init_from_checkpoint": null,
+      "renderer_name": null
+    },
+    "algorithm": {
+      "kind": "mock_sft",
+      "params": {
+        "lora_rank": 4
+      }
+    },
+    "backend": {
+      "kind": "mock",
+      "params": {}
+    },
+    "eval": {
+      "enabled": true,
+      "metrics": [],
+      "inference": null,
+      "eval_data": null,
+      "n_samples": null
+    },
+    "seed": 42,
+    "tags": []
+  },
+  "status": "failed",
+  "error_message": "RuntimeError: boom on arm 'base__lora_rank4'",
+  "_updated_at": 1781662341.144663
+}

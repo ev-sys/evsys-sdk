@@ -335,12 +335,27 @@ def test_train_fn_returning_failed_status_is_failure(single_run_config: Experime
 
 
 def test_no_store_runs_offline(sweep_config: ExperimentConfig):
-    res = Experiment(sweep_config, train_fn=_make_train_fn(
+    # Explicit store=None → record nothing (bare Experiment(cfg) now auto-resolves
+    # a store; None is the opt-out used here).
+    res = Experiment(sweep_config, store=None, train_fn=_make_train_fn(
         metric_by_arm={"base__lora_rank1": {"reward": 0.9}},
     )).run()
     # No exception, arms processed.
     assert res.experiment_id is None
     assert any(a.status == "completed" for a in res.arms)
+
+
+def test_bare_experiment_auto_writes_local_mirror(base_run, tmp_path, monkeypatch):
+    # A *bare* Experiment(config) (no store kwarg) with no creds auto-resolves a
+    # LocalStore and writes the .evsys mirror — the zero-config local mode.
+    monkeypatch.delenv("EVSYS_API_KEY", raising=False)
+    monkeypatch.delenv("EVSYS_OFFLINE", raising=False)
+    monkeypatch.setenv("EVSYS_LOG_DIR", str(tmp_path))
+    cfg = ExperimentConfig(name="x", run=base_run, metadata={"success_metric": "reward"})
+    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    assert res.experiment_id is not None                       # records were created
+    assert list((tmp_path / "experiments").glob("*/experiment.json"))
+    assert list((tmp_path / "generations").glob("*/generation.json"))
 
 
 def test_no_success_metric_skips_best_arm(base_run: RunConfig):
@@ -579,7 +594,7 @@ def test_n_repeats_groups_run_offline(base_run: RunConfig):
     """No store: replication still produces N arms with right seeds; group_id stays None."""
     cfg = ExperimentConfig(name="x", run=base_run, n_repeats=2,
                            metadata={"success_metric": "reward"})
-    res = Experiment(cfg, train_fn=_make_train_fn()).run()
+    res = Experiment(cfg, store=None, train_fn=_make_train_fn()).run()
     assert len(res.arms) == 2
     assert sorted(a.run_config.seed for a in res.arms) == [42, 43]
     assert all(a.group_id is None for a in res.arms)
