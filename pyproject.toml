@@ -35,6 +35,12 @@ supabase = [
 tensorboard = [
     "tensorboard>=2.16",
 ]
+deploy = [
+    # Fireworks deploy via the SDK (single pip install, no firectl binary).
+    # tinker-cookbook supplies the weight download from the tinker:// checkpoint.
+    "fireworks-ai>=0.19",
+    "tinker-cookbook>=0.3.0",
+]
 plot = [
     "matplotlib>=3.8",
 ]

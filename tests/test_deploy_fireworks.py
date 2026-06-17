@@ -16,18 +16,23 @@ from evsys_sdk.registry import list_deployers, register_deployer
 
 
 @pytest.fixture
-def firectl_recorder(monkeypatch):
-    calls: list[list[str]] = []
+def fw_recorder(monkeypatch):
+    """Mock the IO seams: weight download, model upload, deployment create."""
+    calls: dict[str, list] = {"upload": [], "deploy": []}
 
-    def fake_firectl(args, *, firectl_path, env):
-        calls.append(list(args))
-        return ""
+    def fake_upload(*, account_id, model_id, local_dir, kind, base_model, api_key):
+        calls["upload"].append(
+            {"account_id": account_id, "model_id": model_id, "kind": kind,
+             "base_model": base_model})
+        return f"accounts/{account_id}/models/{model_id}"
 
-    monkeypatch.setattr("evsys_sdk.deploy.fireworks._firectl", fake_firectl)
-    monkeypatch.setattr(
-        "evsys_sdk.deploy.fireworks._download_weights",
-        lambda uri, out: out,  # pretend the adapter landed at `out`
-    )
+    def fake_create_deployment(*, model_ref, account_id, api_key, params):
+        calls["deploy"].append({"model_ref": model_ref, "params": params})
+        return f"{model_ref}#deployment"
+
+    monkeypatch.setattr("evsys_sdk.deploy.fireworks._download_weights", lambda uri, out: out)
+    monkeypatch.setattr("evsys_sdk.deploy.fireworks._upload_model", fake_upload)
+    monkeypatch.setattr("evsys_sdk.deploy.fireworks._create_deployment", fake_create_deployment)
     monkeypatch.setenv("FIREWORKS_API_KEY", "test-key")
     return calls
 
@@ -36,7 +41,7 @@ def test_fireworks_registered():
     assert "fireworks" in list_deployers()
 
 
-def test_lora_deploy_uploads_then_deploys(firectl_recorder):
+def test_lora_deploy_uploads_then_deploys(fw_recorder):
     dep = build_deployer({"kind": "fireworks", "params": {
         "account_id": "acct",
         "base_model": "accounts/fireworks/models/qwen3-4b",
@@ -46,25 +51,34 @@ def test_lora_deploy_uploads_then_deploys(firectl_recorder):
     assert res.provider == "fireworks"
     assert res.model_ref.startswith("accounts/acct/models/")
     assert res.deployed is True
+    assert res.deployment_id is not None
     assert res.endpoint == "https://api.fireworks.ai/inference/v1"
 
-    model_create = next(c for c in firectl_recorder if c[:2] == ["model", "create"])
-    assert "--base-model" in model_create
-    assert "accounts/fireworks/models/qwen3-4b" in model_create
-    dep_create = next(c for c in firectl_recorder if c[:2] == ["deployment", "create"])
-    assert "--wait" in dep_create
+    up = fw_recorder["upload"][0]
+    assert up["kind"] == "HF_PEFT_ADDON"
+    assert up["base_model"] == "accounts/fireworks/models/qwen3-4b"
+    assert fw_recorder["deploy"][0]["model_ref"] == res.model_ref
 
 
-def test_upload_only_when_create_deployment_false(firectl_recorder):
+def test_upload_only_when_create_deployment_false(fw_recorder):
     dep = build_deployer({"kind": "fireworks", "params": {
         "account_id": "a", "base_model": "b", "create_deployment": False,
     }})
     res = dep.deploy("tinker://x")
     assert res.deployed is False and res.deployment_id is None
-    assert not any(c[:2] == ["deployment", "create"] for c in firectl_recorder)
+    assert fw_recorder["deploy"] == []
 
 
-def test_lora_requires_base_model(firectl_recorder):
+def test_merged_form_uploads_base_model(fw_recorder, monkeypatch):
+    monkeypatch.setattr("evsys_sdk.deploy.fireworks._build_hf", lambda **kw: None)
+    dep = build_deployer({"kind": "fireworks", "params": {
+        "account_id": "a", "upload_form": "merged", "merged_base_model": "Qwen/Qwen3-4B",
+    }})
+    dep.deploy("tinker://x")
+    assert fw_recorder["upload"][0]["kind"] == "HF_BASE_MODEL"
+
+
+def test_lora_requires_base_model(fw_recorder):
     dep = build_deployer({"kind": "fireworks", "params": {"account_id": "a"}})
     with pytest.raises(RuntimeError, match="base_model"):
         dep.deploy("tinker://x")
@@ -77,13 +91,13 @@ def test_missing_api_key_raises(monkeypatch):
         dep.deploy("tinker://x")
 
 
-def test_deploy_checkpoint_standalone(firectl_recorder):
+def test_deploy_checkpoint_standalone(fw_recorder):
     res = deploy_checkpoint(
         "fireworks", {"account_id": "acct"}, "tinker://x",
         base_model="accounts/fireworks/models/qwen3-4b",
     )
     assert res.deployed is True
-    assert any(c[:2] == ["model", "create"] for c in firectl_recorder)
+    assert fw_recorder["upload"][0]["account_id"] == "acct"
 
 
 # --- inline hook in Experiment.run -----------------------------------------
