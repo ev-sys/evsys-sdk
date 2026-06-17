@@ -88,6 +88,7 @@ from .registry import (
     register_verifier,
 )
 from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
+from .benchmark_run import run_benchmark
 from .checkpoint import Checkpoint, find_manifest, read_manifest
 from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
@@ -242,6 +243,7 @@ __all__ = [
     # OOP orchestration (researcher-project layout)
     "ArmResult",
     "Benchmark",
+    "run_benchmark",
     "BenchmarkScore",
     "BenchmarkTaskResult",
     "Checkpoint",

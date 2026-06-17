@@ -7,9 +7,12 @@ string ``import_path`` recorded in the job/agent config at runtime (see
 extra out of the base import path.
 
 * :class:`NoOpEnvironment` — sandbox-free ``BaseEnvironment`` (no container).
-* :class:`BasicLoopAgent` — drives ``Chat(TinkerLLM(model_path))`` on-policy,
-  records token-level ``rollout_details`` onto the ``AgentContext``, and writes
-  the completion to the agent dir so the verifier can read it. The default agent.
+* :class:`BasicLoopAgent` — drives ``Chat(<llm>)`` on-policy, records token-level
+  ``rollout_details`` onto the ``AgentContext``, and writes the completion to the
+  agent dir so the verifier can read it. The default agent. ``model_client`` picks
+  the sampler: ``"tinker"`` (on-policy ``TinkerLLM``) or ``"litellm"`` (any provider
+  litellm supports, for benchmarking closed/API models through the same path).
+  Users can also plug any ``BaseAgent`` via ``agent_import_path``.
 * :class:`EvsysVerifier` — a harbor ``BaseVerifier`` that wraps our **registered
   verifier fns**. It runs host-side (no container exec): reads the completion the
   agent wrote + the per-task spec (``fn_name``/``expected``/``params``)
@@ -86,6 +89,8 @@ class BasicLoopAgent(BaseAgent):
         temperature: float = 1.0,
         max_turns: int = 1,
         system_prompt: str | None = None,
+        model_client: str = "tinker",
+        api_base: str | None = None,
         **kw: Any,
     ) -> None:
         super().__init__(**kw)
@@ -96,6 +101,8 @@ class BasicLoopAgent(BaseAgent):
         self._temperature = temperature
         self._max_turns = max_turns
         self._system_prompt = system_prompt
+        self._model_client = model_client
+        self._api_base = api_base
 
     @staticmethod
     def name() -> str:
@@ -107,13 +114,23 @@ class BasicLoopAgent(BaseAgent):
     async def setup(self, environment: BaseEnvironment) -> None:
         return None
 
-    async def run(
-        self,
-        instruction: str,
-        environment: BaseEnvironment,
-        context: AgentContext,
-    ) -> None:
-        llm = TinkerLLM(
+    def _build_llm(self) -> Any:
+        """The harbor sampler for this rollout. ``model_client`` picks it:
+        ``"tinker"`` → on-policy ``TinkerLLM`` (needs ``model_path``);
+        ``"litellm"`` → harbor's litellm LLM for any provider (``model_name`` a
+        litellm string, e.g. ``"anthropic/claude-opus-4-1"``; keys from the
+        provider env vars). Both collect rollout details so usage/cost is
+        captured — and for API models the cost is real."""
+        if self._model_client == "litellm":
+            from harbor.llms.lite_llm import LiteLLM  # lazy: tinker rollouts skip litellm
+
+            return LiteLLM(
+                model_name=self._model_name,
+                temperature=self._temperature,
+                api_base=self._api_base,
+                collect_rollout_details=True,
+            )
+        return TinkerLLM(
             model_name=self._model_name,
             model_path=self._model_path,
             renderer_name=self._renderer_name,
@@ -121,7 +138,14 @@ class BasicLoopAgent(BaseAgent):
             max_tokens=self._max_tokens,
             temperature=self._temperature,
         )
-        chat = Chat(llm)
+
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        chat = Chat(self._build_llm())
         if self._system_prompt:
             chat.messages.append({"role": "system", "content": self._system_prompt})
         resp = await chat.chat(instruction)

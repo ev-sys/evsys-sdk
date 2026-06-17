@@ -35,12 +35,16 @@ async def score_via_harbor(
     renderer_name: str | None = None,
     system_prompt: str | None = None,
     agent_import_path: str | None = None,
+    model_client: str = "tinker",
     n_concurrent: int = 8,
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
     """Score ``tasks`` through harbor (one TrajectoryGroup per task, rewards
-    from each task's verifier). Thin wrapper over the shared rollout engine."""
+    from each task's verifier). Thin wrapper over the shared rollout engine.
+
+    ``model_client="litellm"`` scores a closed / API model (``model_name`` a
+    litellm string) instead of an on-policy tinker checkpoint."""
     from .harbor_engine import run_harbor_rollouts
 
     return await run_harbor_rollouts(
@@ -55,6 +59,7 @@ async def score_via_harbor(
         temperature=temperature,
         system_prompt=system_prompt,
         agent_import_path=agent_import_path,
+        model_client=model_client,
         n_concurrent=n_concurrent,
         max_retries=max_retries,
         _job_factory=_job_factory,

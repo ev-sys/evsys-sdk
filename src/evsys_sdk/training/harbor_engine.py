@@ -81,10 +81,15 @@ def materialize_task(task: HarborTask, dest: Path) -> Path:
     return dest
 
 
-def _agent_config(
-    AgentConfig: Any,
-    agent_import_path: str | None,
+# ---------------------------------------------------------------------------
+# Runner: Job.run() → TrajectoryGroups
+# ---------------------------------------------------------------------------
+
+
+def _agent_import_and_kwargs(
+    model_client: str,
     *,
+    agent_import_path: str | None,
     model_name: str,
     model_path: str | None,
     renderer_name: str | None,
@@ -92,24 +97,28 @@ def _agent_config(
     temperature: float,
     max_turns: int,
     system_prompt: str | None,
-) -> Any:
-    return AgentConfig(
-        import_path=agent_import_path or f"{_AGENTS_PATH}:BasicLoopAgent",
-        kwargs={} if agent_import_path else {
-            "model_name": model_name,
-            "model_path": model_path,
-            "renderer_name": renderer_name,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "max_turns": max_turns,
-            "system_prompt": system_prompt,
-        },
-    )
+) -> tuple[str, dict[str, Any]]:
+    """Pick the harbor agent + its kwargs for a rollout. Pure + harbor-free so
+    the agent-selection logic is unit-testable.
 
-
-# ---------------------------------------------------------------------------
-# Runner: Job.run() → TrajectoryGroups
-# ---------------------------------------------------------------------------
+    An explicit ``agent_import_path`` wins (fully self-configured agent, no
+    kwargs). Otherwise it's always :class:`BasicLoopAgent`, parameterized by
+    ``model_client``: ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
+    or ``"litellm"`` (closed/API model; ``model_name`` is a litellm string, the
+    tinker-only ``model_path``/``renderer_name`` are ignored).
+    """
+    if agent_import_path:
+        return agent_import_path, {}
+    return f"{_AGENTS_PATH}:BasicLoopAgent", {
+        "model_name": model_name,
+        "model_path": model_path,
+        "renderer_name": renderer_name,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "max_turns": max_turns,
+        "system_prompt": system_prompt,
+        "model_client": model_client,
+    }
 
 
 async def run_harbor_rollouts(
@@ -125,12 +134,17 @@ async def run_harbor_rollouts(
     temperature: float = 1.0,
     system_prompt: str | None = None,
     agent_import_path: str | None = None,
+    model_client: str = "tinker",
     n_concurrent: int = 4,
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
     """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine and
     score each rollout in Python.
+
+    ``model_client`` picks the rollout LLM: ``"tinker"`` (on-policy ``TinkerLLM``,
+    needs ``model_path``) or ``"litellm"`` (any provider litellm supports, e.g.
+    ``model_name="anthropic/claude-opus-4-1"`` — keys from the provider env vars).
 
     ``_job_factory`` is the test seam: ``async (job_config) -> job_result``.
     When ``None``, harbor is imported and ``Job.create(...).run()`` is used.
@@ -147,11 +161,18 @@ async def run_harbor_rollouts(
         VerifierConfig,
     )
 
-    agent = _agent_config(
-        AgentConfig, agent_import_path, model_name=model_name, model_path=model_path,
-        renderer_name=renderer_name, max_tokens=max_tokens, temperature=temperature,
-        max_turns=max_turns, system_prompt=system_prompt,
+    import_path, agent_kwargs = _agent_import_and_kwargs(
+        model_client,
+        agent_import_path=agent_import_path,
+        model_name=model_name,
+        model_path=model_path,
+        renderer_name=renderer_name,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        max_turns=max_turns,
+        system_prompt=system_prompt,
     )
+    agent = AgentConfig(import_path=import_path, kwargs=agent_kwargs)
     task_cfgs = [
         TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id)))
         for t in tasks
@@ -215,11 +236,18 @@ async def run_harbor_generations(
         VerifierConfig,
     )
 
-    agent = _agent_config(
-        AgentConfig, agent_import_path, model_name=model_name, model_path=model_path,
-        renderer_name=renderer_name, max_tokens=max_tokens, temperature=temperature,
-        max_turns=max_turns, system_prompt=system_prompt,
+    import_path, agent_kwargs = _agent_import_and_kwargs(
+        "tinker",  # student rollouts are always on-policy tinker
+        agent_import_path=agent_import_path,
+        model_name=model_name,
+        model_path=model_path,
+        renderer_name=renderer_name,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        max_turns=max_turns,
+        system_prompt=system_prompt,
     )
+    agent = AgentConfig(import_path=import_path, kwargs=agent_kwargs)
     task_cfgs = []
     for i, prompt in enumerate(prompts):
         dest = workspace_dir / "tasks" / f"gen_{i}"
