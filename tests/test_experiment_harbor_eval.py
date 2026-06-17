@@ -50,6 +50,32 @@ def _run_cfg():
     )
 
 
+def test_api_models_run_once_even_when_benchmark_has_run_every(monkeypatch):
+    # A run_every benchmark is scored in-loop (checkpoint) — skipped here — but
+    # its closed-source `models` still run ONCE post-training (static weights,
+    # never in-loop).
+    calls: list = []
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: (lambda rr, c: object()))
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    meta = {"name": "b", "run_every": 200, "engine": "harbor",
+            "models": ["anthropic/claude-opus-4-1", "openai/gpt-4o"]}
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {})
+
+    # both API models scored once; the checkpoint (api_model=None) is NOT scored
+    # here (run_every → handled in-loop).
+    assert calls == ["anthropic/claude-opus-4-1", "openai/gpt-4o"]
+    assert None not in calls
+
+
 def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     async def _fake_score(tasks, **kwargs):
         return [

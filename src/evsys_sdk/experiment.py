@@ -486,8 +486,16 @@ class Experiment:
             return arm
         assert arm.run_result is not None
         for bench, bench_meta in benchmarks:
+            # Closed-source / API models (``benchmark.models: [...]``) have static
+            # weights, so they're scored exactly ONCE post-training — never on the
+            # in-loop ``run_every`` cadence (that's for the changing checkpoint).
+            # Run them up-front, regardless of run_every; one eval per model via
+            # harbor's litellm path.
+            for model in _benchmark_models(bench_meta):
+                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
+
             if bench_meta.get("run_every"):
-                continue  # in-loop entry — scored by the algorithm wrapper
+                continue  # checkpoint is scored in-loop by the algorithm wrapper
             # Score the trained checkpoint: harbor rollout engine (opt-in via
             # engine: harbor) or the default inference-client path.
             if str(bench_meta.get("engine", "")).lower() == "harbor":
@@ -519,13 +527,6 @@ class Experiment:
                     tags=list(bench_meta.get("tags") or []),
                 ))
                 self._record_eval(arm, bench, bench_meta, score)
-
-            # In addition to the checkpoint, score each configured API model
-            # (``benchmark.models: ["anthropic/claude-opus-4-1", ...]``) through
-            # harbor's litellm path — same rollout/metrics/upload, one eval per
-            # model. Independent of the benchmark's checkpoint engine/tag.
-            for model in _benchmark_models(bench_meta):
-                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
 
         # Pick the primary post-training eval to mirror into the flat fields.
         post = [e for e in arm.evals if e.step is None]
