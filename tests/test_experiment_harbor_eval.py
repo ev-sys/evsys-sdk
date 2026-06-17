@@ -76,6 +76,64 @@ def test_api_models_run_once_even_when_benchmark_has_run_every(monkeypatch):
     assert None not in calls
 
 
+def test_score_api_models_false_skips_api_evals_keeps_checkpoint(monkeypatch):
+    # Continual stages after the first pass score_api_models=False: the closed/API
+    # `models` benchmark is NOT re-scored (fixed weights), but the trained
+    # checkpoint (engine: harbor → api_model=None) still is.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    calls: list = []
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    meta = {"name": "b", "engine": "harbor", "models": ["anthropic/claude-opus-4-8"]}
+
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {})                 # stage 0 (default True)
+    assert calls == ["anthropic/claude-opus-4-8", None]              # api model + checkpoint
+
+    calls.clear()
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {}, score_api_models=False)
+    assert calls == [None]                                           # checkpoint only
+
+
+def test_harbor_benchmark_runs_without_inference_factory(monkeypatch):
+    # Gate fix: engine: harbor benchmarks don't depend on the legacy inference
+    # factory — the harbor eval runs even when no factory is available.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: None)
+    calls: list = []
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    e._eval_arm(arm, run_cfg, [(_bench(), {"name": "b", "engine": "harbor"})], {})
+    assert calls == [None]   # checkpoint scored via harbor despite factory=None
+
+
+def test_legacy_benchmark_skipped_without_factory(monkeypatch):
+    # The ONLY path that needs a factory is the legacy bench.score(client) path;
+    # with no factory it's skipped (warning), not a crash and not an eval.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: None)
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    e._eval_arm(arm, run_cfg, [(_bench(), {"name": "b"})], {})   # no engine: harbor
+    assert arm.evals == []
+
+
 def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     async def _fake_score(tasks, **kwargs):
         return [

@@ -370,6 +370,7 @@ class Experiment:
         *,
         group_id: str | None = None,
         group_name: str | None = None,
+        score_api_models: bool = True,
     ) -> ArmResult:
         run_id = self._create_run(experiment_id, run_cfg, group_id=group_id)
         arm = ArmResult(
@@ -383,7 +384,7 @@ class Experiment:
         try:
             arm = self._train_arm(arm, run_cfg)
             if arm.status == "completed" and benchmarks:
-                arm = self._eval_arm(arm, run_cfg, benchmarks, meta)
+                arm = self._eval_arm(arm, run_cfg, benchmarks, meta, score_api_models=score_api_models)
             self._mark_run_completed(run_id, arm)
         except Exception as e:
             logger.exception("arm %r failed", run_cfg.name)
@@ -456,8 +457,15 @@ class Experiment:
         run_cfg: RunConfig,
         benchmarks: list[tuple[Benchmark, dict]],
         meta: dict,
+        *,
+        score_api_models: bool = True,
     ) -> ArmResult:
         """Score each post-training benchmark and attach an EvalResult per entry.
+
+        ``score_api_models=False`` skips the closed/API-model (``benchmark.models``)
+        evals — used for continual stages after the first, since a closed model's
+        weights are fixed across stages so one scoring suffices (only the trained
+        checkpoint, which changes per stage, is re-scored).
 
         Entries flagged with ``run_every`` are in-loop and skipped here (their
         scoring happens during training in the algorithm wrapper — task
@@ -469,21 +477,17 @@ class Experiment:
         mirror the **primary** eval — the first ``test``-tagged
         post-training row, else the first post-training row, else nothing.
         """
-        factory = self._resolve_inference_factory(run_cfg)
-        if factory is None:
-            logger.info(
-                "no inference_factory; skipping benchmark eval for %r", run_cfg.name
-            )
-            return arm
         assert arm.run_result is not None
         for bench, bench_meta in benchmarks:
             # Closed-source / API models (``benchmark.models: [...]``) have static
             # weights, so they're scored exactly ONCE post-training — never on the
-            # in-loop ``run_every`` cadence (that's for the changing checkpoint).
+            # in-loop ``run_every`` cadence (that's for the changing checkpoint),
+            # and in continual runs only on the first stage (``score_api_models``).
             # Run them up-front, regardless of run_every; one eval per model via
             # harbor's litellm path.
-            for model in _benchmark_models(bench_meta):
-                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
+            if score_api_models:
+                for model in _benchmark_models(bench_meta):
+                    self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
 
             if bench_meta.get("run_every"):
                 continue  # checkpoint is scored in-loop by the algorithm wrapper
@@ -492,6 +496,17 @@ class Experiment:
             if str(bench_meta.get("engine", "")).lower() == "harbor":
                 self._eval_arm_harbor(arm, run_cfg, bench, bench_meta)
             else:
+                # Legacy in-process path — the ONLY path needing an inference
+                # client. Resolve it lazily here so harbor / api-model benchmarks
+                # above never depend on a factory they don't use.
+                factory = self._resolve_inference_factory(run_cfg)
+                if factory is None:
+                    logger.warning(
+                        "benchmark %r has no engine: harbor and backend %r provides no "
+                        "inference factory — skipping (set engine: harbor or supply one)",
+                        bench_meta.get("name"), run_cfg.backend.kind,
+                    )
+                    continue
                 client = factory(arm.run_result, run_cfg)
                 # Auto-wrap with chat templating when configured. Lets researchers
                 # declare a system_prompt + user_template in YAML instead of
@@ -682,6 +697,9 @@ class Experiment:
                     experiment_id, stage, benchmarks, meta,
                     group_id=stage_group_ids[i],
                     group_name=(stage_label if n > 1 else None),
+                    # Closed/API-model benchmarks have fixed weights → score once,
+                    # on the first stage only (the checkpoint is re-scored each stage).
+                    score_api_models=(i == 0),
                 )
                 arms.append(arm)
                 if arm.status != "completed":
