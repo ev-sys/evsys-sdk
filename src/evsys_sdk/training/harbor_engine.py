@@ -1,46 +1,57 @@
-"""Harbor rollout runner — hands rollouts to harbor's ``Job`` engine.
+"""Harbor rollout runner — hands rollouts to harbor's ``Job`` engine (0.13.2).
 
-This module is import-safe **without** the ``harbor`` package: all harbor
-imports are lazy (inside :func:`run_harbor_rollouts`), and the harbor agent /
-environment / verifier classes are referenced only by **string import path**
-(they live in :mod:`evsys_sdk.training.harbor_agents`, which harbor loads at
-trial runtime). So ``rl`` / ``sdft`` can import this module, and tests can mock
-:func:`run_harbor_rollouts`, with no ``harbor`` install.
+Import-safe **without** the ``harbor`` package: all harbor imports are lazy
+(inside the runners), and the agent / environment classes are referenced only by
+**string import path** (they live in :mod:`evsys_sdk.training.harbor_agents`,
+which harbor loads at trial runtime). So ``rl`` / ``sdft`` can import this
+module, and tests can mock the runners, with no ``harbor`` install.
 
-Flow: materialize each :class:`~evsys_sdk.data_types.HarborTask` → a minimal
-task dir (``task.toml`` with ``[verifier] environment_mode="separate"`` so the
-``test.sh`` check is skipped + ``instruction.md``) → build a ``JobConfig`` over
-the batch → ``Job.run()`` (retries + bounded concurrency + persistence) →
-harvest each trial's ``rollout_details`` + reward into a
-:class:`~evsys_sdk.training.env.TrajectoryGroup`.
+Flow (harbor 0.13.2): materialize each :class:`~evsys_sdk.data_types.HarborTask`
+→ a minimal task dir (``instruction.md`` + a ``task.toml`` whose
+``environment_mode="separate"`` skips the ``test.sh`` requirement) → build a
+``JobConfig`` over ``tasks`` × one ``agent``, ``n_attempts = num_samples``,
+verifier **disabled** → ``Job.run()`` → harvest each trial's ``agent_result``
+(``rollout_details`` + completion text + token/cost usage) into a
+:class:`Trajectory`, then **score the reward in Python** from the completion and
+the task's verifier fn.
+
+Why Python scoring: harbor 0.13.2's verifier runs host-side against files synced
+out of a *container*. Our agents run in-process with a no-op environment, so
+there's nothing to sync — we disable the harbor verifier and score completions
+ourselves (same registered verifier fns the rest of the SDK uses).
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Sequence
-
-import tinker
 
 from ..data_types import HarborTask, InProcessVerifier
 from .trajectory import Trajectory, TrajectoryGroup, Turn
 
 # Where harbor loads our glue classes from (by string, at trial runtime).
 _AGENTS_PATH = "evsys_sdk.training.harbor_agents"
-_COMPLETION_FILE = "completion.txt"
+
+# task.toml that loads with no test.sh + no per-task verifier (we score in
+# Python, and disable harbor's verifier at the job level).
+_TASK_TOML = (
+    "[agent]\n"
+    "timeout_sec = 600.0\n\n"
+    "[environment]\n\n"
+    "[verifier]\n"
+    'environment_mode = "separate"   # skip the test.sh requirement at load\n'
+)
 
 
 # ---------------------------------------------------------------------------
-# Task materializer (minimal dir: task.toml + instruction.md, no Dockerfile/test.sh)
+# Task materializer (minimal dir: task.toml + instruction.md)
 # ---------------------------------------------------------------------------
 
 
 def materialize_task(task: HarborTask, dest: Path) -> Path:
     """Write a minimal harbor task dir for ``task`` at ``dest`` — only
-    ``task.toml`` + ``instruction.md``. ``environment_mode = "separate"`` makes
-    the harbor ``Task`` load skip the ``test.sh`` requirement; scoring is our
-    in-process ``EvsysVerifier``."""
+    ``task.toml`` + ``instruction.md``. The reward is scored in Python from the
+    task's verifier fn, so the harbor verifier is disabled (not in task.toml)."""
     if not isinstance(task.verifier, InProcessVerifier):
         raise RuntimeError(
             f"harbor_engine: task {task.task_id!r} has a {task.verifier.kind!r} "
@@ -48,24 +59,33 @@ def materialize_task(task: HarborTask, dest: Path) -> Path:
         )
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "instruction.md").write_text(task.instruction)
-    (dest / "task.toml").write_text(_task_toml(task))
+    (dest / "task.toml").write_text(_TASK_TOML)
     return dest
 
 
-def _task_toml(task: HarborTask) -> str:
-    v = task.verifier
-    assert isinstance(v, InProcessVerifier)
-    expected = json.dumps(v.expected) if v.expected is not None else '""'
-    return (
-        "[agent]\n"
-        "timeout_sec = 600.0\n\n"
-        "[environment]\n\n"
-        "[verifier]\n"
-        'environment_mode = "separate"   # skips the test.sh requirement at load\n'
-        f'import_path = "{_AGENTS_PATH}:EvsysVerifier"\n\n'
-        "[verifier.kwargs]\n"
-        f'fn_name = "{v.fn_name}"\n'
-        f"expected = {expected}\n"
+def _agent_config(
+    AgentConfig: Any,
+    agent_import_path: str | None,
+    *,
+    model_name: str,
+    model_path: str | None,
+    renderer_name: str | None,
+    max_tokens: int,
+    temperature: float,
+    max_turns: int,
+    system_prompt: str | None,
+) -> Any:
+    return AgentConfig(
+        import_path=agent_import_path or f"{_AGENTS_PATH}:BasicLoopAgent",
+        kwargs={} if agent_import_path else {
+            "model_name": model_name,
+            "model_path": model_path,
+            "renderer_name": renderer_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "max_turns": max_turns,
+            "system_prompt": system_prompt,
+        },
     )
 
 
@@ -91,7 +111,8 @@ async def run_harbor_rollouts(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
-    """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine.
+    """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine and
+    score each rollout in Python.
 
     ``_job_factory`` is the test seam: ``async (job_config) -> job_result``.
     When ``None``, harbor is imported and ``Job.create(...).run()`` is used.
@@ -105,68 +126,42 @@ async def run_harbor_rollouts(
         AgentConfig,
         EnvironmentConfig,
         TaskConfig,
-        TrialConfig,
         VerifierConfig,
     )
 
-    agent = AgentConfig(
-        import_path=agent_import_path or f"{_AGENTS_PATH}:BasicLoopAgent",
-        kwargs={} if agent_import_path else {
-            "model_name": model_name,
-            "model_path": model_path,
-            "renderer_name": renderer_name,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "max_turns": max_turns,
-            "system_prompt": system_prompt,
-        },
+    agent = _agent_config(
+        AgentConfig, agent_import_path, model_name=model_name, model_path=model_path,
+        renderer_name=renderer_name, max_tokens=max_tokens, temperature=temperature,
+        max_turns=max_turns, system_prompt=system_prompt,
     )
-
-    trial_configs = []
-    for t in tasks:
-        task_dir = materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id))
-        for s in range(num_samples):
-            trial_configs.append(TrialConfig(
-                task=TaskConfig(path=task_dir),
-                trial_name=_trial_name(t.task_id, s),
-                trials_dir=workspace_dir / "trials",
-                agent=agent,
-                environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-                verifier=VerifierConfig(),  # the task.toml carries import_path + kwargs
-            ))
-
+    task_cfgs = [
+        TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id)))
+        for t in tasks
+    ]
     config = JobConfig(
-        trials=trial_configs,
+        tasks=task_cfgs,
+        agents=[agent],
+        environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
+        verifier=VerifierConfig(disable=True),     # we score in Python (below)
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
+        n_attempts=num_samples,                    # repeats per task = samples
         retry=RetryConfig(max_retries=max_retries),
     )
 
-    if _job_factory is not None:
-        result = await _job_factory(config)
-    else:
-        job = await Job.create(config)
-        result = await job.run()
+    result = await (_job_factory(config) if _job_factory is not None
+                    else _run_job(Job, config))
+    return _harvest(result, tasks, score=True)
 
-    return _harvest(result, tasks, num_samples)
+
+async def _run_job(Job: Any, config: Any) -> Any:
+    job = await Job.create(config)
+    return await job.run()
 
 
 # ---------------------------------------------------------------------------
-# Generation-only rollouts (no verifier/reward) — used by SDFT's student rollout
+# Generation-only rollouts (no reward) — used by SDFT's student rollout
 # ---------------------------------------------------------------------------
-
-
-def _materialize_generation_task(instruction: str, dest: Path) -> Path:
-    """A verifier-less task dir: ``instruction.md`` + a ``task.toml`` whose
-    ``environment_mode="separate"`` skips the test.sh check at load. The trial
-    disables the verifier, so only the agent's generation matters."""
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / "instruction.md").write_text(instruction)
-    (dest / "task.toml").write_text(
-        "[agent]\ntimeout_sec = 600.0\n\n[environment]\n\n"
-        '[verifier]\nenvironment_mode = "separate"\n'
-    )
-    return dest
 
 
 async def run_harbor_generations(
@@ -185,7 +180,7 @@ async def run_harbor_generations(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[Trajectory]:
-    """One generation per prompt through harbor's engine, **no verifier/reward**.
+    """One generation per prompt through harbor's engine, **no reward**.
 
     Returns one :class:`Trajectory` per prompt (``reward=0``); SDFT uses the
     student completion tokens for teacher-forced distillation.
@@ -198,83 +193,93 @@ async def run_harbor_generations(
         AgentConfig,
         EnvironmentConfig,
         TaskConfig,
-        TrialConfig,
         VerifierConfig,
     )
 
-    agent = AgentConfig(
-        import_path=agent_import_path or f"{_AGENTS_PATH}:BasicLoopAgent",
-        kwargs={} if agent_import_path else {
-            "model_name": model_name,
-            "model_path": model_path,
-            "renderer_name": renderer_name,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "max_turns": max_turns,
-            "system_prompt": system_prompt,
-        },
+    agent = _agent_config(
+        AgentConfig, agent_import_path, model_name=model_name, model_path=model_path,
+        renderer_name=renderer_name, max_tokens=max_tokens, temperature=temperature,
+        max_turns=max_turns, system_prompt=system_prompt,
     )
-
-    trial_configs = []
+    task_cfgs = []
     for i, prompt in enumerate(prompts):
-        task_dir = _materialize_generation_task(prompt, workspace_dir / "tasks" / f"gen_{i}")
-        trial_configs.append(TrialConfig(
-            task=TaskConfig(path=task_dir),
-            trial_name=f"gen_{i}",
-            trials_dir=workspace_dir / "trials",
-            agent=agent,
-            environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-            verifier=VerifierConfig(disable=True),   # generation only — no scoring
-        ))
+        dest = workspace_dir / "tasks" / f"gen_{i}"
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "instruction.md").write_text(prompt)
+        (dest / "task.toml").write_text(_TASK_TOML)
+        task_cfgs.append(TaskConfig(path=dest))
 
     config = JobConfig(
-        trials=trial_configs,
+        tasks=task_cfgs,
+        agents=[agent],
+        environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
+        verifier=VerifierConfig(disable=True),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
+        n_attempts=1,
         retry=RetryConfig(max_retries=max_retries),
     )
 
-    if _job_factory is not None:
-        result = await _job_factory(config)
-    else:
-        job = await Job.create(config)
-        result = await job.run()
-
-    by_trial = {
-        tr.trial_name: tr for tr in (getattr(result, "trial_results", None) or [])
-    }
+    result = await (_job_factory(config) if _job_factory is not None
+                    else _run_job(Job, config))
+    by_task = _trials_by_task(result)
     out: list[Trajectory] = []
     for i in range(len(prompts)):
-        traj = _trial_to_trajectory(by_trial.get(f"gen_{i}"))
+        trs = by_task.get(f"gen_{i}", [])
+        traj = _trial_to_trajectory(trs[0]) if trs else None
         out.append(traj if traj is not None else Trajectory(turns=[]))
     return out
 
 
 # ---------------------------------------------------------------------------
-# Harvest: JobResult → TrajectoryGroups (one per task)
+# Harvest: JobResult → TrajectoryGroups (one per task), with Python scoring
 # ---------------------------------------------------------------------------
 
 
-def _harvest(job_result: Any, tasks: Sequence[HarborTask], num_samples: int) -> list[TrajectoryGroup]:
-    by_trial = {
-        tr.trial_name: tr
-        for tr in (getattr(job_result, "trial_results", None) or [])
-    }
+def _trials_by_task(job_result: Any) -> dict[str, list[Any]]:
+    """Group a job's trial results by ``task_name`` (the materialized dir's
+    basename = ``_safe(task_id)``). ``n_attempts`` trials share a task_name."""
+    out: dict[str, list[Any]] = {}
+    for tr in (getattr(job_result, "trial_results", None) or []):
+        out.setdefault(getattr(tr, "task_name", None), []).append(tr)
+    return out
+
+
+def _harvest(job_result: Any, tasks: Sequence[HarborTask], *, score: bool) -> list[TrajectoryGroup]:
+    by_task = _trials_by_task(job_result)
     groups: list[TrajectoryGroup] = []
     for t in tasks:
         trajs: list[Trajectory] = []
-        for s in range(num_samples):
-            traj = _trial_to_trajectory(by_trial.get(_trial_name(t.task_id, s)))
-            if traj is not None:
-                trajs.append(traj)
+        for tr in by_task.get(_safe(t.task_id), []):
+            traj = _trial_to_trajectory(tr)
+            if traj is None:
+                continue
+            if score:
+                traj.reward = _score_completion(t, traj.metadata.get("completion", ""))
+            trajs.append(traj)
         groups.append(TrajectoryGroup(
             trajectories=trajs, tags=list(t.metadata.get("tags") or []),
         ))
     return groups
 
 
+def _score_completion(task: HarborTask, completion: str) -> float:
+    """Reward = the task's registered verifier fn over the completion + expected."""
+    v = task.verifier
+    if not isinstance(v, InProcessVerifier):
+        return 0.0
+    from ..verifiers import get_verifier_fn
+
+    try:
+        fn = get_verifier_fn(v.fn_name)
+        return float(fn(completion, v.expected, dict(getattr(v, "params", None) or {})))
+    except Exception:  # pragma: no cover - a bad verifier fn shouldn't crash the batch
+        return 0.0
+
+
 def _trial_to_trajectory(tr: Any) -> Trajectory | None:
-    """Convert harbor's RolloutDetail (ATIF) → our multi-turn Trajectory."""
+    """Convert a harbor ``TrialResult`` → our multi-turn :class:`Trajectory`,
+    reading the rollout off ``agent_result`` (``AgentContext``)."""
     if tr is None:
         return None
     agent_result = getattr(tr, "agent_result", None)
@@ -296,29 +301,29 @@ def _trial_to_trajectory(tr: Any) -> Trajectory | None:
             logprobs=list(logprob_turns[i]) if i < len(logprob_turns) else [],
         ))
 
-    rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None) or {}
-    reward = float(rewards.get("reward", 0.0))
-
     usage = _trial_usage(tr)
-    # Backfill token counts from the harvested turns when harbor didn't report
-    # them (e.g. on-policy tinker rollouts populate token ids, not n_*_tokens).
     if usage["prompt_tokens"] is None:
         usage["prompt_tokens"] = sum(len(t.prompt_tokens) for t in turns)
     if usage["completion_tokens"] is None:
         usage["completion_tokens"] = sum(len(t.completion_tokens) for t in turns)
-    return Trajectory(turns=turns, reward=reward, metadata={"usage": usage})
+
+    completion_text = ""
+    meta = getattr(agent_result, "metadata", None) or {}
+    if isinstance(meta, dict):
+        completion_text = meta.get("completion") or ""
+    # reward is set by the caller (_harvest) via Python scoring.
+    return Trajectory(turns=turns, reward=0.0,
+                      metadata={"usage": usage, "completion": completion_text})
 
 
 def _trial_usage(tr: Any) -> dict[str, Any]:
     """Pull harbor's native cost / token / timing info off a trial result.
 
-    Harbor records ``cost_usd`` and token counts on ``agent_result``
-    (its ``AgentContext``) and per-phase wall-clock timing on the trial
-    (``agent_execution``, with the whole-trial span as fallback). Any field
-    harbor didn't populate stays ``None`` — e.g. on-policy tinker rollouts have
-    no API ``cost_usd``, and the caller backfills token counts from the turns.
-    Pure + harbor-free (duck-typed getattr) so it's directly testable.
-    """
+    Harbor records ``cost_usd`` + token counts on ``agent_result``
+    (``AgentContext``) and per-phase wall-clock timing on the trial
+    (``agent_execution``, whole-trial span as fallback). Any field harbor didn't
+    populate stays ``None`` — on-policy tinker has no API ``cost_usd``, and the
+    caller backfills token counts from the turns. Pure + harbor-free."""
     ar = getattr(tr, "agent_result", None)
     return {
         "cost_usd": getattr(ar, "cost_usd", None),
@@ -341,10 +346,6 @@ def _phase_seconds(phase: Any) -> float | None:
         return (finished - started).total_seconds()
     except (TypeError, AttributeError):  # pragma: no cover - defensive
         return None
-
-
-def _trial_name(task_id: str, sample: int) -> str:
-    return f"{_safe(task_id)}__s{sample}"
 
 
 def _safe(name: str) -> str:

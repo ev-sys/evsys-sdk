@@ -1,22 +1,26 @@
-"""Harbor glue classes — agent / environment / verifier.
+"""Harbor glue classes — agent + environment (harbor 0.13.2).
 
 These subclass harbor base classes, so ``harbor`` is imported at module top.
 Our own code **never imports this module directly** — harbor loads these by the
-string ``import_path`` recorded in the trial/task config at runtime (see
+string ``import_path`` recorded in the job/agent config at runtime (see
 :mod:`evsys_sdk.training.harbor_engine`). That keeps the optional ``[harbor]``
 extra out of the base import path.
 
-* :class:`NoOpEnvironment` — sandbox-free ``BaseEnvironment`` (all no-ops).
-* :class:`BasicLoopAgent` — drives ``Chat(TinkerLLM(model_path))`` (on-policy)
-  and records token-level ``rollout_details``. The default; users can plug any
-  ``BaseAgent`` via ``agent_import_path``.
-* :class:`EvsysVerifier` — scores the completion in Python via a registered
-  verifier fn (no ``test.sh``).
+* :class:`NoOpEnvironment` — sandbox-free ``BaseEnvironment`` (no container).
+* :class:`BasicLoopAgent` — drives ``Chat(TinkerLLM(model_path))`` on-policy and
+  records token-level ``rollout_details`` + the completion text onto the
+  ``AgentContext`` (``context.metadata['completion']``). The default agent.
+* :class:`EchoAgent` — a no-model agent that echoes the instruction; used to
+  smoke-test the rollout wiring without tinker / a real model.
+
+Scoring is **not** done by a harbor verifier here. Harbor 0.13.2's verifier runs
+host-side against files synced from a container; our agents run in-process with
+no container, so we disable the harbor verifier and score completions in Python
+(:func:`evsys_sdk.training.harbor_engine.run_harbor_rollouts`).
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from harbor.agents.base import BaseAgent
@@ -24,14 +28,14 @@ from harbor.environments.base import BaseEnvironment, ExecResult
 from harbor.llms.chat import Chat
 from harbor.llms.tinker import TinkerLLM
 from harbor.models.agent.context import AgentContext
-from harbor.models.verifier.result import VerifierResult
-from harbor.verifier.base import BaseVerifier
-
-from .harbor_engine import _COMPLETION_FILE
 
 
 class NoOpEnvironment(BaseEnvironment):
-    """Sandbox-free environment: every operation is a no-op (no container)."""
+    """Sandbox-free environment: every operation is a no-op (no container).
+
+    Agents using this run in-process; there's nothing to upload/download, so the
+    log-sync steps harbor logs a warning for are harmless (the agent writes
+    directly onto the ``AgentContext``, which is harvested regardless)."""
 
     @staticmethod
     def type() -> str:
@@ -63,7 +67,9 @@ class NoOpEnvironment(BaseEnvironment):
 
 
 class BasicLoopAgent(BaseAgent):
-    """Drive ``Chat(TinkerLLM(model_path))`` and record ``rollout_details``."""
+    """Drive ``Chat(TinkerLLM(model_path))`` and record the rollout onto the
+    ``AgentContext``: token-level ``rollout_details`` + the completion text in
+    ``context.metadata['completion']`` (the host side scores it in Python)."""
 
     def __init__(
         self,
@@ -114,40 +120,45 @@ class BasicLoopAgent(BaseAgent):
         if self._system_prompt:
             chat.messages.append({"role": "system", "content": self._system_prompt})
         resp = await chat.chat(instruction)
-        # Persist the completion so EvsysVerifier (host-side) can score it.
-        agent_dir = getattr(self, "agent_dir", None)
-        if agent_dir is not None:
-            Path(agent_dir).mkdir(parents=True, exist_ok=True)
-            (Path(agent_dir) / _COMPLETION_FILE).write_text(resp.content or "")
         context.rollout_details = chat.rollout_details
+        context.metadata = {**(context.metadata or {}), "completion": resp.content or ""}
 
 
-class EvsysVerifier(BaseVerifier):
-    """Score the agent's completion in Python via a registered verifier fn.
+class EchoAgent(BaseAgent):
+    """A no-model agent that echoes the instruction — for smoke-testing the
+    rollout wiring (job → harvest → Python scoring) without tinker/a real model.
+    Populates ``context`` exactly like a real agent does."""
 
-    kwargs (from ``[verifier.kwargs]`` in task.toml): ``fn_name``, ``expected``,
-    ``params``. Reads the completion the agent wrote to its agent dir — no
-    ``test.sh``, no container exec.
-    """
-
-    def __init__(self, *, fn_name: str, expected: Any = None, params: dict | None = None, **kw: Any) -> None:
+    def __init__(self, *, prefix: str = "ECHO:", **kw: Any) -> None:
         super().__init__(**kw)
-        from ..verifiers import get_verifier_fn
+        self._prefix = prefix
 
-        self._fn = get_verifier_fn(fn_name)
-        self._expected = expected
-        self._params = dict(params or {})
+    @staticmethod
+    def name() -> str:
+        return "evsys-echo"
 
-    async def verify(self) -> VerifierResult:
-        completion = ""
-        try:
-            path = Path(self.trial_paths.agent_dir) / _COMPLETION_FILE
-            if path.exists():
-                completion = path.read_text()
-        except Exception:  # pragma: no cover - defensive
-            completion = ""
-        reward = float(self._fn(completion, self._expected, self._params))
-        return VerifierResult(rewards={"reward": reward})
+    def version(self) -> str | None:
+        return "1.0.0"
+
+    async def setup(self, environment: BaseEnvironment) -> None:
+        return None
+
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        text = f"{self._prefix}{instruction}"
+        toks = list(range(1, len(text.split()) + 2))
+        context.n_input_tokens = len(instruction.split())
+        context.n_output_tokens = len(toks)
+        context.rollout_details = [{
+            "prompt_token_ids": [list(range(context.n_input_tokens))],
+            "completion_token_ids": [toks],
+            "logprobs": [[-0.1] * len(toks)],
+        }]
+        context.metadata = {**(context.metadata or {}), "completion": text}
 
 
-__all__ = ["BasicLoopAgent", "NoOpEnvironment", "EvsysVerifier"]
+__all__ = ["BasicLoopAgent", "EchoAgent", "NoOpEnvironment"]
