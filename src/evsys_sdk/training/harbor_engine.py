@@ -25,11 +25,14 @@ verifier and use ``environment_mode="separate"`` so no ``test.sh`` is needed.)
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Sequence
 
 from ..data_types import HarborTask, InProcessVerifier
 from .trajectory import Trajectory, TrajectoryGroup, Turn
+
+logger = logging.getLogger(__name__)
 
 # Where harbor loads our glue classes from (by string, at trial runtime).
 _AGENTS_PATH = "evsys_sdk.training.harbor_agents"
@@ -192,6 +195,12 @@ async def run_harbor_rollouts(
         TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id)))
         for t in tasks
     ]
+    logger.info(
+        "[harbor] rollouts: %d tasks × %d samples = %d trials | client=%s model=%s "
+        "n_concurrent=%d max_tokens=%d | agent=%s | workspace=%s",
+        len(task_cfgs), num_samples, len(task_cfgs) * num_samples, model_client,
+        model_name, n_concurrent, max_tokens, import_path, workspace_dir,
+    )
     config = JobConfig(
         tasks=task_cfgs,
         agents=[agent],
@@ -206,7 +215,13 @@ async def run_harbor_rollouts(
 
     result = await (_job_factory(config) if _job_factory is not None
                     else _run_job(Job, config))
-    return _harvest(result, tasks)
+    groups = _harvest(result, tasks)
+    logger.info(
+        "[harbor] rollouts done: %d task-groups | mean rewards per task=%s",
+        len(groups),
+        [round(sum(g.rewards) / len(g.rewards), 3) if g.rewards else None for g in groups],
+    )
+    return groups
 
 
 async def _run_job(Job: Any, config: Any) -> Any:
