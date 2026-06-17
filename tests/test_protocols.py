@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from evsys_sdk.algorithms.mock_sft import MockSFT
 from evsys_sdk.backends.mock import MockBackend
-from evsys_sdk.metrics.basic import ExactMatch, MeanReward
+from evsys_sdk.metrics.basic import MeanReward, PassAt3
 from evsys_sdk.protocols import (
     Algorithm,
     Backend,
@@ -28,5 +28,5 @@ def test_format_only_satisfies_verifier_protocol():
 
 
 def test_metrics_satisfy_metric_protocol():
-    assert isinstance(ExactMatch(), Metric)
     assert isinstance(MeanReward(), Metric)
+    assert isinstance(PassAt3(), Metric)

@@ -17,14 +17,11 @@ from evsys_sdk import (
     BackendConfig,
     DataConfig,
     DataStoreSpec,
-    EvalConfig,
     ExperimentConfig,
     LogStoreSpec,
-    MetricSpec,
     ModelConfig,
     RunConfig,
     TransformSpec,
-    InferenceSpec,
     run_experiment,
 )
 from evsys_sdk.runner import _execute_run as execute_run  # noqa: F401  (smoke import)
@@ -48,16 +45,6 @@ def _make_cfg(tmp_path: Path, sample_rows: list[dict]) -> ExperimentConfig:
                 params={"num_epochs": 1, "batch_size": 1, "save_at_fractions": [0.5, 1.0]},
             ),
             backend=BackendConfig(kind="mock"),
-            eval=EvalConfig(
-                enabled=True,
-                metrics=[MetricSpec(kind="exact_match"), MetricSpec(kind="toolkit_match")],
-                inference=InferenceSpec(
-                    kind="mock",
-                    params={
-                        "template": "<think>t</think>\n<answer>OUTLOOK_CREATE_CONTACT</answer>"
-                    },
-                ),
-            ),
         ),
     )
 
@@ -75,10 +62,6 @@ def test_runner_mock_sft_end_to_end(tmp_path: Path, sample_rows):
     assert metrics_path.exists()
     rows = [json.loads(l) for l in metrics_path.read_text().splitlines() if l.strip()]
     assert any("train/loss" in row.get("metrics", {}) for row in rows)
-    # Eval ran and produced metrics (mock inference always answers OUTLOOK_CREATE_CONTACT).
-    assert "eval/exact_match" in r.metrics
-    # Only the first row's tool_slug matches the mock answer -> 1/3.
-    assert 0.30 < r.metrics["eval/exact_match"] < 0.35
 
 
 def test_runner_mock_rl_end_to_end(tmp_path: Path, sample_rows):
@@ -102,7 +85,6 @@ def test_runner_mock_rl_end_to_end(tmp_path: Path, sample_rows):
                 },
             ),
             backend=BackendConfig(kind="mock"),
-            eval=EvalConfig(enabled=False),
         ),
     )
     results = run_experiment(cfg)
@@ -134,7 +116,6 @@ def test_runner_merges_extra_context_into_ctx_extras(tmp_path: Path, sample_rows
 
     cfg = _make_cfg(tmp_path, sample_rows).model_copy()
     cfg.run.algorithm = AlgorithmConfig(kind="capture_extras", params={})
-    cfg.run.eval = EvalConfig(enabled=False)
 
     sentinel_store = object()
     run_experiment(
@@ -163,7 +144,6 @@ def test_runner_failure_path_produces_failed_result(tmp_path: Path, sample_rows)
             model=ModelConfig(name="x"),
             algorithm=AlgorithmConfig(kind="mock_sft"),
             backend=BackendConfig(kind="mock", params={"fail_on_prepare": True}),
-            eval=EvalConfig(enabled=False),
         ),
     )
     results = run_experiment(cfg)

@@ -33,9 +33,7 @@ from .registry import (
     get_algorithm,
     get_backend,
     get_data_store,
-    get_inference,
     get_log_store,
-    get_metric,
     get_transform,
 )
 
@@ -109,61 +107,6 @@ def _persist_result(run_dir: Path, result: RunResult, hparams: dict[str, Any]) -
     (run_dir / "run_result.json").write_text(json.dumps(payload, indent=2, default=str))
 
 
-# ---------------------------------------------------------------------------
-# Eval (best-effort) — runs after training.
-# ---------------------------------------------------------------------------
-
-
-def _run_eval(run: RunConfig, ctx: RunContext, train_rows: list[dict[str, Any]]) -> dict[str, float]:
-    if not run.eval.enabled or not run.eval.metrics:
-        return {}
-
-    eval_rows = train_rows
-    if run.eval.eval_data is not None:
-        eval_rows = _load_rows(run.eval.eval_data, ctx.data_store)
-        eval_rows = _apply_transforms(eval_rows, run.eval.eval_data)
-    if run.eval.n_samples is not None:
-        eval_rows = eval_rows[: run.eval.n_samples]
-    if not eval_rows:
-        return {}
-
-    inference_spec = run.eval.inference
-    if inference_spec is None:
-        return {}
-    try:
-        infer = _build_from_spec(get_inference, inference_spec)
-    except Exception as e:
-        logger.warning("eval inference build failed: %s", e)
-        return {}
-
-    predictions: list[dict[str, Any]] = []
-    targets: list[dict[str, Any]] = []
-    for r in eval_rows:
-        prompt = r.get("prompt") or r.get("messages", [{}])[-1].get("content", "")
-        try:
-            text = infer.generate(prompt=prompt, max_tokens=256, temperature=0.0)
-        except Exception as e:
-            logger.warning("eval generate failed: %s", e)
-            text = ""
-        # Extract <answer>X</answer> if present, else use the raw text.
-        import re
-        m = re.search(r"<answer>\s*([\w]+)\s*</answer>", text)
-        ans = m.group(1) if m else text.strip()
-        predictions.append({"answer": ans, "raw": text})
-        targets.append({
-            "answer": r.get("tool_slug", r.get("answer", "")),
-            "toolkit": r.get("toolkit", ""),
-        })
-
-    metrics: dict[str, float] = {}
-    for ms in run.eval.metrics:
-        try:
-            cls = get_metric(ms.kind)
-            inst = cls(**(ms.params or {}))
-            metrics[f"eval/{ms.kind}"] = inst.compute(predictions=predictions, targets=targets)
-        except Exception as e:
-            logger.warning("eval metric %s failed: %s", ms.kind, e)
-    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -273,17 +216,6 @@ def _execute_run(
             backend.teardown(handles)
         except Exception:
             logger.exception("backend.teardown raised")
-
-    # Eval (best-effort).
-    if result.status == "completed":
-        try:
-            extra = _run_eval(run, ctx, train_rows)
-            if extra:
-                # update result metrics + log
-                result.metrics.update(extra)
-                log_store.log_metrics(extra, step=int(result.metrics.get("total_steps", 0)) or 1)
-        except Exception:
-            logger.exception("eval phase raised")
 
     log_store.close()
     _persist_result(run_dir, result, hparams=run.model_dump())
