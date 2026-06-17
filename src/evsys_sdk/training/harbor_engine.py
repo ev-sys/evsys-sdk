@@ -338,19 +338,26 @@ def _harvest(job_result: Any, tasks: Sequence[HarborTask]) -> list[TrajectoryGro
 
 def _trial_to_trajectory(tr: Any) -> Trajectory | None:
     """Convert a harbor ``TrialResult`` → our multi-turn :class:`Trajectory`,
-    reading the rollout off ``agent_result`` (``AgentContext``)."""
-    if tr is None:
+    reading the rollout off ``agent_result`` (``AgentContext``).
+
+    Token-level turns come from ``rollout_details`` (tinker on-policy rollouts).
+    Closed/API models (litellm) return no token ids, so for an eval trial — one
+    that produced a verifier reward — we still build a *token-less* Trajectory
+    carrying the reward + usage so it isn't dropped from scoring. Errored trials,
+    and generation-only trials with neither tokens nor a reward, return ``None``.
+    """
+    if tr is None or getattr(tr, "exception_info", None):
         return None
     agent_result = getattr(tr, "agent_result", None)
     details = getattr(agent_result, "rollout_details", None) if agent_result else None
-    if not details:
-        return None
-    rd = details[0]  # the main linear chat history
+    rd = details[0] if details else {}   # main chat history; empty for API models
     prompt_turns = rd.get("prompt_token_ids") or []
     completion_turns = rd.get("completion_token_ids") or []
     logprob_turns = rd.get("logprobs") or []
-    if not completion_turns:
-        return None
+
+    rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None)
+    if not completion_turns and rewards is None:
+        return None  # no tokens and no score → nothing to harvest (generation / failed)
 
     turns: list[Turn] = []
     for i, completion in enumerate(completion_turns):
@@ -366,10 +373,9 @@ def _trial_to_trajectory(tr: Any) -> Trajectory | None:
     if usage["completion_tokens"] is None:
         usage["completion_tokens"] = sum(len(t.completion_tokens) for t in turns)
 
-    # Reward comes from harbor's verifier (our host-side EvsysVerifier); 0.0 for
-    # generation-only rollouts where the verifier is disabled.
-    rewards = getattr(getattr(tr, "verifier_result", None), "rewards", None) or {}
-    reward = float(rewards.get("reward", 0.0))
+    # Reward from harbor's verifier (our host-side EvsysVerifier); 0.0 for
+    # generation-only rollouts (verifier disabled) or when absent.
+    reward = float((rewards or {}).get("reward", 0.0))
     return Trajectory(turns=turns, reward=reward, metadata={"usage": usage})
 
 

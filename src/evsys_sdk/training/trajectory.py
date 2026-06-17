@@ -22,11 +22,14 @@ class Turn:
     ``prompt_tokens`` is the full rendered context the policy saw for this turn
     (system + prior turns + the latest observation); ``completion_tokens`` /
     ``logprobs`` are the sampled response. A single-turn rollout has exactly one.
+
+    ``logprobs`` is optional — on-policy tinker rollouts populate it (training
+    needs it), but eval / closed-API rollouts often have none. Defaults to empty.
     """
 
     prompt_tokens: list[int]
     completion_tokens: list[int]
-    logprobs: list[float]
+    logprobs: list[float] = field(default_factory=list)
     text: str = ""
 
 

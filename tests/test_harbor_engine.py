@@ -104,6 +104,34 @@ def test_harvest_drops_trials_with_no_rollout():
     assert groups[0].trajectories == []
 
 
+def test_trial_to_trajectory_keeps_api_model_trial_without_tokens():
+    # Closed/API models (litellm) return no token ids, but an eval trial still
+    # has a verifier reward — harvest must KEEP it (token-less) so it's scored,
+    # carrying the reward + usage. (Previously it was dropped → n_tasks=0.)
+    tr = SimpleNamespace(
+        trial_name="t0__abc", task_name="t0",
+        agent_result=SimpleNamespace(
+            rollout_details=None, cost_usd=0.01, n_input_tokens=5,
+            n_output_tokens=7, n_cache_tokens=0,
+        ),
+        verifier_result=SimpleNamespace(rewards={"reward": 1.0}),
+    )
+    traj = he._trial_to_trajectory(tr)
+    assert traj is not None
+    assert traj.turns == []                              # no token-level turns
+    assert traj.reward == 1.0                            # reward preserved
+    assert traj.metadata["usage"]["cost_usd"] == 0.01    # usage preserved
+
+
+def test_trial_to_trajectory_drops_errored_trial():
+    tr = SimpleNamespace(
+        trial_name="t0__abc", task_name="t0",
+        exception_info={"exception_type": "BadRequestError"},
+        agent_result=None, verifier_result=None,
+    )
+    assert he._trial_to_trajectory(tr) is None
+
+
 # --- usage (cost / tokens / timing) ----------------------------------------
 
 

@@ -144,8 +144,14 @@ class BasicLoopAgent(BaseAgent):
         ``"tinker"`` → on-policy ``TinkerLLM`` (needs ``model_path``);
         ``"litellm"`` → harbor's litellm LLM for any provider (``model_name`` a
         litellm string, e.g. ``"anthropic/claude-opus-4-1"``; keys from the
-        provider env vars). Both collect rollout details so usage/cost is
-        captured — and for API models the cost is real."""
+        provider env vars).
+
+        ``collect_rollout_details`` is ON for tinker (we want token-level
+        rollouts for training) but OFF for litellm: it makes harbor request
+        ``logprobs`` + ``extra_body.return_token_ids``, which closed APIs
+        (Anthropic, OpenAI) reject with a 400. API-model benchmarking only needs
+        the completion + reward + usage (cost/tokens), not token ids — those are
+        still captured from the response. See ``_trial_to_trajectory``."""
         if self._model_client == "litellm":
             from harbor.llms.lite_llm import LiteLLM  # lazy: tinker rollouts skip litellm
 
@@ -153,7 +159,7 @@ class BasicLoopAgent(BaseAgent):
                 model_name=self._model_name,
                 temperature=self._temperature,
                 api_base=self._api_base,
-                collect_rollout_details=True,
+                collect_rollout_details=False,  # APIs reject logprobs/return_token_ids
             )
         return TinkerLLM(
             model_name=self._model_name,
@@ -209,14 +215,18 @@ class BasicLoopAgent(BaseAgent):
             chat.messages.append({"role": "system", "content": self._system_prompt})
         logger.info("[harbor] agent.run instruction=%r", _trunc(instruction))
         resp = await chat.chat(instruction)
-        context.rollout_details = chat.rollout_details   # tokens/logprobs → harvested into the Trajectory
-        details = chat.rollout_details or []              # list of per-turn dicts (harvest reads [0])
-        rd = details[0] if details else {}
+        context.rollout_details = chat.rollout_details   # token-level (tinker); empty for API models
+        # Propagate usage/cost onto the AgentContext so harbor records it on the
+        # trial. For API models (no token ids) this is the ONLY token/cost source;
+        # _trial_usage reads these back into the eval metrics.
+        context.n_input_tokens = chat.total_input_tokens
+        context.n_output_tokens = chat.total_output_tokens
+        context.n_cache_tokens = chat.total_cache_tokens
+        context.cost_usd = chat.total_cost
         logger.info(
-            "[harbor] agent.run completion=%r (prompt_tokens=%s completion_tokens=%s)",
-            _trunc(resp.content or ""),
-            _ntokens(rd.get("prompt_token_ids")),
-            _ntokens(rd.get("completion_token_ids")),
+            "[harbor] agent.run completion=%r (in=%d out=%d tokens, cost=$%.4f)",
+            _trunc(resp.content or ""), chat.total_input_tokens,
+            chat.total_output_tokens, chat.total_cost,
         )
         # Write the completion to the agent dir so the host-side EvsysVerifier
         # (run by harbor) can read it (self.logs_dir == trial_paths.agent_dir).
@@ -259,15 +269,6 @@ def _trunc(s: str, n: int = 200) -> str:
     """Single-line, length-capped string for debug logs."""
     s = " ".join((s or "").split())
     return s if len(s) <= n else s[:n] + f"…(+{len(s) - n} chars)"
-
-
-def _ntokens(turns: Any) -> int:
-    """Total token count across a rollout_details token field, which is a
-    list-of-turns (each turn a list of ids). Falls back to a flat list."""
-    turns = turns or []
-    if turns and isinstance(turns[0], (list, tuple)):
-        return sum(len(t) for t in turns)
-    return len(turns)
 
 
 def _read_text(path: Path) -> str:
