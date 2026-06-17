@@ -23,7 +23,9 @@ extra out of the base import path.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,26 @@ from harbor.models.verifier.result import VerifierResult
 from harbor.verifier.base import BaseVerifier
 
 from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
+
+
+# ---------------------------------------------------------------------------
+# Shared LLM cache
+#
+# harbor builds a fresh agent per trial (AgentFactory in trial.py), so an LLM
+# built in run()/__init__ is re-created for every task — and for TinkerLLM that
+# means a new sampling client (a server round-trip) per task. The agent is the
+# wrong scope to share from (it holds per-trial state like logs_dir); the LLM
+# client holds none, so we cache it ABOVE the agent, at module scope.
+#
+# Keyed by the running event loop (weakref → auto-evicted when the loop is
+# GC'd): shared across all trials of one harbor job (one ``asyncio.run``), never
+# reused across loops since a tinker client holds loop-bound httpx sessions.
+# First creation is warmed under a per-loop lock so concurrent trials can't race
+# into multiple sampling clients.
+# ---------------------------------------------------------------------------
+
+_LLM_CACHE: "weakref.WeakKeyDictionary[Any, dict[tuple, Any]]" = weakref.WeakKeyDictionary()
+_LLM_LOCKS: "weakref.WeakKeyDictionary[Any, asyncio.Lock]" = weakref.WeakKeyDictionary()
 
 
 class NoOpEnvironment(BaseEnvironment):
@@ -139,13 +161,43 @@ class BasicLoopAgent(BaseAgent):
             temperature=self._temperature,
         )
 
+    def _cache_key(self) -> tuple:
+        return (
+            self._model_client,
+            self._model_name,
+            self._model_path,
+            self._renderer_name,
+            self._max_tokens,
+            self._temperature,
+            self._api_base,
+        )
+
+    async def _shared_llm(self) -> Any:
+        """The cached LLM for this rollout's (loop, config) — built once per
+        harbor job and reused by every trial (see the module cache note). The
+        first build is warmed under a per-loop lock so concurrent trials share
+        ONE sampling client instead of each creating their own."""
+        loop = asyncio.get_running_loop()
+        per_loop = _LLM_CACHE.setdefault(loop, {})
+        lock = _LLM_LOCKS.setdefault(loop, asyncio.Lock())
+        key = self._cache_key()
+        async with lock:
+            llm = per_loop.get(key)
+            if llm is None:
+                llm = self._build_llm()
+                ensure = getattr(llm, "_ensure_client", None)
+                if ensure is not None:
+                    await ensure()  # create the sampling client once, under lock
+                per_loop[key] = llm
+            return llm
+
     async def run(
         self,
         instruction: str,
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        chat = Chat(self._build_llm())
+        chat = Chat(await self._shared_llm())
         if self._system_prompt:
             chat.messages.append({"role": "system", "content": self._system_prompt})
         resp = await chat.chat(instruction)

@@ -121,6 +121,21 @@ def _agent_import_and_kwargs(
     }
 
 
+def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any]) -> Any:
+    """Map ``(import_path, agent kwargs)`` → a harbor ``AgentConfig``.
+
+    harbor 0.13.2 passes ``model_name`` to the agent constructor from the
+    top-level ``AgentConfig.model_name`` field, so it must NOT also live in
+    ``kwargs`` (else the agent gets ``model_name`` twice). Lift it out here so
+    the agent-selection logic above can stay a flat kwargs dict."""
+    kwargs = dict(kwargs)
+    return AgentConfig(
+        import_path=import_path,
+        model_name=kwargs.pop("model_name", None),
+        kwargs=kwargs,
+    )
+
+
 async def run_harbor_rollouts(
     tasks: Sequence[HarborTask],
     *,
@@ -172,7 +187,7 @@ async def run_harbor_rollouts(
         max_turns=max_turns,
         system_prompt=system_prompt,
     )
-    agent = AgentConfig(import_path=import_path, kwargs=agent_kwargs)
+    agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
     task_cfgs = [
         TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id)))
         for t in tasks
@@ -247,7 +262,7 @@ async def run_harbor_generations(
         max_turns=max_turns,
         system_prompt=system_prompt,
     )
-    agent = AgentConfig(import_path=import_path, kwargs=agent_kwargs)
+    agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
     task_cfgs = []
     for i, prompt in enumerate(prompts):
         dest = workspace_dir / "tasks" / f"gen_{i}"
