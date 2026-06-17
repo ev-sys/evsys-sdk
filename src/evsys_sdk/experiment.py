@@ -558,12 +558,17 @@ class Experiment:
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
+        # A benchmark may target a closed / API model via litellm
+        # (``benchmark.model: "anthropic/claude-opus-4-1"``) instead of the
+        # trained checkpoint — same harbor rollout path, different sampler.
+        api_model = bench_meta.get("model")
         t0 = time.time()
         groups = asyncio.run(score_via_harbor(
             tasks,
-            model_name=run_cfg.model.name,
-            model_path=model_path,
+            model_name=api_model or run_cfg.model.name,
+            model_path=None if api_model else model_path,
             workspace_dir=workspace,
+            model_client="litellm" if api_model else "tinker",
             num_samples=int(bench_meta.get("num_samples", 1)),
             max_tokens=int(bench_meta.get("max_tokens", 512)),
             temperature=float(bench_meta.get("temperature", 0.0)),

@@ -89,6 +89,44 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     assert rows[0]["completion_token_ids"] == [2, 3]
 
 
+def test_eval_arm_harbor_uses_litellm_when_benchmark_sets_model(monkeypatch):
+    # benchmark.model: "anthropic/..." → score the API model via litellm,
+    # not the trained checkpoint (same harbor path, different sampler).
+    captured: dict = {}
+
+    async def _fake_score(tasks, **kwargs):
+        captured.update(kwargs)
+        return [
+            TrajectoryGroup(
+                trajectories=[Trajectory(
+                    turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
+                    reward=1.0,
+                )],
+                tags=["test"],
+            )
+            for _ in tasks
+        ]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed",
+                             artifacts={"checkpoint-final": "tinker://ckpt"}),
+    )
+
+    e._eval_arm_harbor(
+        arm, run_cfg, _bench(),
+        {"engine": "harbor", "name": "b", "model": "anthropic/claude-opus-4-1"},
+    )
+
+    assert captured["model_client"] == "litellm"
+    assert captured["model_name"] == "anthropic/claude-opus-4-1"
+    assert captured["model_path"] is None              # API model, not the checkpoint
+
+
 def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
     # Eval rollouts must land under the run's output dir (harbor_eval/<bench>),
     # not an ephemeral tempdir — so they survive the run like training/val do.
