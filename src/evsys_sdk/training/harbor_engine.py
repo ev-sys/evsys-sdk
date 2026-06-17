@@ -55,19 +55,31 @@ _DUMMY_TEST_SH = "#!/bin/sh\nexit 0\n"
 # ---------------------------------------------------------------------------
 
 
-def materialize_task(task: HarborTask, dest: Path) -> Path:
-    """Write a harbor task dir for ``task`` at ``dest``. The reward is scored by
-    our host-side :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier`
-    (run by harbor, SHARED mode), which reads the per-task verifier spec written
-    to ``evsys_verifier.json``. A dummy ``tests/test.sh`` is written only to pass
-    harbor's task-load check; it is never executed."""
-    if not isinstance(task.verifier, InProcessVerifier):
-        raise RuntimeError(
-            f"harbor_engine: task {task.task_id!r} has a {task.verifier.kind!r} "
-            "verifier; only 'in_process' is supported in the rollout path today."
-        )
+def materialize_task(task: HarborTask, dest: Path, *, verify: bool = True) -> Path:
+    """Write a harbor task dir for ``task`` at ``dest``.
+
+    ``verify=True`` (scored rollout) — writes the per-task verifier spec to
+    ``evsys_verifier.json`` (read by our host-side
+    :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier`, SHARED mode) plus a
+    dummy ``tests/test.sh`` that only satisfies harbor's task-load check and is
+    never executed. Requires an ``InProcessVerifier``.
+
+    ``verify=False`` (generation-only, e.g. SDFT student rollouts) — no verifier
+    spec; ``environment_mode="separate"`` in the task.toml skips the test.sh
+    requirement. ``task.verifier`` is ignored.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "instruction.md").write_text(task.instruction)
+    if not verify:
+        (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
+        return dest
+    if not isinstance(task.verifier, InProcessVerifier):
+        kind = getattr(task.verifier, "kind", type(task.verifier).__name__)
+        raise RuntimeError(
+            f"harbor_engine: task {task.task_id!r} needs an in_process verifier for a "
+            f"scored rollout (got {kind!r}); only 'in_process' is supported today "
+            "(use verify=False for generation-only rollouts)."
+        )
     (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
     tests = dest / "tests"
     tests.mkdir(exist_ok=True)
@@ -143,6 +155,7 @@ async def run_harbor_rollouts(
     model_path: str | None,
     workspace_dir: Path,
     renderer_name: str | None = None,
+    verify: bool = True,
     num_samples: int = 1,
     max_turns: int = 1,
     max_tokens: int = 512,
@@ -154,8 +167,15 @@ async def run_harbor_rollouts(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
-    """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine and
-    score each rollout in Python.
+    """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine,
+    one :class:`TrajectoryGroup` per task.
+
+    ``verify`` picks the mode:
+      * ``True`` (default) — score each rollout with the task's in-process
+        verifier (host-side :class:`EvsysVerifier`); the reward is on each
+        trajectory. Used by RL and benchmark eval.
+      * ``False`` — **generation-only**: no verifier, ``reward=0`` (the task's
+        ``verifier`` is ignored / may be ``None``). Used by SDFT student rollouts.
 
     ``model_client`` picks the rollout LLM: ``"tinker"`` (on-policy ``TinkerLLM``,
     needs ``model_path``) or ``"litellm"`` (any provider litellm supports, e.g.
@@ -189,15 +209,17 @@ async def run_harbor_rollouts(
     )
     agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
     task_cfgs = [
-        TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id)))
+        TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id), verify=verify))
         for t in tasks
     ]
     config = JobConfig(
         tasks=task_cfgs,
         agents=[agent],
         environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-        # Our host-side verifier wraps the registered fn (SHARED mode, no container).
-        verifier=VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier"),
+        # Scored: our host-side verifier wraps the registered fn (SHARED mode, no
+        # container). Generation-only (verify=False): no verifier, reward 0.
+        verifier=(VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier")
+                  if verify else VerifierConfig(disable=True)),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
         n_attempts=num_samples,                    # repeats per task = samples
@@ -212,85 +234,6 @@ async def run_harbor_rollouts(
 async def _run_job(Job: Any, config: Any) -> Any:
     job = await Job.create(config)
     return await job.run()
-
-
-# ---------------------------------------------------------------------------
-# Generation-only rollouts (no reward) — used by SDFT's student rollout
-# ---------------------------------------------------------------------------
-
-
-async def run_harbor_generations(
-    prompts: Sequence[str],
-    *,
-    model_name: str,
-    model_path: str | None,
-    workspace_dir: Path,
-    renderer_name: str | None = None,
-    max_turns: int = 1,
-    max_tokens: int = 512,
-    temperature: float = 1.0,
-    system_prompt: str | None = None,
-    agent_import_path: str | None = None,
-    n_concurrent: int = 4,
-    max_retries: int = 2,
-    _job_factory: Any | None = None,
-) -> list[Trajectory]:
-    """One generation per prompt through harbor's engine, **no reward**.
-
-    Returns one :class:`Trajectory` per prompt (``reward=0``); SDFT uses the
-    student completion tokens for teacher-forced distillation.
-    """
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    from harbor import Job
-    from harbor.models.job.config import JobConfig, RetryConfig
-    from harbor.models.trial.config import (
-        AgentConfig,
-        EnvironmentConfig,
-        TaskConfig,
-        VerifierConfig,
-    )
-
-    import_path, agent_kwargs = _agent_import_and_kwargs(
-        "tinker",  # student rollouts are always on-policy tinker
-        agent_import_path=agent_import_path,
-        model_name=model_name,
-        model_path=model_path,
-        renderer_name=renderer_name,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        max_turns=max_turns,
-        system_prompt=system_prompt,
-    )
-    agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
-    task_cfgs = []
-    for i, prompt in enumerate(prompts):
-        dest = workspace_dir / "tasks" / f"gen_{i}"
-        dest.mkdir(parents=True, exist_ok=True)
-        (dest / "instruction.md").write_text(prompt)
-        (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
-        task_cfgs.append(TaskConfig(path=dest))
-
-    config = JobConfig(
-        tasks=task_cfgs,
-        agents=[agent],
-        environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-        verifier=VerifierConfig(disable=True),
-        jobs_dir=workspace_dir / "jobs",
-        n_concurrent_trials=n_concurrent,
-        n_attempts=1,
-        retry=RetryConfig(max_retries=max_retries),
-    )
-
-    result = await (_job_factory(config) if _job_factory is not None
-                    else _run_job(Job, config))
-    by_task = _trials_by_task(result)
-    out: list[Trajectory] = []
-    for i in range(len(prompts)):
-        trs = by_task.get(f"gen_{i}", [])
-        traj = _trial_to_trajectory(trs[0]) if trs else None
-        out.append(traj if traj is not None else Trajectory(turns=[]))
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -400,4 +343,4 @@ def _safe(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(name))
 
 
-__all__ = ["materialize_task", "run_harbor_rollouts", "run_harbor_generations"]
+__all__ = ["materialize_task", "run_harbor_rollouts"]

@@ -52,6 +52,17 @@ def test_materialize_rejects_non_in_process_verifier(tmp_path: Path):
         he.materialize_task(t, tmp_path / "t1")
 
 
+def test_materialize_generation_only_skips_verifier(tmp_path: Path):
+    # verify=False → generation dir: instruction + separate-mode task.toml, no
+    # verifier spec and no dummy test.sh. Works with a verifier-less task.
+    t = HarborTask(task_id="g0", instruction="write a poem")
+    dest = he.materialize_task(t, tmp_path / "g0", verify=False)
+    assert (dest / "instruction.md").read_text() == "write a poem"
+    assert 'environment_mode = "separate"' in (dest / "task.toml").read_text()
+    assert not (dest / "evsys_verifier.json").exists()
+    assert not (dest / "tests" / "test.sh").exists()
+
+
 # --- harvest ---------------------------------------------------------------
 
 

@@ -16,7 +16,7 @@ pytest.importorskip("harbor")
 pytest.importorskip("tinker")  # harbor_agents imports TinkerLLM at module top
 
 from evsys_sdk.data_types import HarborTask, InProcessVerifier
-from evsys_sdk.training.harbor_engine import run_harbor_rollouts, run_harbor_generations
+from evsys_sdk.training.harbor_engine import run_harbor_rollouts
 
 _ECHO = "tests.harbor_echo_agent:EchoAgent"   # test-only agent (tests/, not shipped)
 
@@ -59,14 +59,17 @@ def test_real_harbor_rollout_scores_and_harvests(tmp_path):
     assert u["prompt_tokens"] is not None and u["completion_tokens"] is not None
 
 
-def test_real_harbor_generations(tmp_path):
-    trajs = asyncio.run(run_harbor_generations(
-        ["write a poem", "summarize this"],
-        model_name="echo", model_path=None,
-        workspace_dir=tmp_path,
-        agent_import_path=_ECHO,
-        n_concurrent=2, max_retries=0,
+def test_real_harbor_rollouts_generation_only(tmp_path):
+    # verify=False → generation-only: rollouts harvested, no reward (no verifier).
+    # verifier-less HarborTasks, one group per task.
+    tasks = [
+        HarborTask(task_id="g0", instruction="write a poem"),
+        HarborTask(task_id="g1", instruction="summarize this"),
+    ]
+    groups = asyncio.run(run_harbor_rollouts(
+        tasks, model_name="echo", model_path=None, workspace_dir=tmp_path,
+        agent_import_path=_ECHO, verify=False, n_concurrent=2, max_retries=0,
     ))
-    assert len(trajs) == 2
-    # generation-only: rollout harvested, no reward (verifier disabled)
+    assert len(groups) == 2
+    trajs = [g.trajectories[0] for g in groups]
     assert all(t.turns and t.turns[0].completion_tokens and t.reward == 0.0 for t in trajs)

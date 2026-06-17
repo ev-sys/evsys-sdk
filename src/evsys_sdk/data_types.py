@@ -125,17 +125,21 @@ VerifierPayload = Union[InProcessVerifier, E2BVerifier, LLMJudgeVerifier]
 
 @dataclass(frozen=True)
 class HarborTask:
-    """One RL task — instruction + verifier spec.
+    """One rollout task — an instruction the policy answers, optionally scored.
 
     Same shape whether the task came from a hand-written eval set, an HF
     dataset, or a generated rollout corpus. Runners materialize the prompt by
-    feeding ``instruction`` to the policy, generate a rollout, and score it
-    using ``verifier`` (whichever variant — see ``VerifierPayload``).
+    feeding ``instruction`` to the policy and generate a rollout; when
+    ``verifier`` is set they also score it (see ``VerifierPayload``).
+
+    ``verifier`` is ``None`` for **generation-only** rollouts (e.g. SDFT student
+    rollouts, run with ``verify=False``) — there's no reward. Tasks loaded from
+    a dict (``harbor_task_from_dict``) always require one.
     """
 
     task_id: str
     instruction: str
-    verifier: VerifierPayload
+    verifier: VerifierPayload | None = None
     metadata: dict = field(default_factory=dict)
 
 

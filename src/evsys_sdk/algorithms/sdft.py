@@ -22,7 +22,7 @@ from typing import Any, ClassVar, cast
 
 import tinker
 
-from ..data_types import PromptExample, TargetFormat, parse_rows
+from ..data_types import HarborTask, PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
 from ..training.batch_utils import coerce_floats
@@ -38,6 +38,7 @@ from ..training.sdft_data import (
 )
 from ..training.loop import TrainingBatch
 from ..training.tinker_backend import TinkerBackend, TinkerSamplingClient
+from ..training.trajectory import Trajectory
 from .base import BaseAlgorithm, BaseAlgorithmConfig
 
 
@@ -107,7 +108,7 @@ class SDFT(BaseAlgorithm):
         self._steps_per_epoch = max(1, len(self._dataset))
 
     async def build_batch(self, step_idx: int) -> TrainingBatch:
-        from ..training.harbor_engine import run_harbor_generations
+        from ..training.harbor_engine import run_harbor_rollouts
 
         questions, golden = self._dataset.get_batch(step_idx)
 
@@ -122,13 +123,18 @@ class SDFT(BaseAlgorithm):
             for q, g in zip(questions, golden)
         ]
 
-        # 2. On-policy student rollouts via harbor's engine (generation only —
-        #    no verifier). Save a sampler checkpoint so the harbor agent samples
-        #    from the current weights.
+        # 2. On-policy student rollouts via harbor's engine, generation-only
+        #    (verify=False → no verifier/reward). Save a sampler checkpoint so the
+        #    harbor agent samples from the current weights. One group per prompt
+        #    (prompt order); take its single sample.
         self._snapshot_i += 1
         model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
-        student_trajs = await run_harbor_generations(
-            [self._student_user_content(q) for q in questions],
+        gen_tasks = [
+            HarborTask(task_id=f"student_{i}", instruction=self._student_user_content(q))
+            for i, q in enumerate(questions)
+        ]
+        groups = await run_harbor_rollouts(
+            gen_tasks,
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,
@@ -136,7 +142,11 @@ class SDFT(BaseAlgorithm):
             max_tokens=self.cfg.max_tokens,
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
+            verify=False,
         )
+        student_trajs = [
+            g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
+        ]
 
         # 3. Wrap each rollout as a student Datum (carrying the completion mask).
         student_datums: list[tinker.Datum] = []
