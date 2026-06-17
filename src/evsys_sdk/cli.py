@@ -171,6 +171,37 @@ def _cmd_new_experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    """Serve the local results UI over the .evsys mirror (TensorBoard-style)."""
+    import webbrowser
+
+    from .local_store import LocalStore
+    from .ui.server import run_server
+
+    store = LocalStore(log_dir=args.logdir)
+    if not store.root.is_dir():
+        print(f"ERROR: no evsys data at {store.root} "
+              f"(set --logdir or EVSYS_LOG_DIR, and run something locally first).",
+              file=sys.stderr)
+        return 1
+    url = f"http://{args.host}:{args.port}/"
+    print(f"evsys ui → {url}  (reading {store.root})\nPress Ctrl+C to stop.")
+    if not args.no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    try:
+        run_server(store, host=args.host, port=args.port)
+    except KeyboardInterrupt:
+        print("\nstopped.")
+        return 0
+    except OSError as e:
+        print(f"ERROR: could not bind {args.host}:{args.port} ({e}).", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -231,6 +262,14 @@ def main(argv: list[str] | None = None) -> int:
     p_em.add_argument("--batch-size", type=int, default=1, help="Submit prompts in chunks of this size (needs generate_batch on the inference client).")
     p_em.add_argument("--fail-on-retries", action="store_true")
     p_em.set_defaults(func=_cmd_eval_model)
+
+    p_ui = sub.add_parser("ui", help="Serve the local results UI (TensorBoard-style).")
+    p_ui.add_argument("--logdir", default=None,
+                      help="Local mirror dir (default: EVSYS_LOG_DIR or ./evsys_sdk).")
+    p_ui.add_argument("--port", type=int, default=6006)
+    p_ui.add_argument("--host", default="127.0.0.1")
+    p_ui.add_argument("--no-browser", action="store_true", help="Don't open a browser tab.")
+    p_ui.set_defaults(func=_cmd_ui)
 
     args = parser.parse_args(argv)
     return args.func(args)
