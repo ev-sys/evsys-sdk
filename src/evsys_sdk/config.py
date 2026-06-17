@@ -66,6 +66,15 @@ class InferenceSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class DeploySpec(_Strict):
+    """Post-training deployment target, by registry name + params. e.g.
+    ``{kind: fireworks, params: {account_id: my-acct, base_model: ...}}``.
+    When set on an experiment, the ``best_arm`` is deployed after training."""
+
+    kind: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # Stores
 # ---------------------------------------------------------------------------
@@ -219,6 +228,9 @@ class ExperimentConfig(_Strict):
 
     parent_experiment_id: str | None = None
     """For evolutionary lineage."""
+    deploy: DeploySpec | None = None
+    """Optional post-training deployment. When set, the ``best_arm`` (by
+    ``metadata.success_metric``) is deployed to this target after training."""
     metadata: dict[str, Any] = Field(default_factory=dict)
     """Free-form (e.g. budget, hypothesis, client tag)."""
 

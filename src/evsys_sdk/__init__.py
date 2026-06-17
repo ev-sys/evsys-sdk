@@ -91,6 +91,7 @@ from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
 from .checkpoint import Checkpoint, find_manifest, read_manifest
 from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
+from .deploy import DeployResult, build_deployer, deploy_checkpoint
 from .step_metrics import forward_step_metrics
 from .sweep import Sweep, expand_runs
 from .yaml_loader import dump_yaml, load_yaml, validate_yaml
@@ -198,6 +199,9 @@ __all__ = [
     "register_verifier",
     # Runner
     "run_experiment",
+    "deploy_checkpoint",
+    "build_deployer",
+    "DeployResult",
     # YAML
     "dump_yaml",
     "load_yaml",
