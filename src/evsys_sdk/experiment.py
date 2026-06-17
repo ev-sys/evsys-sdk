@@ -171,6 +171,8 @@ class ExperimentResult:
     conclusion: str
     experiment_id: str | None = None
     hypothesis: str | None = None
+    deploy_result: Any = None
+    """A :class:`evsys_sdk.deploy.DeployResult` when the best arm was deployed."""
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +252,9 @@ class Experiment:
 
         self._finalize_experiment(experiment_id, status, best_score, conclusion)
 
+        # Deploy the winner (best_arm) to the configured target, if any.
+        deploy_result = self._deploy_best(best_arm, arms)
+
         return ExperimentResult(
             name=self.config.name,
             status=status,
@@ -259,6 +264,7 @@ class Experiment:
             conclusion=conclusion,
             experiment_id=experiment_id,
             hypothesis=hypothesis,
+            deploy_result=deploy_result,
         )
 
     # -- internals: orchestration steps; safe to override in subclasses ---
@@ -597,6 +603,37 @@ class Experiment:
             else:
                 preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
                 upload_eval_rollouts(self.store, arm.run_id, preds)
+
+    def _deploy_best(
+        self, best_arm: ArmResult | None, arms: list[ArmResult],
+    ) -> Any:
+        """Deploy the winning arm to ``config.deploy`` (if set). Best-effort:
+        a deploy failure is logged, never fails the experiment (training already
+        succeeded). Targets ``best_arm`` (by ``success_metric``); falls back to
+        the first completed arm when no ``success_metric`` was given."""
+        spec = self.config.deploy
+        if spec is None:
+            return None
+        target = best_arm or next((a for a in arms if a.status == "completed"), None)
+        if target is None or target.status != "completed":
+            logger.warning("deploy: no completed arm to deploy; skipping")
+            return None
+        checkpoint = self._final_checkpoint(target)
+        if not checkpoint:
+            logger.warning("deploy: arm %r has no checkpoint; skipping", target.name)
+            return None
+        try:
+            from .deploy import build_deployer
+            result = build_deployer(spec).deploy(checkpoint)
+            logger.info(
+                "deploy: arm %r -> %s (%s)",
+                target.name, getattr(result, "model_ref", "?"),
+                "deployed" if getattr(result, "deployed", False) else "uploaded",
+            )
+            return result
+        except Exception:
+            logger.exception("deploy: failed for arm %r", target.name)
+            return None
 
     @staticmethod
     def _final_checkpoint(arm: ArmResult) -> str | None:

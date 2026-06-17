@@ -171,6 +171,25 @@ def _cmd_new_experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deploy(args: argparse.Namespace) -> int:
+    from .deploy import deploy_checkpoint
+
+    params = json.loads(args.params) if args.params else {}
+    result = deploy_checkpoint(
+        args.kind, params, args.checkpoint,
+        base_model=args.base_model, model_id=args.model_id,
+    )
+    print(json.dumps({
+        "provider": result.provider,
+        "model_ref": result.model_ref,
+        "endpoint": result.endpoint,
+        "deployment_id": result.deployment_id,
+        "deployed": result.deployed,
+        "metadata": result.metadata,
+    }, indent=2, default=str))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -231,6 +250,14 @@ def main(argv: list[str] | None = None) -> int:
     p_em.add_argument("--batch-size", type=int, default=1, help="Submit prompts in chunks of this size (needs generate_batch on the inference client).")
     p_em.add_argument("--fail-on-retries", action="store_true")
     p_em.set_defaults(func=_cmd_eval_model)
+
+    p_dep = sub.add_parser("deploy", help="Deploy a trained checkpoint to a serving provider.")
+    p_dep.add_argument("--kind", required=True, help="Deployer kind (e.g. 'fireworks').")
+    p_dep.add_argument("--checkpoint", required=True, help="Checkpoint URI (e.g. tinker://...).")
+    p_dep.add_argument("--base-model", default=None, help="Provider base model the LoRA attaches to.")
+    p_dep.add_argument("--model-id", default=None, help="Target model id (default: derived from checkpoint).")
+    p_dep.add_argument("--params", default=None, help="JSON object of deployer params (e.g. '{\"account_id\":\"...\"}').")
+    p_dep.set_defaults(func=_cmd_deploy)
 
     args = parser.parse_args(argv)
     return args.func(args)
