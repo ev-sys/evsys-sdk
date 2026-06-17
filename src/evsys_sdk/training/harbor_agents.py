@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import weakref
 from pathlib import Path
 from typing import Any
@@ -39,8 +38,6 @@ from harbor.models.verifier.result import VerifierResult
 from harbor.verifier.base import BaseVerifier
 
 from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -193,15 +190,11 @@ class BasicLoopAgent(BaseAgent):
         async with lock:
             llm = per_loop.get(key)
             if llm is None:
-                logger.info("[harbor] LLM cache MISS — building %s client for %s (1 per job)",
-                            self._model_client, self._model_name)
                 llm = self._build_llm()
                 ensure = getattr(llm, "_ensure_client", None)
                 if ensure is not None:
                     await ensure()  # create the sampling client once, under lock
                 per_loop[key] = llm
-            else:
-                logger.debug("[harbor] LLM cache HIT — reusing shared %s client", self._model_client)
             return llm
 
     async def run(
@@ -213,7 +206,6 @@ class BasicLoopAgent(BaseAgent):
         chat = Chat(await self._shared_llm())
         if self._system_prompt:
             chat.messages.append({"role": "system", "content": self._system_prompt})
-        logger.info("[harbor] agent.run instruction=%r", _trunc(instruction))
         resp = await chat.chat(instruction)
         context.rollout_details = chat.rollout_details   # token-level (tinker); empty for API models
         # Propagate usage/cost onto the AgentContext so harbor records it on the
@@ -223,18 +215,12 @@ class BasicLoopAgent(BaseAgent):
         context.n_output_tokens = chat.total_output_tokens
         context.n_cache_tokens = chat.total_cache_tokens
         context.cost_usd = chat.total_cost
-        logger.info(
-            "[harbor] agent.run completion=%r (in=%d out=%d tokens, cost=$%.4f)",
-            _trunc(resp.content or ""), chat.total_input_tokens,
-            chat.total_output_tokens, chat.total_cost,
-        )
         # Write the completion to the agent dir so the host-side EvsysVerifier
         # (run by harbor) can read it (self.logs_dir == trial_paths.agent_dir).
         logs_dir = getattr(self, "logs_dir", None)
         if logs_dir is not None:
             Path(logs_dir).mkdir(parents=True, exist_ok=True)
             (Path(logs_dir) / _COMPLETION_FILE).write_text(resp.content or "")
-            logger.debug("[harbor] wrote completion → %s", Path(logs_dir) / _COMPLETION_FILE)
 
 
 class EvsysVerifier(BaseVerifier):
@@ -256,19 +242,8 @@ class EvsysVerifier(BaseVerifier):
                 fn = get_verifier_fn(fn_name)
                 reward = float(fn(completion, spec.get("expected"), dict(spec.get("params") or {})))
             except Exception:  # pragma: no cover - a bad fn shouldn't crash the trial
-                logger.exception("[harbor] verifier fn %r raised — reward=0", fn_name)
                 reward = 0.0
-        logger.info(
-            "[harbor] verify fn=%s expected=%r completion=%r → reward=%.3f",
-            fn_name, _trunc(str(spec.get("expected")), 60), _trunc(completion, 80), reward,
-        )
         return VerifierResult(rewards={"reward": reward})
-
-
-def _trunc(s: str, n: int = 200) -> str:
-    """Single-line, length-capped string for debug logs."""
-    s = " ".join((s or "").split())
-    return s if len(s) <= n else s[:n] + f"…(+{len(s) - n} chars)"
 
 
 def _read_text(path: Path) -> str:

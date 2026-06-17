@@ -17,13 +17,10 @@ per-algorithm pieces:
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import tinker
-
-logger = logging.getLogger(__name__)
 
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
@@ -140,13 +137,6 @@ class SDFT(BaseAlgorithm):
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
         )
-        s_prompt = [len(t.turns[0].prompt_tokens) if t.turns else 0 for t in student_trajs]
-        s_comp = [len(t.turns[0].completion_tokens) if t.turns else 0 for t in student_trajs]
-        logger.info(
-            "[sdft] step %d: batch=%d | student prompt_tokens=%s completion_tokens=%s | q0=%r gold0=%r",
-            step_idx, len(questions), s_prompt, s_comp,
-            (questions[0][:80] if questions else ""), (str(golden[0])[:50] if golden else ""),
-        )
 
         # 3. Wrap each rollout as a student Datum (carrying the completion mask).
         student_datums: list[tinker.Datum] = []
@@ -182,18 +172,6 @@ class SDFT(BaseAlgorithm):
         teacher_topk = [
             getattr(r, "topk_prompt_logprobs", None) for r in teacher_responses
         ]
-        # Alignment check: the teacher scores the teacher-forced sequence
-        # (teacher_prompt + student_completion), so #topk positions should ≈
-        # teacher_prompt_len + student_completion_len. The completion tail is
-        # what's distilled (build_topk_targets slices it against the student).
-        tp_lens = [tp.length for tp in teacher_prompts]
-        comp_lens = [len(s.tokens) for s in completion_slices]
-        tk_lens = [len(tk) if tk else 0 for tk in teacher_topk]
-        logger.info(
-            "[sdft] step %d teacher-forced: teacher_prompt_lens=%s + student_completion_lens=%s "
-            "→ teacher_topk_positions=%s (topK=%d); expect positions ≈ prompt+completion",
-            step_idx, tp_lens, comp_lens, tk_lens, self.cfg.topk,
-        )
 
         # 5. Build CE Datums with (N, K) soft targets.
         ce_datums, sdft_metrics = build_topk_targets(
@@ -203,12 +181,6 @@ class SDFT(BaseAlgorithm):
             topk=self.cfg.topk,
             vocab_size=None,
             skip_first_n=self.cfg.skip_first_n_tokens,
-        )
-        logger.info(
-            "[sdft] step %d distill metrics: %s | ce_datums=%d",
-            step_idx,
-            {k: (round(v, 4) if isinstance(v, float) else v) for k, v in (sdft_metrics or {}).items()},
-            len(ce_datums),
         )
 
         return TrainingBatch(
@@ -244,10 +216,6 @@ class SDFT(BaseAlgorithm):
         if n_tokens == 0:
             return {}
         mean_lp = total_logprob / n_tokens
-        logger.info(
-            "[sdft] step %d loss: mean_loss=%.4f (mean_logprob=%.4f) over %d loss tokens",
-            step_idx, -float(mean_lp), float(mean_lp), n_tokens,
-        )
         return {
             "train/mean_logprob": float(mean_lp),
             "train/mean_loss": -float(mean_lp),
