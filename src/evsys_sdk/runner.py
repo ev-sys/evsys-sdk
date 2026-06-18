@@ -125,6 +125,17 @@ def _execute_run(
     run_dir = base_output_dir / safe_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Two-track local logging (human + agent) rooted at this run's dir. Harbor
+    # rollouts are routed into run_log.harbor_dir(...) by the algorithms, so the
+    # dense rollout store stays harbor-native (no copies).
+    from .run_log import RunLog
+    run_log = RunLog(
+        run_dir,
+        experiment_name=cfg.name,
+        run_name=run.name,
+        hypothesis=(cfg.metadata or {}).get("hypothesis"),
+    )
+
     # Build stores. Log store gets log_dir wired in from run_dir if not provided.
     ds_cls = get_data_store(cfg.data_store.kind)
     data_store = ds_cls(**(cfg.data_store.params or {}))
@@ -152,6 +163,14 @@ def _execute_run(
     # Data.
     raw_rows = _load_rows(run.data, data_store) # TODO : avoid loading entire dataset into memory
     train_rows = _apply_transforms(raw_rows, run.data)
+    run_log.log_data(
+        train_rows,
+        dataset_meta={
+            "name": run.data.dataset_name or run.data.dataset_id,
+            "source_kind": run.data.source_kind,
+        },
+        transforms=run.data.transforms,
+    )
 
     # Algorithm.
     alg_cls = get_algorithm(run.algorithm.kind)
@@ -180,6 +199,7 @@ def _execute_run(
         "backend_handles": handles,
         "model_name": run.model.name,
         "tags": run.tags,
+        "run_log": run_log,
     }
     # Dashboard plumbing (store + run_id) so in-loop benchmark eval can upload
     # its rollouts; injected by Experiment, absent for bare run_experiment calls.
@@ -219,6 +239,10 @@ def _execute_run(
 
     log_store.close()
     _persist_result(run_dir, result, hparams=run.model_dump())
+    # Render the human track from what the run produced (metrics.csv from the
+    # log store's metrics.jsonl, then summary.md). Best-effort; never fatal.
+    run_log.render_training()
+    run_log.write_summary(status=result.status)
     return result
 
 

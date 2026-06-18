@@ -102,8 +102,13 @@ class SDFT(BaseAlgorithm):
         self._backend = backend
         self._snapshot_i = 0
         # Rollouts persist under the run's workspace on disk; training rollouts
-        # are NOT uploaded to the dashboard (only eval rollouts are).
-        self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+        # are NOT uploaded to the dashboard (only eval rollouts are). With a
+        # RunLog present, route harbor's jobs dir into the agent track (no copy).
+        self._run_log = ctx.extras.get("run_log")
+        self._workspace = (
+            self._run_log.harbor_dir("sdft") if self._run_log is not None
+            else Path(ctx.output_dir) / "harbor_rollouts"
+        )
 
         self._steps_per_epoch = max(1, len(self._dataset))
 
@@ -140,6 +145,9 @@ class SDFT(BaseAlgorithm):
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
         )
+        if self._run_log is not None and (step_idx == 0 or step_idx % 10 == 0):
+            self._run_log.note_rollouts("sdft", groups, tokenizer=self._tokenizer,
+                                        step=step_idx)
         student_trajs = [
             g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
         ]

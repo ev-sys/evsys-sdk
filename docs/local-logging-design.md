@@ -126,13 +126,44 @@ For this design:
   dump lives in the agent track, not loose under `output_dir`);
 - thread harbor's `quiet=True` through config so the human console isn't flooded.
 
-## Phasing
+## Implemented (this branch)
 
-- **Phase 0 (this branch, done):** unify the local root to `.evsys/` and make it
-  self-ignoring (`LocalExperimentStore` + `.gitignore` pins).
-- **Phase 1 (store-only):** nest the data the store *already* receives under
-  `experiments/{slug}/agent/runs/{arm}/`, add `index.json`, and render `summary.md` +
-  `04_training` + `05_benchmark` for the human track.
-- **Phase 2 (producer wiring):** add the three new events (`data_materialized`,
-  `target_tokens`, `rollouts`) + the `RunContext` handoff, filling `01_data`,
-  `02_rollouts`, `03_target_tokens`, and relocate harbor's jobs dir.
+`RunLog` (`src/evsys_sdk/run_log.py`) realizes the two tracks **per run**, rooted at
+the run dir (`.evsys/outputs/{slug}/{run}/`):
+
+```
+{run_dir}/
+  human/   summary.md, 01_data/, 02_rollouts/, 03_target_tokens/, 04_training/, 05_benchmark/
+  agent/   harbor/{train,val,sdft,eval/<bench>}/   ← harbor's own jobs_dir, REFERENCED not copied
+  logs/    run_result.json                          ← existing agent-grade artifacts
+```
+
+**No copies of harbor data.** Harbor already writes a complete `result.json` per trial
+(`<jobs_dir>/<job>/<trial>/result.json`: rollout token ids, reward, usage). So callers
+pass `run_log.harbor_dir(phase)` as harbor's `workspace_dir` → harbor's `jobs/` lands in
+the agent track natively. The human `02_rollouts/rollouts.md` is a *curated* view
+(reward stats + best/median/worst decoded completions) rendered from the already-harvested
+in-memory `TrajectoryGroup`s, with a pointer to `agent/harbor/{phase}/` for the full dump.
+
+Wiring:
+- `runner._execute_run` creates the `RunLog`, calls `log_data` (01), puts it in
+  `ctx.extras["run_log"]`, and at the end renders `metrics.csv` (04) + `summary.md`.
+- `rl` / `sdft` set their harbor workspace to `run_log.harbor_dir("train"|"sdft")` and
+  `note_rollouts(...)` on a bounded cadence (step 0, every 10).
+- `base` routes in-loop eval to `run_log.harbor_dir("val")`.
+- `experiment._eval_arm_harbor` routes to `run_log.harbor_dir("eval/<bench>")` and renders
+  `05_benchmark` (`results.md` + failure-biased `predictions.md`).
+
+All `RunLog` writes are best-effort (never raise into the training loop) and the wiring is
+guarded (`ctx.extras.get("run_log")`), so absence is a no-op.
+
+## Remaining
+
+- **`03_target_tokens`**: the `log_target_tokens` hook exists; wire SFT/RL/SDFT tokenize
+  steps to emit a few supervised-span / top-K examples.
+- **Per-eval in-loop rollout curation**: `base`/evaluators route val rollouts to the agent
+  track but don't yet `note_rollouts` the curated human view (only post-training eval does).
+- **Experiment-level rollup**: a top-level `experiments/{slug}/summary.md` across arms
+  (today summary is per-run).
+- **Harbor verbosity**: thread `quiet=True` into `JobConfig` so the human console stays clean
+  (harbor writes all files regardless of `quiet`).
