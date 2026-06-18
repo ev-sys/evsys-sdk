@@ -71,10 +71,8 @@ class HarborTaskAdapter:
     harbor's load check + the per-task ``evsys_verifier.json`` spec our host-side
     :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier` reads) and returns
     the ``TaskConfig``\\s pointing at them. Requires an ``InProcessVerifier``.
-    Selected by ``fmt="harbor_task"`` in :func:`run_harbor_rollouts`.
+    Used by ``run_harbor_rollouts(..., outcome_reward=True)`` (RL + benchmark eval).
     """
-
-    verify = True   # the job attaches our EvsysVerifier → scored rollouts
 
     def __init__(self, tasks: Sequence[HarborTask]) -> None:
         self._tasks = list(tasks)
@@ -115,11 +113,9 @@ class PromptAdapter:
 
     ``to_harbor(output_dir)`` writes ``instruction.md`` + a verifier-less
     ``task.toml`` (``environment_mode="separate"`` skips the test.sh load check)
-    per prompt and returns the ``TaskConfig``\\s. Selected by ``fmt="prompt"`` in
-    :func:`run_harbor_rollouts`.
+    per prompt and returns the ``TaskConfig``\\s. Used by
+    ``run_harbor_rollouts(..., outcome_reward=False)`` (SDFT student rollouts).
     """
-
-    verify = False  # generation-only — no verifier, reward 0
 
     def __init__(self, prompts: Sequence[str]) -> None:
         self._prompts = list(prompts)
@@ -136,12 +132,6 @@ class PromptAdapter:
             (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
             configs.append(TaskConfig(path=dest))
         return configs
-
-
-# Our data formats → the adapter that converts them to harbor task dirs. The
-# runner dispatches on ``fmt`` so callers pass their own format and never touch
-# an adapter. ``fmt`` mirrors our ``TargetFormat`` names where they overlap.
-_ADAPTERS = {"harbor_task": HarborTaskAdapter, "prompt": PromptAdapter}
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +192,7 @@ def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any])
 async def run_harbor_rollouts(
     items: Sequence[Any],
     *,
-    fmt: str = "harbor_task",
+    outcome_reward: bool = True,
     model_name: str,
     model_path: str | None,
     workspace_dir: Path,
@@ -221,14 +211,15 @@ async def run_harbor_rollouts(
     """Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine —
     one :class:`TrajectoryGroup` per item, in order.
 
-    Callers pass their own **data format** + ``fmt``; the runner is adapter-aware
-    (it runs the matching adapter to write the task dirs, where ``materialize_task``
-    used to be), so no caller ever touches an adapter:
+    ``outcome_reward`` is the agent-meaningful knob — does the rollout get scored
+    by an outcome verifier? The runner is adapter-aware (it runs the matching
+    adapter to write the task dirs, where ``materialize_task`` used to be), so no
+    caller ever touches an adapter:
 
-    * ``fmt="harbor_task"`` (default) — ``items`` are :class:`HarborTask`\\s;
+    * ``outcome_reward=True`` (default) — ``items`` are :class:`HarborTask`\\s;
       :class:`HarborTaskAdapter` writes scored task dirs and the host-side
-      :class:`EvsysVerifier` produces each reward. (RL + benchmark eval.)
-    * ``fmt="prompt"`` — ``items`` are prompt strings; :class:`PromptAdapter`
+      :class:`EvsysVerifier` produces each outcome reward. (RL + benchmark eval.)
+    * ``outcome_reward=False`` — ``items`` are prompt strings; :class:`PromptAdapter`
       writes generation-only dirs (no verifier, ``reward=0``). (SDFT students.)
 
     ``model_client`` — ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
@@ -240,8 +231,9 @@ async def run_harbor_rollouts(
     """
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    # Adapter-aware: our data format → harbor task dirs + native TaskConfigs.
-    adapter = _ADAPTERS[fmt](items)
+    # Adapter-aware: our data → harbor task dirs + native TaskConfigs. The
+    # outcome-reward mode picks the adapter (scored task vs generation prompt).
+    adapter = (HarborTaskAdapter if outcome_reward else PromptAdapter)(items)
     task_configs = adapter.to_harbor(workspace_dir / "tasks")
 
     # Lazy harbor imports — keep this module importable without the extra.
@@ -269,10 +261,10 @@ async def run_harbor_rollouts(
         tasks=task_configs,
         agents=[agent],
         environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-        # Scored (adapter.verify): host-side EvsysVerifier wraps the registered fn
-        # (SHARED mode, no container). Generation-only: no verifier, reward 0.
+        # outcome_reward: host-side EvsysVerifier wraps the registered fn (SHARED
+        # mode, no container) → reward per trajectory. Else: no verifier, reward 0.
         verifier=(VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier")
-                  if adapter.verify else VerifierConfig(disable=True)),
+                  if outcome_reward else VerifierConfig(disable=True)),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
         n_attempts=num_samples,                    # repeats per task = samples

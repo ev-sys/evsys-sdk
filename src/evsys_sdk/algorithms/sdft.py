@@ -136,7 +136,7 @@ class SDFT(BaseAlgorithm):
         model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
         groups = await run_harbor_rollouts(
             [self._student_user_content(q) for q in questions],
-            fmt="prompt",                # raw prompts → generation-only (no verifier)
+            outcome_reward=False,        # raw prompts → generation-only (no verifier/reward)
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,

@@ -391,6 +391,11 @@ def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch, tmp_p
     import asyncio
     from pathlib import Path
 
+    # score_via_harbor pulls in evsys_sdk.training (loop/data_processing/...), which
+    # imports tinker at module level. CI runs without the [tinker] extra, so skip
+    # there — consistent with every other tinker-dependent test in the suite.
+    pytest.importorskip("tinker")
+
     from evsys_sdk.training.harbor_eval import eval_predictions
     from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
 
