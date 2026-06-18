@@ -98,7 +98,7 @@ class RL(BaseAlgorithm):
         model_path = await self._backend.save_for_sampler(f"rl_snap_{self._snapshot_i}")
 
         groups = await run_harbor_rollouts(
-            batch,
+            batch,                       # HarborTasks → fmt="harbor_task" (default), scored
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,

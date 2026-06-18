@@ -6,12 +6,14 @@ Import-safe **without** the ``harbor`` package: all harbor imports are lazy
 which harbor loads at trial runtime). So ``rl`` / ``sdft`` can import this
 module, and tests can mock the runners, with no ``harbor`` install.
 
-Flow (harbor 0.13.2): materialize each :class:`~evsys_sdk.data_types.HarborTask`
-→ a task dir (``instruction.md`` + ``task.toml`` + a per-task
-``evsys_verifier.json`` spec + a dummy ``tests/test.sh``) → build a ``JobConfig``
-over ``tasks`` × one ``agent``, ``n_attempts = num_samples`` → ``Job.run()`` →
-harvest each trial's ``agent_result`` (``rollout_details`` + completion +
-token/cost usage) and ``verifier_result`` (reward) into a :class:`Trajectory`.
+Flow (harbor 0.13.2): a producer's **adapter** (:class:`HarborTaskAdapter` for
+scored rollouts, :class:`PromptAdapter` for generation) writes each task dir
+(``instruction.md`` + ``task.toml`` [+ ``evsys_verifier.json`` spec + a dummy
+``tests/test.sh`` when scored]) and returns harbor-native ``TaskConfig``\\s →
+:func:`run_harbor_rollouts` builds a ``JobConfig`` over those ``TaskConfig``\\s ×
+one ``agent``, ``n_attempts = num_samples`` → ``Job.run()`` → harvest each
+trial's ``agent_result`` (``rollout_details`` + completion + token/cost usage)
+and ``verifier_result`` (reward) into a :class:`Trajectory`.
 
 The reward is produced by harbor running our
 :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier` (the job-level verifier)
@@ -51,46 +53,95 @@ _DUMMY_TEST_SH = "#!/bin/sh\nexit 0\n"
 
 
 # ---------------------------------------------------------------------------
-# Task materializer (instruction.md + task.toml + dummy test.sh + verifier spec)
+# Adapters: our data formats → harbor task dirs + native TaskConfigs
+#
+# A harbor task IS a directory (TaskConfig points at a path), so an adapter
+# writes the dir and returns the harbor-native TaskConfig. The runner below is
+# data-model-agnostic — it only ever sees TaskConfigs. Producers own their
+# adapter: Benchmark/RL → HarborTaskAdapter (scored), SDFT → PromptAdapter.
 # ---------------------------------------------------------------------------
 
 
-def materialize_task(task: HarborTask, dest: Path, *, verify: bool = True) -> Path:
-    """Write a harbor task dir for ``task`` at ``dest``.
+class HarborTaskAdapter:
+    """Adapt our ``HarborTask`` rows (the ``harbor_task`` / RL + eval format) to
+    harbor task dirs + native ``TaskConfig``\\s — **scored** rollouts.
 
-    ``verify=True`` (scored rollout) — writes the per-task verifier spec to
-    ``evsys_verifier.json`` (read by our host-side
-    :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier`, SHARED mode) plus a
-    dummy ``tests/test.sh`` that only satisfies harbor's task-load check and is
-    never executed. Requires an ``InProcessVerifier``.
-
-    ``verify=False`` (generation-only, e.g. SDFT student rollouts) — no verifier
-    spec; ``environment_mode="separate"`` in the task.toml skips the test.sh
-    requirement. ``task.verifier`` is ignored.
+    ``to_harbor(output_dir)`` writes one task dir per task (``instruction.md`` +
+    a SHARED-mode ``task.toml`` + a dummy ``tests/test.sh`` that only satisfies
+    harbor's load check + the per-task ``evsys_verifier.json`` spec our host-side
+    :class:`~evsys_sdk.training.harbor_agents.EvsysVerifier` reads) and returns
+    the ``TaskConfig``\\s pointing at them. Requires an ``InProcessVerifier``.
+    Selected by ``fmt="harbor_task"`` in :func:`run_harbor_rollouts`.
     """
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / "instruction.md").write_text(task.instruction)
-    if not verify:
-        (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
-        return dest
-    if not isinstance(task.verifier, InProcessVerifier):
-        kind = getattr(task.verifier, "kind", type(task.verifier).__name__)
-        raise RuntimeError(
-            f"harbor_engine: task {task.task_id!r} needs an in_process verifier for a "
-            f"scored rollout (got {kind!r}); only 'in_process' is supported today "
-            "(use verify=False for generation-only rollouts)."
-        )
-    (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
-    tests = dest / "tests"
-    tests.mkdir(exist_ok=True)
-    (tests / "test.sh").write_text(_DUMMY_TEST_SH)   # dummy — satisfies load, never run
-    v = task.verifier
-    (dest / _VERIFIER_SPEC_FILE).write_text(json.dumps({
-        "fn_name": v.fn_name,
-        "expected": v.expected,
-        "params": dict(getattr(v, "params", None) or {}),
-    }))
-    return dest
+
+    verify = True   # the job attaches our EvsysVerifier → scored rollouts
+
+    def __init__(self, tasks: Sequence[HarborTask]) -> None:
+        self._tasks = list(tasks)
+
+    def to_harbor(self, output_dir: Path) -> list[Any]:
+        from harbor.models.trial.config import TaskConfig
+
+        configs: list[Any] = []
+        for task in self._tasks:
+            if not isinstance(task.verifier, InProcessVerifier):
+                kind = getattr(task.verifier, "kind", type(task.verifier).__name__)
+                raise RuntimeError(
+                    f"harbor_engine: task {task.task_id!r} needs an in_process verifier "
+                    f"for a scored rollout (got {kind!r}); only 'in_process' is supported."
+                )
+            name = _safe(task.task_id)
+            dest = output_dir / name
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "instruction.md").write_text(task.instruction)
+            (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
+            tests = dest / "tests"
+            tests.mkdir(exist_ok=True)
+            (tests / "test.sh").write_text(_DUMMY_TEST_SH)  # dummy — satisfies load, never run
+            v = task.verifier
+            (dest / _VERIFIER_SPEC_FILE).write_text(json.dumps({
+                "fn_name": v.fn_name,
+                "expected": v.expected,
+                "params": dict(getattr(v, "params", None) or {}),
+            }))
+            configs.append(TaskConfig(path=dest))
+        return configs
+
+
+class PromptAdapter:
+    """Adapt raw prompts (the generation / "prompt" format) to harbor task dirs +
+    native ``TaskConfig``\\s — **generation-only** rollouts (no verifier, no
+    reward). Used by SDFT student rollouts.
+
+    ``to_harbor(output_dir)`` writes ``instruction.md`` + a verifier-less
+    ``task.toml`` (``environment_mode="separate"`` skips the test.sh load check)
+    per prompt and returns the ``TaskConfig``\\s. Selected by ``fmt="prompt"`` in
+    :func:`run_harbor_rollouts`.
+    """
+
+    verify = False  # generation-only — no verifier, reward 0
+
+    def __init__(self, prompts: Sequence[str]) -> None:
+        self._prompts = list(prompts)
+
+    def to_harbor(self, output_dir: Path) -> list[Any]:
+        from harbor.models.trial.config import TaskConfig
+
+        configs: list[Any] = []
+        for i, prompt in enumerate(self._prompts):
+            name = _safe(f"gen_{i}")
+            dest = output_dir / name
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "instruction.md").write_text(prompt)
+            (dest / "task.toml").write_text(_GENERATION_TASK_TOML)
+            configs.append(TaskConfig(path=dest))
+        return configs
+
+
+# Our data formats → the adapter that converts them to harbor task dirs. The
+# runner dispatches on ``fmt`` so callers pass their own format and never touch
+# an adapter. ``fmt`` mirrors our ``TargetFormat`` names where they overlap.
+_ADAPTERS = {"harbor_task": HarborTaskAdapter, "prompt": PromptAdapter}
 
 
 # ---------------------------------------------------------------------------
@@ -149,42 +200,49 @@ def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any])
 
 
 async def run_harbor_rollouts(
-    tasks: Sequence[HarborTask],
+    items: Sequence[Any],
     *,
+    fmt: str = "harbor_task",
     model_name: str,
     model_path: str | None,
     workspace_dir: Path,
+    model_client: str = "tinker",
     renderer_name: str | None = None,
-    verify: bool = True,
     num_samples: int = 1,
     max_turns: int = 1,
     max_tokens: int = 512,
     temperature: float = 1.0,
     system_prompt: str | None = None,
     agent_import_path: str | None = None,
-    model_client: str = "tinker",
     n_concurrent: int = 4,
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
-    """Roll out ``tasks`` (× ``num_samples``) through harbor's ``Job`` engine,
-    one :class:`TrajectoryGroup` per task.
+    """Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine —
+    one :class:`TrajectoryGroup` per item, in order.
 
-    ``verify`` picks the mode:
-      * ``True`` (default) — score each rollout with the task's in-process
-        verifier (host-side :class:`EvsysVerifier`); the reward is on each
-        trajectory. Used by RL and benchmark eval.
-      * ``False`` — **generation-only**: no verifier, ``reward=0`` (the task's
-        ``verifier`` is ignored / may be ``None``). Used by SDFT student rollouts.
+    Callers pass their own **data format** + ``fmt``; the runner is adapter-aware
+    (it runs the matching adapter to write the task dirs, where ``materialize_task``
+    used to be), so no caller ever touches an adapter:
 
-    ``model_client`` picks the rollout LLM: ``"tinker"`` (on-policy ``TinkerLLM``,
-    needs ``model_path``) or ``"litellm"`` (any provider litellm supports, e.g.
-    ``model_name="anthropic/claude-opus-4-1"`` — keys from the provider env vars).
+    * ``fmt="harbor_task"`` (default) — ``items`` are :class:`HarborTask`\\s;
+      :class:`HarborTaskAdapter` writes scored task dirs and the host-side
+      :class:`EvsysVerifier` produces each reward. (RL + benchmark eval.)
+    * ``fmt="prompt"`` — ``items`` are prompt strings; :class:`PromptAdapter`
+      writes generation-only dirs (no verifier, ``reward=0``). (SDFT students.)
+
+    ``model_client`` — ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
+    or ``"litellm"`` (closed/API model; ``model_name`` a litellm string, e.g.
+    ``"anthropic/claude-opus-4-1"``).
 
     ``_job_factory`` is the test seam: ``async (job_config) -> job_result``.
     When ``None``, harbor is imported and ``Job.create(...).run()`` is used.
     """
     workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    # Adapter-aware: our data format → harbor task dirs + native TaskConfigs.
+    adapter = _ADAPTERS[fmt](items)
+    task_configs = adapter.to_harbor(workspace_dir / "tasks")
 
     # Lazy harbor imports — keep this module importable without the extra.
     from harbor import Job
@@ -192,7 +250,6 @@ async def run_harbor_rollouts(
     from harbor.models.trial.config import (
         AgentConfig,
         EnvironmentConfig,
-        TaskConfig,
         VerifierConfig,
     )
 
@@ -208,18 +265,14 @@ async def run_harbor_rollouts(
         system_prompt=system_prompt,
     )
     agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
-    task_cfgs = [
-        TaskConfig(path=materialize_task(t, workspace_dir / "tasks" / _safe(t.task_id), verify=verify))
-        for t in tasks
-    ]
     config = JobConfig(
-        tasks=task_cfgs,
+        tasks=task_configs,
         agents=[agent],
         environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
-        # Scored: our host-side verifier wraps the registered fn (SHARED mode, no
-        # container). Generation-only (verify=False): no verifier, reward 0.
+        # Scored (adapter.verify): host-side EvsysVerifier wraps the registered fn
+        # (SHARED mode, no container). Generation-only: no verifier, reward 0.
         verifier=(VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier")
-                  if verify else VerifierConfig(disable=True)),
+                  if adapter.verify else VerifierConfig(disable=True)),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,
         n_attempts=num_samples,                    # repeats per task = samples
@@ -228,7 +281,7 @@ async def run_harbor_rollouts(
 
     result = await (_job_factory(config) if _job_factory is not None
                     else _run_job(Job, config))
-    return _harvest(result, tasks)
+    return _harvest(result, task_configs)
 
 
 async def _run_job(Job: Any, config: Any) -> Any:
@@ -250,17 +303,17 @@ def _trials_by_task(job_result: Any) -> dict[str, list[Any]]:
     return out
 
 
-def _harvest(job_result: Any, tasks: Sequence[HarborTask]) -> list[TrajectoryGroup]:
+def _harvest(job_result: Any, task_configs: Sequence[Any]) -> list[TrajectoryGroup]:
     by_task = _trials_by_task(job_result)
     groups: list[TrajectoryGroup] = []
-    for t in tasks:
+    for tc in task_configs:
+        # harbor derives a trial's ``task_name`` from the task dir basename.
+        task_name = Path(tc.path).name
         trajs = [
-            traj for tr in by_task.get(_safe(t.task_id), [])
+            traj for tr in by_task.get(task_name, [])
             if (traj := _trial_to_trajectory(tr)) is not None
         ]
-        groups.append(TrajectoryGroup(
-            trajectories=trajs, tags=list(t.metadata.get("tags") or []),
-        ))
+        groups.append(TrajectoryGroup(trajectories=trajs))
     return groups
 
 
@@ -343,4 +396,4 @@ def _safe(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(name))
 
 
-__all__ = ["materialize_task", "run_harbor_rollouts"]
+__all__ = ["HarborTaskAdapter", "PromptAdapter", "run_harbor_rollouts"]

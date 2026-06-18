@@ -76,14 +76,8 @@ def test_compute_advantages_empty_group_returns_empty_list():
 
 def test_assemble_training_data_flattens_groups():
     groups = [
-        TrajectoryGroup(
-            trajectories=[_traj([10, 11], [20, 21], reward=1.0)],
-            tags=["foo"],
-        ),
-        TrajectoryGroup(
-            trajectories=[_traj([30, 31], [40, 41], reward=0.0)],
-            tags=["bar"],
-        ),
+        TrajectoryGroup(trajectories=[_traj([10, 11], [20, 21], reward=1.0)]),
+        TrajectoryGroup(trajectories=[_traj([30, 31], [40, 41], reward=0.0)]),
     ]
     advantages = compute_advantages(groups)
     datums, meta = assemble_training_data(groups, advantages)
@@ -91,7 +85,6 @@ def test_assemble_training_data_flattens_groups():
     assert len(meta) == 2
     assert meta[0].group_idx == 0
     assert meta[1].group_idx == 1
-    assert meta[0].tags == ["foo"]
 
 
 def test_assemble_training_data_skips_empty_trajectories():

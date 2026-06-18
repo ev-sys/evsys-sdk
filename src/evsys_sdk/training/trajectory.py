@@ -53,9 +53,6 @@ class TrajectoryGroup:
     group-relative advantage baseline subtracts the within-group mean reward."""
 
     trajectories: list[Trajectory]
-    tags: list[str] = field(default_factory=list)
-    """Logging tags (toolkit, task category, …) propagated through advantage +
-    Datum assembly so metric breakdowns work."""
 
     @property
     def rewards(self) -> list[float]:

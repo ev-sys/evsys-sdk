@@ -18,7 +18,7 @@ The two-step pipeline:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import tinker
@@ -71,8 +71,7 @@ class DatumMetadata:
 
     group_idx: int
     """Index into the original ``trajectory_groups`` list — used for SDFT
-    teacher-prompt lookup and for tag-keyed metrics."""
-    tags: list[str] = field(default_factory=list)
+    teacher-prompt lookup."""
 
 
 def assemble_training_data(
@@ -104,7 +103,7 @@ def assemble_training_data(
                 if datum is None:
                     continue
                 datums.append(datum)
-                metas.append(DatumMetadata(group_idx=group_idx, tags=list(group.tags)))
+                metas.append(DatumMetadata(group_idx=group_idx))
     return datums, metas
 
 

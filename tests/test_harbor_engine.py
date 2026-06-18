@@ -29,12 +29,15 @@ def _task(task_id="t0", instruction="solve it", expected="42"):
     )
 
 
-# --- materialize_task ------------------------------------------------------
+# --- adapters (our data formats → harbor task dir + TaskConfig) -------------
 
 
-def test_materialize_writes_task_dir_with_verifier_spec_and_dummy_test(tmp_path: Path):
+def test_harbor_task_adapter_writes_scored_task_dir(tmp_path: Path):
     import json
-    dest = he.materialize_task(_task(expected="42"), tmp_path / "task")
+    cfgs = he.HarborTaskAdapter([_task(expected="42")]).to_harbor(tmp_path)
+    assert len(cfgs) == 1
+    dest = Path(cfgs[0].path)
+    assert dest.name == "t0"                                  # dir basename == _safe(task_id)
     assert (dest / "instruction.md").read_text() == "solve it"
     # SHARED mode (no environment_mode); our EvsysVerifier is the job-level verifier.
     assert 'environment_mode' not in (dest / "task.toml").read_text()
@@ -43,20 +46,22 @@ def test_materialize_writes_task_dir_with_verifier_spec_and_dummy_test(tmp_path:
     # per-task verifier spec the host-side EvsysVerifier reads
     spec = json.loads((dest / "evsys_verifier.json").read_text())
     assert spec == {"fn_name": "exact_match", "expected": "42", "params": {}}
-    assert not (dest / "environment" / "Dockerfile").exists()
 
 
-def test_materialize_rejects_non_in_process_verifier(tmp_path: Path):
-    t = HarborTask(task_id="t1", instruction="i", verifier=E2BVerifier())
+def test_harbor_task_adapter_rejects_non_in_process_verifier(tmp_path: Path):
+    adapter = he.HarborTaskAdapter(
+        [HarborTask(task_id="t1", instruction="i", verifier=E2BVerifier())]
+    )
     with pytest.raises(RuntimeError, match="only 'in_process'"):
-        he.materialize_task(t, tmp_path / "t1")
+        adapter.to_harbor(tmp_path)
 
 
-def test_materialize_generation_only_skips_verifier(tmp_path: Path):
-    # verify=False → generation dir: instruction + separate-mode task.toml, no
-    # verifier spec and no dummy test.sh. Works with a verifier-less task.
-    t = HarborTask(task_id="g0", instruction="write a poem")
-    dest = he.materialize_task(t, tmp_path / "g0", verify=False)
+def test_prompt_adapter_writes_generation_task_dir(tmp_path: Path):
+    # generation-only: instruction + separate-mode task.toml, no verifier spec, no test.sh.
+    cfgs = he.PromptAdapter(["write a poem"]).to_harbor(tmp_path)
+    assert len(cfgs) == 1
+    dest = Path(cfgs[0].path)
+    assert dest.name == "gen_0"
     assert (dest / "instruction.md").read_text() == "write a poem"
     assert 'environment_mode = "separate"' in (dest / "task.toml").read_text()
     assert not (dest / "evsys_verifier.json").exists()
@@ -82,36 +87,37 @@ def _trial(task_name, *, tokens, reward):
     )
 
 
+def _tc(task_name):
+    # Stand-in TaskConfig: _harvest matches trials by the dir basename of .path.
+    return SimpleNamespace(path=Path("/tmp/tasks") / task_name)
+
+
 def test_harvest_maps_trials_to_groups_with_verifier_reward():
-    tasks = [_task("t0"), _task("t1")]
     job_result = SimpleNamespace(trial_results=[
         _trial("t0", tokens=[10, 11], reward=1.0),
         _trial("t1", tokens=[20], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks)
+    groups = he._harvest(job_result, [_tc("t0"), _tc("t1")])
     assert len(groups) == 2
-    assert groups[0].tags == ["x"]
     assert groups[0].trajectories[0].reward == 1.0       # from verifier_result
     assert groups[0].trajectories[0].turns[0].completion_tokens == [10, 11]
     assert groups[1].trajectories[0].reward == 0.0
 
 
 def test_harvest_groups_n_attempts_per_task():
-    tasks = [_task("t0")]
     job_result = SimpleNamespace(trial_results=[
         _trial("t0", tokens=[1], reward=1.0),
         _trial("t0", tokens=[2], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks)
+    groups = he._harvest(job_result, [_tc("t0")])
     assert len(groups) == 1
     assert len(groups[0].trajectories) == 2              # both attempts (samples)
     assert {t.reward for t in groups[0].trajectories} == {1.0, 0.0}
 
 
 def test_harvest_drops_trials_with_no_rollout():
-    tasks = [_task("t0")]
     empty = SimpleNamespace(trial_name="t0__abc", task_name="t0", agent_result=None)
-    groups = he._harvest(SimpleNamespace(trial_results=[empty]), tasks)
+    groups = he._harvest(SimpleNamespace(trial_results=[empty]), [_tc("t0")])
     assert groups[0].trajectories == []
 
 

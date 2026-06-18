@@ -387,8 +387,9 @@ def test_task_result_dataclass_shape():
 # ---------------------------------------------------------------------------
 
 
-def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch):
+def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch, tmp_path):
     import asyncio
+    from pathlib import Path
 
     from evsys_sdk.training.harbor_eval import eval_predictions
     from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
@@ -398,8 +399,9 @@ def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch):
         _row("t1", "P1", "exact_match", "x", toolkit="B"),
     ])
 
-    async def _fake_rollouts(tasks, **kwargs):
-        # 2 samples/task; t0 both pass, t1 both fail.
+    async def _fake_rollouts(items, **kwargs):
+        # The runner is adapter-aware, so (mocked here) it receives the
+        # benchmark's HarborTasks directly. 2 samples/task; t0 both pass, t1 both fail.
         per = {"t0": [1.0, 1.0], "t1": [0.0, 0.0]}
         return [
             TrajectoryGroup(trajectories=[
@@ -407,9 +409,9 @@ def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3])],
                     reward=r,
                 )
-                for r in per[t.task_id]
+                for r in per[task.task_id]
             ])
-            for t in tasks
+            for task in items
         ]
 
     monkeypatch.setattr(
@@ -417,7 +419,7 @@ def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch):
     )
 
     score = asyncio.run(bench.score_via_harbor(
-        model_name="m", model_path="ckpt", workspace_dir=Path("."),
+        model_name="m", model_path="ckpt", workspace_dir=tmp_path,
         num_samples=2, breakdown_keys=["toolkit"], metrics=["mean_reward", "pass_rate"],
     ))
 

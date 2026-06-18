@@ -142,7 +142,6 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                     reward=1.0,
                 )],
-                tags=["test"],
             )
             for _ in tasks
         ]
@@ -178,7 +177,7 @@ def test_eval_arm_harbor_forwards_n_concurrent_from_bench_meta(monkeypatch):
 
     async def _fake_score(tasks, **kwargs):
         captured.update(kwargs)
-        return [TrajectoryGroup(trajectories=[Trajectory(turns=[], reward=0.0)], tags=[]) for _ in tasks]
+        return [TrajectoryGroup(trajectories=[Trajectory(turns=[], reward=0.0)]) for _ in tasks]
 
     monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
     run_cfg = _run_cfg()
@@ -208,7 +207,6 @@ def test_eval_arm_harbor_api_model_uses_litellm_and_per_model_eval(monkeypatch):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                     reward=1.0,
                 )],
-                tags=["test"],
             )
             for _ in tasks
         ]
@@ -250,7 +248,6 @@ def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                     reward=1.0,
                 )],
-                tags=["test"],
             )
             for _ in tasks
         ]

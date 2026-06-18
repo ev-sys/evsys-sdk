@@ -84,7 +84,6 @@ def _usage_group(n, **usage):
                 turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                 reward=1.0, metadata={"usage": usage} if usage else {},
             )],
-            tags=["b"],
         )
         for _ in range(n)
     ]

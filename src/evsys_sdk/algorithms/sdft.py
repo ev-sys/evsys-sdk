@@ -22,7 +22,7 @@ from typing import Any, ClassVar, cast
 
 import tinker
 
-from ..data_types import HarborTask, PromptExample, TargetFormat, parse_rows
+from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
 from ..training.batch_utils import coerce_floats
@@ -129,12 +129,9 @@ class SDFT(BaseAlgorithm):
         #    (prompt order); take its single sample.
         self._snapshot_i += 1
         model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
-        gen_tasks = [
-            HarborTask(task_id=f"student_{i}", instruction=self._student_user_content(q))
-            for i, q in enumerate(questions)
-        ]
         groups = await run_harbor_rollouts(
-            gen_tasks,
+            [self._student_user_content(q) for q in questions],
+            fmt="prompt",                # raw prompts → generation-only (no verifier)
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,
@@ -142,7 +139,6 @@ class SDFT(BaseAlgorithm):
             max_tokens=self.cfg.max_tokens,
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
-            verify=False,
         )
         student_trajs = [
             g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
