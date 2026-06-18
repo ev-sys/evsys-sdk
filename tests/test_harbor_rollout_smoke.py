@@ -38,7 +38,7 @@ def test_real_harbor_rollout_scores_and_harvests(tmp_path):
     ]
     groups = asyncio.run(run_harbor_rollouts(
         tasks,
-        fmt="harbor_task",                             # scored (default)
+        outcome_reward=True,                           # scored (default)
         model_name="echo", model_path=None,
         workspace_dir=tmp_path,
         num_samples=2,                                 # → n_attempts=2 per task
@@ -61,10 +61,10 @@ def test_real_harbor_rollout_scores_and_harvests(tmp_path):
 
 
 def test_real_harbor_rollouts_generation_only(tmp_path):
-    # fmt="prompt" → generation-only: raw prompts in, rollouts harvested, no
-    # reward (no verifier). The runner picks PromptAdapter; no adapter at the call site.
+    # outcome_reward=False → generation-only: raw prompts in, rollouts harvested,
+    # no reward (no verifier). The runner picks PromptAdapter; no adapter at the call site.
     groups = asyncio.run(run_harbor_rollouts(
-        ["write a poem", "summarize this"], fmt="prompt", model_name="echo", model_path=None,
+        ["write a poem", "summarize this"], outcome_reward=False, model_name="echo", model_path=None,
         workspace_dir=tmp_path, agent_import_path=_ECHO, n_concurrent=2, max_retries=0,
     ))
     assert len(groups) == 2

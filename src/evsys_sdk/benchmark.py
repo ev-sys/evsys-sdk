@@ -290,7 +290,7 @@ class Benchmark:
 
         tasks = self.tasks if limit is None else self.tasks[: max(0, int(limit))]
         groups = await run_harbor_rollouts(
-            tasks,                       # HarborTasks → fmt="harbor_task" (default), scored
+            tasks,                       # HarborTasks → outcome_reward=True (default), scored
             model_name=model_name,
             model_path=model_path,
             model_client=model_client,
