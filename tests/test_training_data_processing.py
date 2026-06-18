@@ -96,25 +96,23 @@ def test_assemble_training_data_skips_empty_trajectories():
     assert meta == []
 
 
-def test_datum_carries_mask_logprobs_advantages():
-    """The Datum's loss_fn_inputs must populate every IS-required field."""
+def test_datum_carries_target_tokens_logprobs_advantages():
+    """The Datum's loss_fn_inputs must populate exactly the IS keys tinker accepts."""
     group = TrajectoryGroup(trajectories=[
         _traj([10, 11], [20, 21, 22], reward=0.5, logprobs=[-0.1, -0.2, -0.3]),
     ])
-    advantages = compute_advantages(group=[group]) if False else compute_advantages([group])
+    advantages = compute_advantages([group])
     datums, _ = assemble_training_data([group], advantages)
     assert len(datums) == 1
     d = datums[0]
-    # All four IS-required keys present
-    assert set(d.loss_fn_inputs.keys()) == {"target_tokens", "mask", "logprobs", "advantages"}
-    mask = d.loss_fn_inputs["mask"].to_torch().tolist()
+    # tinker's importance_sampling accepts ONLY these keys — no mask/weights.
+    assert set(d.loss_fn_inputs.keys()) == {"target_tokens", "logprobs", "advantages"}
     # full sequence: [10, 11, 20, 21, 22]; model_input drops last → 4 positions
-    # completion positions are [2, 3] (offsets 1, 2, 3 → mask on completion)
-    assert len(mask) == 4
-    # positions 0 = prompt, 1-3 = completion (offsets where target ∈ completion)
-    assert mask == [0.0, 1.0, 1.0, 1.0]
-    # advantages on completion positions match the single-traj advantage (= reward 0.5)
     adv = d.loss_fn_inputs["advantages"].to_torch().tolist()
+    assert len(adv) == 4
+    # position 0 = prompt → advantage 0 (this is what masks the loss to completion);
+    # positions 1-3 = completion → the single-traj advantage (= reward 0.5)
+    assert adv[0] == 0.0
     assert adv[1:4] == [0.5, 0.5, 0.5]
     # logprobs follow the same alignment, one entry per completion position
     lp = d.loss_fn_inputs["logprobs"].to_torch().tolist()
