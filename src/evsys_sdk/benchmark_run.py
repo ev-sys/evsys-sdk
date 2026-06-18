@@ -60,12 +60,7 @@ def run_benchmark(
     import asyncio
     import tempfile
 
-    from .training.harbor_eval import (
-        eval_metrics,
-        eval_predictions,
-        score_via_harbor,
-        upload_eval_rollouts,
-    )
+    from .training.harbor_eval import eval_predictions, upload_eval_rollouts
 
     if benchmark is None:
         benchmark = Benchmark.load({"path": path, "id": id, "name": name}, store=store)
@@ -86,24 +81,23 @@ def run_benchmark(
     except OSError:
         ws = Path(tempfile.mkdtemp(prefix="evsys_bench_"))
 
-    groups = asyncio.run(score_via_harbor(
-        tasks,
+    score = asyncio.run(benchmark.score_via_harbor(
         model_name=model,
         model_path=None,            # no checkpoint — the API model *is* the policy
-        workspace_dir=ws,
         model_client="litellm",
+        workspace_dir=ws,
         num_samples=num_samples,
         max_tokens=max_tokens,
         temperature=temperature,
         system_prompt=system_prompt,
+        limit=limit,
         n_concurrent=n_concurrent,
     ))
 
-    metrics = eval_metrics(groups)
     if store is not None and run_id:
-        preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
+        preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
         upload_eval_rollouts(store, run_id, preds)
-    return metrics
+    return score.metrics
 
 
 __all__ = ["run_benchmark"]

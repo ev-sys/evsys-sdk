@@ -559,12 +559,7 @@ class Experiment:
         import asyncio
         import tempfile
 
-        from .training.harbor_eval import (
-            eval_metrics,
-            eval_predictions,
-            score_via_harbor,
-            upload_eval_rollouts,
-        )
+        from .training.harbor_eval import eval_predictions, upload_eval_rollouts
 
         model_path = self._final_checkpoint(arm)
         limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
@@ -586,35 +581,34 @@ class Experiment:
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
         t0 = time.time()
-        groups = asyncio.run(score_via_harbor(
-            tasks,
+        score = asyncio.run(bench.score_via_harbor(
             model_name=api_model or run_cfg.model.name,
             model_path=None if api_model else model_path,
-            workspace_dir=workspace,
             model_client="litellm" if api_model else "tinker",
+            workspace_dir=workspace,
+            renderer_name=run_cfg.model.renderer_name,
             num_samples=int(bench_meta.get("num_samples", 1)),
             max_tokens=int(bench_meta.get("max_tokens", 512)),
             temperature=float(bench_meta.get("temperature", 0.0)),
-            renderer_name=run_cfg.model.renderer_name,
             system_prompt=ct.get("system_prompt"),
+            limit=limit,
+            breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+            metrics=bench_meta.get("metrics"),
             n_concurrent=int(bench_meta.get("n_concurrent", 8)),
         ))
         seconds = time.time() - t0
 
-        metrics = eval_metrics(groups, metrics=bench_meta.get("metrics"))
         model_tags = [api_model] if api_model else []
         arm.evals.append(EvalResult(
             name=eval_name,
             benchmark_id=bench_meta.get("id"),
-            metrics=metrics,
-            breakdowns={},
+            metrics=score.metrics,
+            breakdowns=score.breakdowns,
             eval_seconds=seconds,
             step=None,
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
-        eval_id = self._record_eval(
-            arm, bench, bench_meta, BenchmarkScore(metrics=metrics, per_task=[], breakdowns={}),
-        )
+        eval_id = self._record_eval(arm, bench, bench_meta, score)
         # Upload eval rollouts only (training rollouts are never uploaded), and
         # only once they have an eval_id to hang off of — orphan predictions
         # can't be told apart from other evals on the same run.
@@ -625,7 +619,7 @@ class Experiment:
                     arm.name,
                 )
             else:
-                preds = eval_predictions(tasks, groups, eval_id=eval_id, step=None)
+                preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
                 upload_eval_rollouts(self.store, arm.run_id, preds)
 
     @staticmethod

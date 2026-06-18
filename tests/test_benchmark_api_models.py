@@ -99,7 +99,7 @@ def test_run_benchmark_routes_to_litellm_and_returns_metrics(monkeypatch):
         return _usage_group(len(tasks), latency_s=1.0, prompt_tokens=5,
                             completion_tokens=2, cost_usd=0.01)
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
     metrics = run_benchmark(_bench(), model="anthropic/claude-opus-4-1", max_tokens=128)
 
     assert captured["model_client"] == "litellm"
@@ -115,7 +115,7 @@ def test_run_benchmark_uploads_when_store_and_run_id(monkeypatch):
     async def _fake_score(tasks, **kwargs):
         return _usage_group(len(tasks))
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     uploaded: list = []
 

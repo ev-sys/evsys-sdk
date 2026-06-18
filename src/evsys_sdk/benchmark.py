@@ -26,7 +26,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,9 @@ from .data_types import (
 from .protocols import InferenceClient
 from .registry import get_metric
 from .verifiers import fns as verifier_fns
+
+if TYPE_CHECKING:
+    from .training.trajectory import TrajectoryGroup
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +75,10 @@ class BenchmarkScore:
 
     Populated when `score(..., breakdown_keys=[...])` is passed. Each bucket
     field is an attribute path into a task's `metadata` (e.g. `"toolkit"`)."""
+    rollouts: list["TrajectoryGroup"] = field(default_factory=list)
+    """Raw per-(task, sample) harbor rollouts (token ids + reward + usage), in
+    task order; populated by `score_via_harbor`, empty for in-process `score()`.
+    Lets callers upload per-sample eval predictions without re-running."""
 
 
 # ---------------------------------------------------------------------------
@@ -243,23 +250,85 @@ class Benchmark:
             except Exception:
                 logger.warning("benchmark metric %r failed; skipping", name, exc_info=True)
         metrics = score_metrics
-
-        breakdowns: dict[str, dict[str, dict[str, float]]] = {}
-        for key in breakdown_keys:
-            buckets: dict[str, list[float]] = {}
-            for r in per_task:
-                bucket = str(_dotted_get(r.metadata, key, "__missing__"))
-                buckets.setdefault(bucket, []).append(r.reward)
-            breakdowns[key] = {
-                bucket: {
-                    "n": float(len(rewards)),
-                    "mean_reward": sum(rewards) / len(rewards),
-                    "pass_rate": sum(1 for x in rewards if x >= 1.0) / len(rewards),
-                }
-                for bucket, rewards in buckets.items()
-            }
-
+        breakdowns = _compute_breakdowns(per_task, breakdown_keys)
         return BenchmarkScore(metrics=metrics, per_task=per_task, breakdowns=breakdowns)
+
+    async def score_via_harbor(
+        self,
+        *,
+        model_name: str,
+        model_path: str | None = None,
+        model_client: str = "tinker",
+        workspace_dir: Path,
+        renderer_name: str | None = None,
+        num_samples: int = 1,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        system_prompt: str | None = None,
+        limit: int | None = None,
+        breakdown_keys: list[str] | None = None,
+        metrics: list[str] | None = None,
+        n_concurrent: int = 8,
+        agent_import_path: str | None = None,
+        max_retries: int = 2,
+        _job_factory: Any | None = None,
+    ) -> BenchmarkScore:
+        """Score this benchmark through harbor's rollout engine — the harbor
+        counterpart of :meth:`score`, returning the same :class:`BenchmarkScore`.
+
+        Each task is rolled out ``num_samples`` times (one verifier reward per
+        sample); ``metrics`` (registry names like ``pass@3``) reduce the per-task
+        sample rewards, and ``time/tokens/cost_per_task`` come from harbor usage.
+        ``model_client`` is ``"tinker"`` (on-policy checkpoint, needs
+        ``model_path``) or ``"litellm"`` (closed/API model; ``model_name`` a
+        litellm string). The result's :attr:`BenchmarkScore.rollouts` carries the
+        raw per-(task, sample) rollouts so callers can upload eval predictions
+        without re-running.
+        """
+        from .training.harbor_engine import run_harbor_rollouts
+        from .training.harbor_eval import eval_metrics
+
+        tasks = self.tasks if limit is None else self.tasks[: max(0, int(limit))]
+        groups = await run_harbor_rollouts(
+            tasks,
+            verify=True,
+            model_name=model_name,
+            model_path=model_path,
+            model_client=model_client,
+            workspace_dir=workspace_dir,
+            renderer_name=renderer_name,
+            num_samples=num_samples,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system_prompt=system_prompt,
+            n_concurrent=n_concurrent,
+            agent_import_path=agent_import_path,
+            max_retries=max_retries,
+            _job_factory=_job_factory,
+        )
+        score_metrics = eval_metrics(groups, metrics=list(metrics) if metrics else None)
+        per_task: list[BenchmarkTaskResult] = []
+        for task, group in zip(tasks, groups):
+            rewards = list(group.rewards)
+            per_task.append(
+                BenchmarkTaskResult(
+                    task_id=task.task_id,
+                    instruction=task.instruction,
+                    # harbor harvests token ids, not completion text.
+                    model_output="",
+                    expected=getattr(task.verifier, "expected", None),
+                    # Per-task mean reward — drives the breakdown buckets.
+                    reward=(sum(rewards) / len(rewards)) if rewards else 0.0,
+                    metadata=dict(task.metadata),
+                )
+            )
+        breakdowns = _compute_breakdowns(per_task, breakdown_keys or [])
+        return BenchmarkScore(
+            metrics=score_metrics,
+            per_task=per_task,
+            breakdowns=breakdowns,
+            rollouts=list(groups),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +364,29 @@ def _read_metadata_yaml(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: metadata.yaml must be a mapping at the top level")
     return data
+
+
+def _compute_breakdowns(
+    per_task: list[BenchmarkTaskResult], breakdown_keys: list[str],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Bucket per-task rewards by each dotted ``metadata`` key →
+    ``{key: {value: {n, mean_reward, pass_rate}}}``. Shared by the in-process
+    and harbor scoring paths."""
+    breakdowns: dict[str, dict[str, dict[str, float]]] = {}
+    for key in breakdown_keys:
+        buckets: dict[str, list[float]] = {}
+        for r in per_task:
+            bucket = str(_dotted_get(r.metadata, key, "__missing__"))
+            buckets.setdefault(bucket, []).append(r.reward)
+        breakdowns[key] = {
+            bucket: {
+                "n": float(len(rewards)),
+                "mean_reward": sum(rewards) / len(rewards),
+                "pass_rate": sum(1 for x in rewards if x >= 1.0) / len(rewards),
+            }
+            for bucket, rewards in buckets.items()
+        }
+    return breakdowns
 
 
 def _dotted_get(d: dict, dotted_key: str, default: Any) -> Any:

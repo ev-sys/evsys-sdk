@@ -1,6 +1,6 @@
 """Post-training benchmark eval through harbor (opt-in `engine: harbor`).
 
-Mocks score_via_harbor (no harbor/containers) and checks Experiment._eval_arm_harbor
+Mocks run_harbor_rollouts (no harbor/containers) and checks Experiment._eval_arm_harbor
 scores the benchmark + uploads eval rollouts (kind='eval')."""
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     store = _Store()
     run_cfg = _run_cfg()
@@ -180,7 +180,7 @@ def test_eval_arm_harbor_forwards_n_concurrent_from_bench_meta(monkeypatch):
         captured.update(kwargs)
         return [TrajectoryGroup(trajectories=[Trajectory(turns=[], reward=0.0)], tags=[]) for _ in tasks]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
     run_cfg = _run_cfg()
     e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
     arm = ArmResult(
@@ -213,7 +213,7 @@ def test_eval_arm_harbor_api_model_uses_litellm_and_per_model_eval(monkeypatch):
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     run_cfg = _run_cfg()
     e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
@@ -255,7 +255,7 @@ def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     run_cfg = _run_cfg()
     cfg = ExperimentConfig(name="x", run=run_cfg, output_dir=str(tmp_path))

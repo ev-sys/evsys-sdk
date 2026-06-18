@@ -173,17 +173,12 @@ class BenchmarkEvaluator:
         import tempfile
         from pathlib import Path
 
-        from .harbor_eval import eval_metrics, score_via_harbor
-
-        tasks = (self.benchmark.tasks if self.limit is None
-                 else self.benchmark.tasks[: max(0, self.limit)])
         ws = Path(self.workspace_dir) if self.workspace_dir else Path(
             tempfile.mkdtemp(prefix="evsys_val_")
         )
         if step is not None:
             ws = ws / f"step_{step}"
-        groups = await score_via_harbor(
-            tasks,
+        score = await self.benchmark.score_via_harbor(
             model_name=self.model_name,
             model_path=model_path,
             workspace_dir=ws,
@@ -191,12 +186,16 @@ class BenchmarkEvaluator:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             system_prompt=(self.chat_template or {}).get("system_prompt"),
+            limit=self.limit,
+            breakdown_keys=list(self.breakdown_keys),
+            metrics=list(self.metrics) or None,
             n_concurrent=self.n_concurrent,
         )
-        metrics = eval_metrics(groups, metrics=self.metrics)
         if self.store is not None and self.run_id:
-            self._upload(tasks, groups, metrics, step)
-        return metrics
+            tasks = (self.benchmark.tasks if self.limit is None
+                     else self.benchmark.tasks[: max(0, self.limit)])
+            self._upload(tasks, score.rollouts, dict(score.metrics), step)
+        return dict(score.metrics)
 
     def _upload(
         self, tasks: list[Any], groups: list[Any],

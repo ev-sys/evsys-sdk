@@ -16,57 +16,12 @@ The metrics / prediction builders are pure functions over
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Sequence
 
 from ..data_types import HarborTask
 from .trajectory import TrajectoryGroup
 
 logger = logging.getLogger(__name__)
-
-
-async def score_via_harbor(
-    tasks: Sequence[HarborTask],
-    *,
-    model_name: str,
-    model_path: str | None,
-    workspace_dir: Path,
-    num_samples: int = 1,
-    max_turns: int = 1,
-    max_tokens: int = 512,
-    temperature: float = 0.0,
-    renderer_name: str | None = None,
-    system_prompt: str | None = None,
-    agent_import_path: str | None = None,
-    model_client: str = "tinker",
-    n_concurrent: int = 8,
-    max_retries: int = 2,
-    _job_factory: Any | None = None,
-) -> list[TrajectoryGroup]:
-    """Score ``tasks`` through harbor (one TrajectoryGroup per task, rewards
-    from each task's verifier). Thin wrapper over the shared rollout engine.
-
-    ``model_client="litellm"`` scores a closed / API model (``model_name`` a
-    litellm string) instead of an on-policy tinker checkpoint."""
-    from .harbor_engine import run_harbor_rollouts
-
-    return await run_harbor_rollouts(
-        tasks,
-        model_name=model_name,
-        model_path=model_path,
-        workspace_dir=workspace_dir,
-        renderer_name=renderer_name,
-        num_samples=num_samples,
-        max_turns=max_turns,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system_prompt=system_prompt,
-        agent_import_path=agent_import_path,
-        model_client=model_client,
-        n_concurrent=n_concurrent,
-        max_retries=max_retries,
-        _job_factory=_job_factory,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -222,4 +177,4 @@ def upload_eval_rollouts(store: Any, run_id: str, predictions: list[dict]) -> No
             )
 
 
-__all__ = ["score_via_harbor", "eval_metrics", "eval_predictions", "upload_eval_rollouts"]
+__all__ = ["eval_metrics", "eval_predictions", "upload_eval_rollouts"]
