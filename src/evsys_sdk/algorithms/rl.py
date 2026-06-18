@@ -84,7 +84,7 @@ class RL(BaseAlgorithm):
         # rollouts are — see harbor_eval). When a RunLog is present, route
         # harbor's jobs dir into the agent track so the dense rollout store is
         # harbor-native (referenced, not copied); the human track gets a curated
-        # view via note_rollouts below.
+        # readable view via log_training_rollouts below.
         self._run_log = ctx.extras.get("run_log")
         self._workspace = (
             self._run_log.harbor_dir("train") if self._run_log is not None
@@ -119,12 +119,16 @@ class RL(BaseAlgorithm):
             n_concurrent=self.cfg.n_concurrent,
             max_retries=self.cfg.max_retries,
         )
-        # Curated human rollout view (the full per-trial dump is harbor's own,
-        # under agent/harbor/train). Bounded cadence so the file stays readable.
+        # Readable training rollouts (predictions + per-token logprobs + reward
+        # & advantage per sample/group). Full per-trial store is harbor's own,
+        # under harbor/train. Bounded cadence so the folder stays clean.
         if self._run_log is not None and (step_idx == 0 or step_idx % 10 == 0):
+            from ..training.data_processing import compute_advantages
             tok = getattr(self._backend, "get_tokenizer", lambda: None)()
-            self._run_log.note_rollouts("train", groups, tokenizer=tok,
-                                        step=step_idx, tasks=batch)
+            self._run_log.log_training_rollouts(
+                step_idx, groups, advantages=compute_advantages(groups),
+                tokenizer=tok, tasks=batch,
+            )
         if self.cfg.drop_constant_reward:
             groups = [g for g in groups if not _all_equal(g.rewards)]
         if not groups:

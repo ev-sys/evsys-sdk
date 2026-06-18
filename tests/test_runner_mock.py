@@ -62,14 +62,14 @@ def test_runner_mock_sft_end_to_end(tmp_path: Path, sample_rows):
     assert metrics_path.exists()
     rows = [json.loads(l) for l in metrics_path.read_text().splitlines() if l.strip()]
     assert any("train/loss" in row.get("metrics", {}) for row in rows)
-    # Two-track local logging produced the human surface from this run.
+    # The per-run human log was produced (one log, organized into folders).
     run_dir = tmp_path / "out" / "mock_run"
-    assert (run_dir / "human" / "summary.md").exists()
-    assert (run_dir / "human" / "01_data" / "datasets.md").exists()
-    assert (run_dir / "human" / "01_data" / "sample.jsonl").exists()
-    csv_text = (run_dir / "human" / "04_training" / "metrics.csv").read_text()
+    assert (run_dir / "summary.md").exists()
+    assert (run_dir / "01_data" / "data.md").exists()
+    assert (run_dir / "01_data" / "after_transform.jsonl").exists()
+    csv_text = (run_dir / "04_training_metrics" / "metrics.csv").read_text()
     assert "loss" in csv_text  # whitelisted train/loss made it into the CSV
-    assert "completed" in (run_dir / "human" / "summary.md").read_text()
+    assert "completed" in (run_dir / "summary.md").read_text()
 
 
 def test_runner_mock_rl_end_to_end(tmp_path: Path, sample_rows):

@@ -1,8 +1,7 @@
-"""Tests for RunLog — the two-track (human/agent) per-run logger.
+"""Tests for RunLog — one human-readable log per run, organized into folders.
 
 RunLog duck-types its rollout inputs, so these tests use lightweight stand-ins
-instead of the real (tinker-importing) training.trajectory dataclasses — that
-keeps the logger's tests free of the heavy training deps.
+instead of the real (tinker-importing) training.trajectory dataclasses.
 """
 
 from __future__ import annotations
@@ -10,12 +9,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from evsys_sdk.run_log import RunLog
+from evsys_sdk.run_log import RunLog, get_run_log, _CURRENT
 
 
 @dataclass
 class _Turn:
     completion_tokens: list = field(default_factory=list)
+    logprobs: list = field(default_factory=list)
     text: str = ""
 
 
@@ -31,90 +31,105 @@ class _Group:
     trajectories: list = field(default_factory=list)
 
 
+@dataclass
+class _Task:
+    instruction: str = ""
+
+
 def _group(rewards, texts=None):
     texts = texts or [f"answer {i}" for i in range(len(rewards))]
-    return _Group([_Traj(turns=[_Turn(completion_tokens=[2, 3], text=t)], reward=r)
-                   for r, t in zip(rewards, texts)])
+    return _Group([_Traj(turns=[_Turn(completion_tokens=[2, 3], logprobs=[-0.1, -0.2], text=t)],
+                         reward=r) for r, t in zip(rewards, texts)])
 
 
-def test_creates_two_track_layout(tmp_path):
-    RunLog(tmp_path / "run", experiment_name="exp", run_name="armA")
-    assert (tmp_path / "run" / "human").is_dir()
-    assert (tmp_path / "run" / "agent").is_dir()
-    for sub in ("01_data", "02_rollouts", "03_target_tokens", "04_training", "05_benchmark"):
-        assert (tmp_path / "run" / "human" / sub).is_dir()
-
-
-def test_harbor_dir_lives_under_agent(tmp_path):
+def test_harbor_dir_is_referenced_not_a_numbered_folder(tmp_path):
     rl = RunLog(tmp_path / "run")
     d = rl.harbor_dir("train")
-    assert d == tmp_path / "run" / "agent" / "harbor" / "train"
+    assert d == tmp_path / "run" / "harbor" / "train"
     assert d.is_dir()
 
 
-def test_log_data_writes_meta_and_capped_preview(tmp_path):
+def test_log_data_after_transform(tmp_path):
     rl = RunLog(tmp_path / "run")
     rows = [{"q": f"row{i}"} for i in range(20)]
-    rl.log_data(rows, dataset_meta={"name": "ds", "version": 2, "format": "chat_messages"},
-                n_preview=5)
-    md = (tmp_path / "run" / "human" / "01_data" / "datasets.md").read_text()
-    assert "rows: **20**" in md and "`ds`" in md and "chat_messages" in md
-    sample = (tmp_path / "run" / "human" / "01_data" / "sample.jsonl").read_text().splitlines()
-    assert len(sample) == 5
-    assert json.loads(sample[0])["q"] == "row0"
+    rl.log_data(rows, dataset_meta={"name": "ds", "format": "chat_messages"}, n_preview=5)
+    md = (tmp_path / "run" / "01_data" / "data.md").read_text()
+    assert "rows: **20**" in md and "chat_messages" in md
+    sample = (tmp_path / "run" / "01_data" / "after_transform.jsonl").read_text().splitlines()
+    assert len(sample) == 5 and json.loads(sample[0])["q"] == "row0"
 
 
-def test_note_rollouts_curates_and_references_harbor_no_copy(tmp_path):
+def test_log_chat_templates_text_not_ids(tmp_path):
     rl = RunLog(tmp_path / "run")
-    groups = [_group([0.0, 0.5, 1.0], texts=["bad", "ok", "great"])]
-    rl.note_rollouts("train", groups, step=0)
-    md = (tmp_path / "run" / "human" / "02_rollouts" / "rollouts.md").read_text()
-    assert "reward mean" in md
-    assert "great" in md and "bad" in md
-    assert "agent/harbor/train/" in md
-    # No rollout dump file written by us in the human track (harbor owns the dump).
-    assert not (tmp_path / "run" / "human" / "02_rollouts" / "rollouts.jsonl").exists()
+    rl.log_chat_templates(["<|im_start|>user\nhi<|im_end|>"], n=1)
+    md = (tmp_path / "run" / "01_data" / "chat_template.md").read_text()
+    assert "<|im_start|>" in md
 
 
-def test_note_rollouts_appends_across_steps(tmp_path):
+def test_training_rollouts_reward_advantage_and_per_token(tmp_path):
     rl = RunLog(tmp_path / "run")
-    rl.note_rollouts("train", [_group([1.0])], step=0)
-    rl.note_rollouts("train", [_group([0.0])], step=1)
-    md = (tmp_path / "run" / "human" / "02_rollouts" / "rollouts.md").read_text()
-    assert "step 0" in md and "step 1" in md
-    assert md.count("# Rollouts") == 1  # header written once
+    groups = [_group([0.0, 1.0], texts=["bad", "great"])]
+    advantages = [[-0.5, 0.5]]
+    rl.log_training_rollouts(0, groups, advantages=advantages, tasks=[_Task("solve x")])
+    md = (tmp_path / "run" / "02_training_rollouts" / "step_0.md").read_text()
+    assert "reward 1.000" in md and "advantage 0.500" in md
+    assert "great" in md and "solve x" in md
+    assert "per-token logprobs" in md and "logprob" in md  # loss-per-token signal
 
 
-def test_render_training_whitelists_metrics(tmp_path):
+def test_validation_rollouts(tmp_path):
+    rl = RunLog(tmp_path / "run")
+    rl.log_validation_rollouts("bench1", [_group([1.0])], tasks=[_Task("q")])
+    md = (tmp_path / "run" / "03_validation_rollouts" / "bench1.md").read_text()
+    assert "reward 1.000" in md
+
+
+def test_render_metrics_splits_train_and_val(tmp_path):
     rl = RunLog(tmp_path / "run")
     logs = tmp_path / "run" / "logs"
     logs.mkdir(parents=True)
     with (logs / "metrics.jsonl").open("w") as f:
-        f.write(json.dumps({"step": 0, "metrics": {"loss": 2.0, "internal_buf": 999, "optim/lr": 1e-4}}) + "\n")
-        f.write(json.dumps({"step": 1, "metrics": {"loss": 1.0, "internal_buf": 999, "optim/lr": 1e-4}}) + "\n")
-    rl.render_training(checkpoints=[{"step": 1, "label": "final", "is_final": True}])
-    csv_text = (tmp_path / "run" / "human" / "04_training" / "metrics.csv").read_text()
-    assert "loss" in csv_text and "lr" in csv_text
-    assert "internal_buf" not in csv_text
-    ck = (tmp_path / "run" / "human" / "04_training" / "checkpoints.md").read_text()
-    assert "final" in ck
+        f.write(json.dumps({"step": 0, "metrics": {"train/loss": 2.0, "optim/lr": 1e-4, "noise": 9}}) + "\n")
+        f.write(json.dumps({"step": 1, "metrics": {"train/loss": 1.0, "val/bench/pass_rate": 0.5}}) + "\n")
+    rl.render_metrics()
+    train_csv = (tmp_path / "run" / "04_training_metrics" / "metrics.csv").read_text()
+    assert "train/loss" in train_csv and "lr" in train_csv and "noise" not in train_csv
+    val_csv = (tmp_path / "run" / "05_validation_metrics" / "metrics.csv").read_text()
+    assert "val/bench/pass_rate" in val_csv
 
 
-def test_log_eval_and_summary(tmp_path):
+def test_validation_metrics_block_and_summary(tmp_path):
     rl = RunLog(tmp_path / "run", experiment_name="exp", run_name="armA", hypothesis="h")
-    rl.log_eval("bench1", {"pass_rate": 0.75, "n_tasks": 4.0},
-                predictions=[{"task_id": "t1", "reward": 0.0, "instruction": "do x", "expected": "y"},
-                             {"task_id": "t2", "reward": 1.0, "instruction": "do z", "expected": "w"}],
-                breakdowns={"difficulty": {"easy": {"mean_reward": 1.0}, "hard": {"mean_reward": 0.0}}})
-    rl.write_summary(status="completed", best_metric="pass_rate", best_value=0.75,
-                     conclusion="it worked")
-    results = (tmp_path / "run" / "human" / "05_benchmark" / "results.md").read_text()
-    assert "bench1" in results and "pass_rate" in results and "difficulty" in results
-    preds = (tmp_path / "run" / "human" / "05_benchmark" / "predictions.md").read_text()
-    assert "t1" in preds
-    summary = (tmp_path / "run" / "human" / "summary.md").read_text()
-    assert "h" in summary and "completed" in summary and "it worked" in summary
-    assert "bench1" in summary
+    rl.log_validation_metrics("bench1", {"pass_rate": 0.75, "n_tasks": 4.0}, step=10)
+    rl.write_summary(status="completed", conclusion="it worked")
+    vm = (tmp_path / "run" / "05_validation_metrics" / "metrics.md").read_text()
+    assert "bench1" in vm and "pass_rate" in vm and "step 10" in vm
+    summary = (tmp_path / "run" / "summary.md").read_text()
+    assert "h" in summary and "completed" in summary and "it worked" in summary and "bench1" in summary
+
+
+def test_user_named_folder_api(tmp_path):
+    rl = RunLog(tmp_path / "run")
+    rl.note("my_transform", "dropped 3 rows missing tool_slug", title="cleanup")
+    rl.record("my_transform", {"dropped": 3})
+    d = rl.dir("scratch")
+    (d / "x.txt").write_text("hi")
+    notes = (tmp_path / "run" / "my_transform" / "notes.md").read_text()
+    assert "dropped 3 rows" in notes and "cleanup" in notes
+    rec = (tmp_path / "run" / "my_transform" / "records.jsonl").read_text()
+    assert json.loads(rec)["dropped"] == 3
+    assert (tmp_path / "run" / "scratch" / "x.txt").read_text() == "hi"
+
+
+def test_get_run_log_contextvar(tmp_path):
+    assert get_run_log() is None
+    rl = RunLog(tmp_path / "run")
+    token = _CURRENT.set(rl)
+    try:
+        assert get_run_log() is rl
+    finally:
+        _CURRENT.reset(token)
+    assert get_run_log() is None
 
 
 def test_decodes_via_tokenizer_when_no_text(tmp_path):
@@ -123,16 +138,18 @@ def test_decodes_via_tokenizer_when_no_text(tmp_path):
             return "DECODED:" + ",".join(str(i) for i in ids)
 
     rl = RunLog(tmp_path / "run")
-    g = _Group([_Traj(turns=[_Turn(completion_tokens=[7, 8])], reward=1.0)])
-    rl.note_rollouts("eval", [g], tokenizer=FakeTok())
-    md = (tmp_path / "run" / "human" / "02_rollouts" / "rollouts.md").read_text()
+    g = _Group([_Traj(turns=[_Turn(completion_tokens=[7, 8], logprobs=[-0.1, -0.2])], reward=1.0)])
+    rl.log_training_rollouts(0, [g], tokenizer=FakeTok())
+    md = (tmp_path / "run" / "02_training_rollouts" / "step_0.md").read_text()
     assert "DECODED:7,8" in md
 
 
 def test_logging_never_raises_on_bad_input(tmp_path):
     rl = RunLog(tmp_path / "run")
-    rl.note_rollouts("train", [])
+    rl.log_training_rollouts(0, [])
+    rl.log_validation_rollouts("x", [])
     rl.log_data([])
-    rl.render_training()
-    rl.log_target_tokens([])
+    rl.log_chat_templates([])
+    rl.render_metrics()
+    rl.log_validation_metrics("b", {})
     rl.write_summary()

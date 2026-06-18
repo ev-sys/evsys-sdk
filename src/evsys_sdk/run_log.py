@@ -1,36 +1,39 @@
-"""RunLog — per-run, two-track local logging (human + agent).
+"""RunLog — one clean, human-readable log per run, organized into folders.
 
-One run writes two surfaces under its run dir:
+There is a single log (no separate "agent" dump). The SDK writes a fixed set of
+ordered folders under each run dir, and **user code** (custom ``transforms``,
+custom ``build_batch`` / algorithms, callbacks) can grab the same logger and
+write into its own named folder.
 
-* ``human/`` — clean, decoded-to-text, only the critical milestones and a few
-  representative samples per phase. A researcher opens ``human/summary.md`` and
-  sees how the run is going.
-* ``agent/`` — dense, machine-shaped. For rollouts this is **not a copy**: harbor
-  already persists every trial's ``result.json`` (token ids, reward, usage) under
-  its ``jobs_dir``, so we simply route harbor's ``jobs_dir`` *into* ``agent/harbor/``
-  and reference it. The human view is rendered from the already-harvested
-  in-memory :class:`~evsys_sdk.training.trajectory.TrajectoryGroup`\\s, so nothing
-  harbor stores is duplicated.
-
-Layout::
+SDK default folders (only the essentials, decoded to text — never token ids)::
 
     {run_dir}/
-      human/
-        summary.md
-        01_data/            datasets.md, sample.jsonl
-        02_rollouts/        rollouts.md            # curated; points at agent/harbor
-        03_target_tokens/   supervised_examples.md
-        04_training/        metrics.csv, checkpoints.md
-        05_benchmark/       results.md, predictions.md
-      agent/
-        harbor/{phase}/     # harbor's own jobs_dir (rollout store) — referenced, not copied
+      01_data/              data after transforms + the exact chat template going in
+      02_training_rollouts/ training rollout predictions + per-token logprobs +
+                            reward & advantage per sample per trajectory group
+      03_validation_rollouts/ validation rollout predictions
+      04_training_metrics/  training metrics (metrics.csv)
+      05_validation_metrics/ validation metrics, one block per eval
+      summary.md
+      <your-folder>/        anything user code logs via run_log.note()/record()/dir()
 
-The module is harbor-free and dependency-light: a ``tokenizer`` is duck-typed
-(``.decode(ids)``) and optional, so every renderer degrades gracefully.
+Accessing the logger from user code:
+
+* in a custom algorithm / ``build_batch``: ``ctx.extras["run_log"]``
+* in a ``Callback``: ``state.run_log``
+* anywhere during a run (e.g. inside a ``transforms`` ``__call__``)::
+
+      from evsys_sdk import get_run_log
+      log = get_run_log()
+      if log:
+          log.note("my_transform", f"dropped {n} rows missing a tool_slug")
+
+All writes are best-effort and never raise into training.
 """
 
 from __future__ import annotations
 
+import contextvars
 import csv
 import io
 import json
@@ -45,22 +48,45 @@ if TYPE_CHECKING:  # avoid importing the (tinker-heavy) training package at runt
 
 log = get_logger(__name__)
 
-# Per-step training scalars a human cares about (substring match, case-insensitive).
+# SDK default folders, numbered for reading order.
+DATA = "01_data"
+TRAIN_ROLLOUTS = "02_training_rollouts"
+VAL_ROLLOUTS = "03_validation_rollouts"
+TRAIN_METRICS = "04_training_metrics"
+VAL_METRICS = "05_validation_metrics"
+
+# Training scalars worth showing a human (substring match, case-insensitive).
 _METRIC_WHITELIST = (
     "loss", "nll", "reward/mean", "reward_mean", "lr", "learning_rate",
-    "accuracy", "pass_rate", "kl",
+    "accuracy", "pass_rate", "kl", "advantage",
 )
 _PREVIEW_ROWS = 5
-_ROLLOUT_SAMPLES = 3
-_SNIPPET_CHARS = 600
+_SNIPPET_CHARS = 800
+_MAX_TOKENS_SHOWN = 80
+
+# Active RunLog for the current run, so user code (transforms, etc.) can reach it.
+_CURRENT: contextvars.ContextVar = contextvars.ContextVar("evsys_run_log", default=None)
 
 
-def _safe(name: str) -> str:
-    return "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(name))
+def get_run_log() -> "RunLog | None":
+    """Return the RunLog for the run currently executing, or ``None`` outside a run.
+
+    Lets user-written ``transforms`` / helpers log into the same per-run log::
+
+        from evsys_sdk import get_run_log
+        log = get_run_log()
+        if log:
+            log.note("my_transform", "...")
+    """
+    return _CURRENT.get()
+
+
+def _clip(s: str, n: int = _SNIPPET_CHARS) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= n else s[:n].rstrip() + " …"
 
 
 def _decode(turn: Any, tokenizer: Any) -> str:
-    """Best-effort decoded text for one turn's completion."""
     text = getattr(turn, "text", "") or ""
     if text:
         return text
@@ -73,21 +99,18 @@ def _decode(turn: Any, tokenizer: Any) -> str:
     return f"<{len(ids)} completion tokens>"
 
 
-def _completion_text(traj: Any, tokenizer: Any) -> str:
-    turns = getattr(traj, "turns", None) or []
-    if not turns:
-        return "<no turns>"
-    return _decode(turns[-1], tokenizer)
-
-
-def _clip(s: str, n: int = _SNIPPET_CHARS) -> str:
-    s = s.strip()
-    return s if len(s) <= n else s[:n].rstrip() + " …"
+def _decode_token(tokenizer: Any, tid: int) -> str:
+    if tokenizer is not None:
+        try:
+            return repr(str(tokenizer.decode([tid])))
+        except Exception:  # pragma: no cover - defensive
+            pass
+    return str(tid)
 
 
 class RunLog:
-    """Two-track logger for one run. All writes are best-effort and never raise
-    into the training loop (a logging failure must not fail a run)."""
+    """One human-readable log for a single run. Methods are best-effort: a
+    logging failure is swallowed (it must never fail a training run)."""
 
     def __init__(
         self,
@@ -98,30 +121,51 @@ class RunLog:
         hypothesis: str | None = None,
     ) -> None:
         self.root = Path(run_dir).expanduser()
-        self.human = self.root / "human"
-        self.agent = self.root / "agent"
+        self.root.mkdir(parents=True, exist_ok=True)
         self._meta = {
             "experiment_name": experiment_name,
             "run_name": run_name,
             "hypothesis": hypothesis,
         }
         self._evals: list[dict[str, Any]] = []
-        for d in (self.human, self.agent):
-            d.mkdir(parents=True, exist_ok=True)
-        for sub in ("01_data", "02_rollouts", "03_target_tokens", "04_training", "05_benchmark"):
-            (self.human / sub).mkdir(exist_ok=True)
 
-    # -- harbor: route its jobs_dir here; reference, don't copy ---------------
+    # -- harbor: its own jobs dir (full rollout store) — referenced, not copied --
 
     def harbor_dir(self, phase: str) -> Path:
         """Directory a caller passes as ``run_harbor_rollouts(workspace_dir=...)``.
-
-        Harbor writes its task dirs + ``jobs/`` (the full rollout store) under
-        here, so the dense rollout data lives in the agent track natively — no
-        second copy. ``phase`` separates train / val / eval / sdft rollouts."""
-        d = self.agent / "harbor" / _safe(phase)
+        Harbor writes its full per-trial ``result.json`` store here; the clean
+        decoded view goes in ``02_training_rollouts`` / ``03_validation_rollouts``,
+        so we never copy harbor's data — this is the reference for full detail."""
+        d = self.root / "harbor" / _safe(phase)
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    # -- generic API for user code (custom transforms / build_batch / callbacks) --
+
+    def dir(self, name: str) -> Path:
+        """Create and return a named folder under the run log. Use this to write
+        whatever custom files your transform / algorithm wants."""
+        d = self.root / _safe(name)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def note(self, folder: str, text: str, *, title: str | None = None) -> None:
+        """Append a markdown note to ``{folder}/notes.md``."""
+        try:
+            path = self.dir(folder) / "notes.md"
+            block = (f"### {title}\n\n" if title else "") + text.rstrip() + "\n\n"
+            with path.open("a") as f:
+                f.write(block)
+        except Exception:  # pragma: no cover - defensive
+            log.debug("run_log.note failed", exc_info=True)
+
+    def record(self, folder: str, row: dict[str, Any], *, filename: str = "records.jsonl") -> None:
+        """Append one JSON row to ``{folder}/{filename}``."""
+        try:
+            with (self.dir(folder) / filename).open("a") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+        except Exception:  # pragma: no cover - defensive
+            log.debug("run_log.record failed", exc_info=True)
 
     # -- 01_data -------------------------------------------------------------
 
@@ -133,160 +177,150 @@ class RunLog:
         transforms: Sequence[Any] | None = None,
         n_preview: int = _PREVIEW_ROWS,
     ) -> None:
+        """Record the data *after transforms* — the meta + a small readable
+        preview of the rows the algorithm actually receives."""
         try:
-            self._log_data(rows, dataset_meta, transforms, n_preview)
+            d = self.dir(DATA)
+            meta = dataset_meta or {}
+            lines = ["# Data going in (after transforms)", "", f"- rows: **{len(rows)}**"]
+            for key in ("name", "version", "format", "source_kind"):
+                if meta.get(key) is not None:
+                    lines.append(f"- {key}: `{meta[key]}`")
+            names = [getattr(t, "kind", None) or getattr(t, "name", None) or str(t)
+                     for t in (transforms or [])]
+            if names:
+                lines.append(f"- transforms (in order): {', '.join(f'`{n}`' for n in names)}")
+            lines.append("")
+            lines.append(f"First {min(n_preview, len(rows))} rows → `after_transform.jsonl`.")
+            (d / "data.md").write_text("\n".join(lines) + "\n")
+            with (d / "after_transform.jsonl").open("w") as f:
+                for row in list(rows)[:n_preview]:
+                    f.write(json.dumps(row, default=str) + "\n")
         except Exception:  # pragma: no cover - defensive
             log.debug("run_log.log_data failed", exc_info=True)
 
-    def _log_data(self, rows, dataset_meta, transforms, n_preview) -> None:
-        d = self.human / "01_data"
-        meta = dataset_meta or {}
-        lines = ["# Data going in", ""]
-        lines.append(f"- rows: **{len(rows)}**")
-        for key in ("name", "version", "format", "source_kind"):
-            if meta.get(key) is not None:
-                lines.append(f"- {key}: `{meta[key]}`")
-        tfs = list(transforms or [])
-        if tfs:
-            names = [getattr(t, "kind", None) or getattr(t, "name", None) or str(t) for t in tfs]
-            lines.append(f"- transforms (in order): {', '.join(f'`{n}`' for n in names)}")
-        lines.append("")
-        lines.append(f"First {min(n_preview, len(rows))} rendered rows → `sample.jsonl`.")
-        (d / "datasets.md").write_text("\n".join(lines) + "\n")
-        with (d / "sample.jsonl").open("w") as f:
-            for row in list(rows)[:n_preview]:
-                f.write(json.dumps(row, default=str) + "\n")
-
-    # -- 02_rollouts (curated view; full data lives in agent/harbor) ----------
-
-    def note_rollouts(
-        self,
-        phase: str,
-        groups: Sequence[TrajectoryGroup],
-        *,
-        tokenizer: Any = None,
-        step: int | None = None,
-        tasks: Sequence[Any] | None = None,
-        k: int = _ROLLOUT_SAMPLES,
+    def log_chat_templates(
+        self, rendered: Sequence[str], *, n: int = 3, label: str = "train"
     ) -> None:
-        """Append a curated section to ``human/02_rollouts/rollouts.md``: the
-        reward distribution + the best / median / worst decoded completions.
-
-        The full per-trial rollouts (token ids, every sample) are harbor's own
-        ``result.json`` files under ``agent/harbor/{phase}`` — referenced here,
-        never copied."""
+        """Record the **exact chat template text** (not token ids) the model
+        sees for the first ``n`` examples."""
         try:
-            self._note_rollouts(phase, groups, tokenizer, step, tasks, k)
-        except Exception:  # pragma: no cover - defensive
-            log.debug("run_log.note_rollouts failed", exc_info=True)
-
-    def _note_rollouts(self, phase, groups, tokenizer, step, tasks, k) -> None:
-        # Flatten to (group_idx, trajectory) and collect rewards.
-        flat: list[tuple[int, Any]] = [
-            (gi, t) for gi, g in enumerate(groups) for t in getattr(g, "trajectories", [])
-        ]
-        rewards = [float(getattr(t, "reward", 0.0)) for _, t in flat]
-        header = f"## {phase}" + (f" — step {step}" if step is not None else "")
-        out = [header, ""]
-        if rewards:
-            out.append(
-                f"- rollouts: **{len(rewards)}** across {len(groups)} task(s) · "
-                f"reward mean **{statistics.fmean(rewards):.3f}** "
-                f"(min {min(rewards):.3f}, max {max(rewards):.3f})"
-            )
-        else:
-            out.append(f"- rollouts: 0 across {len(groups)} task(s)")
-        out.append(f"- full rollouts (token ids, all samples): `agent/harbor/{_safe(phase)}/`")
-        out.append("")
-
-        # Pick best / median / worst by reward (deduped for tiny sets).
-        if flat:
-            order = sorted(range(len(flat)), key=lambda i: rewards[i])
-            picks: list[tuple[str, int]] = []
-            for label, idx in (("worst", order[0]), ("median", order[len(order) // 2]),
-                               ("best", order[-1])):
-                if idx not in [p for _, p in picks]:
-                    picks.append((label, idx))
-            for label, idx in picks[:k]:
-                gi, traj = flat[idx]
-                out.append(f"**{label}** · reward {rewards[idx]:.3f}")
-                if tasks is not None and gi < len(tasks):
-                    instr = getattr(tasks[gi], "instruction", None)
-                    if instr:
-                        out.append(f"> task: {_clip(str(instr), 200)}")
+            d = self.dir(DATA)
+            out = [f"# Chat template going in ({label})", "",
+                   "Exact rendered prompt(s) the model sees (decoded text, not token ids).", ""]
+            for i, text in enumerate(list(rendered)[:n]):
+                out.append(f"### example {i}")
                 out.append("```")
-                out.append(_clip(_completion_text(traj, tokenizer)))
+                out.append(_clip(str(text)))
                 out.append("```")
                 out.append("")
-
-        path = self.human / "02_rollouts" / "rollouts.md"
-        prefix = "" if path.exists() else "# Rollouts\n\n"
-        with path.open("a") as f:
-            f.write(prefix + "\n".join(out) + "\n")
-
-    # -- 03_target_tokens ----------------------------------------------------
-
-    def log_target_tokens(self, examples: Sequence[dict[str, Any]]) -> None:
-        """Record a few supervised-span examples (the tokens loss is computed on).
-
-        Each example: ``{"text": str, "supervised": str, "n_supervised": int,
-        "n_total": int, "topk"?: list}``. Caller decides how to render the mask;
-        we keep it to a handful for the human view."""
-        try:
-            self._log_target_tokens(examples)
+            (d / "chat_template.md").write_text("\n".join(out) + "\n")
         except Exception:  # pragma: no cover - defensive
-            log.debug("run_log.log_target_tokens failed", exc_info=True)
+            log.debug("run_log.log_chat_templates failed", exc_info=True)
 
-    def _log_target_tokens(self, examples) -> None:
-        out = ["# Loss / supervised (target) tokens", "",
-               "The spans below are where loss is computed (what the model is "
-               "trained to produce).", ""]
-        for i, ex in enumerate(list(examples)[:_PREVIEW_ROWS]):
-            n_sup, n_tot = ex.get("n_supervised"), ex.get("n_total")
-            counts = f" — supervised {n_sup}/{n_tot} tokens" if n_sup is not None else ""
-            out.append(f"### example {i}{counts}")
-            if ex.get("text"):
-                out.append("context:")
-                out.append("```")
-                out.append(_clip(str(ex["text"])))
-                out.append("```")
-            if ex.get("supervised"):
-                out.append("supervised span:")
-                out.append("```")
-                out.append(_clip(str(ex["supervised"])))
-                out.append("```")
-            if ex.get("topk"):
-                out.append(f"teacher top-K (first positions): `{ex['topk']}`")
+    # -- 02_training_rollouts ------------------------------------------------
+
+    def log_training_rollouts(
+        self,
+        step: int,
+        groups: "Sequence[TrajectoryGroup]",
+        *,
+        advantages: Sequence[Sequence[float]] | None = None,
+        tokenizer: Any = None,
+        tasks: Sequence[Any] | None = None,
+        k_groups: int = 2,
+        max_tokens: int = _MAX_TOKENS_SHOWN,
+    ) -> None:
+        """Record training rollouts for ``step``: the predicted text, per-token
+        logprobs, and the reward & advantage per sample per trajectory group."""
+        try:
+            self._log_rollouts(TRAIN_ROLLOUTS, f"step_{step}", groups, advantages,
+                               tokenizer, tasks, k_groups, max_tokens)
+        except Exception:  # pragma: no cover - defensive
+            log.debug("run_log.log_training_rollouts failed", exc_info=True)
+
+    # -- 03_validation_rollouts ----------------------------------------------
+
+    def log_validation_rollouts(
+        self,
+        label: str,
+        groups: "Sequence[TrajectoryGroup]",
+        *,
+        tokenizer: Any = None,
+        tasks: Sequence[Any] | None = None,
+        k_groups: int = 3,
+        max_tokens: int = _MAX_TOKENS_SHOWN,
+    ) -> None:
+        """Record validation rollout predictions for one eval (``label`` e.g.
+        the benchmark name or ``step_N``)."""
+        try:
+            self._log_rollouts(VAL_ROLLOUTS, _safe(label), groups, None,
+                               tokenizer, tasks, k_groups, max_tokens)
+        except Exception:  # pragma: no cover - defensive
+            log.debug("run_log.log_validation_rollouts failed", exc_info=True)
+
+    def _log_rollouts(self, folder, fname, groups, advantages, tokenizer, tasks,
+                      k_groups, max_tokens) -> None:
+        d = self.dir(folder)
+        all_rewards = [float(getattr(t, "reward", 0.0))
+                       for g in groups for t in getattr(g, "trajectories", [])]
+        out = [f"# {fname}", ""]
+        if all_rewards:
+            out.append(
+                f"- rollouts: **{len(all_rewards)}** over {len(groups)} task(s) · "
+                f"reward mean **{statistics.fmean(all_rewards):.3f}** "
+                f"(min {min(all_rewards):.3f}, max {max(all_rewards):.3f})"
+            )
+        out.append("")
+        for gi, g in enumerate(list(groups)[:k_groups]):
+            trajs = list(getattr(g, "trajectories", []))
+            if not trajs:
+                continue
+            out.append(f"## trajectory group {gi}")
+            if tasks is not None and gi < len(tasks):
+                instr = getattr(tasks[gi], "instruction", None)
+                if instr:
+                    out.append(f"> task: {_clip(str(instr), 300)}")
             out.append("")
-        (self.human / "03_target_tokens" / "supervised_examples.md").write_text(
-            "\n".join(out) + "\n"
-        )
+            adv_g = list(advantages[gi]) if advantages and gi < len(advantages) else None
+            for si, traj in enumerate(trajs):
+                reward = float(getattr(traj, "reward", 0.0))
+                adv = adv_g[si] if adv_g and si < len(adv_g) else None
+                head = f"**sample {si}** · reward {reward:.3f}"
+                if adv is not None:
+                    head += f" · advantage {adv:.3f}"
+                out.append(head)
+                turns = list(getattr(traj, "turns", []))
+                last = turns[-1] if turns else None
+                out.append("prediction:")
+                out.append("```")
+                out.append(_clip(_decode(last, tokenizer)) if last else "<no turns>")
+                out.append("```")
+                # Per-token logprobs (loss signal), bounded.
+                if last is not None:
+                    toks = list(getattr(last, "completion_tokens", None) or [])
+                    lps = list(getattr(last, "logprobs", None) or [])
+                    if toks and lps:
+                        out.append("per-token logprobs (first %d):" % min(max_tokens, len(toks)))
+                        out.append("| i | token | logprob |")
+                        out.append("| - | --- | --- |")
+                        for i in range(min(max_tokens, len(toks), len(lps))):
+                            out.append(f"| {i} | {_decode_token(tokenizer, toks[i])} | {lps[i]:.4f} |")
+                out.append("")
+        path = d / f"{fname}.md"
+        path.write_text("\n".join(out) + "\n")
 
-    # -- 04_training ---------------------------------------------------------
+    # -- 04 / 05 metrics -----------------------------------------------------
 
-    def render_training(self, *, checkpoints: Sequence[dict[str, Any]] | None = None) -> None:
-        """Render ``metrics.csv`` (whitelisted scalars) from the run's
-        ``metrics.jsonl`` and a ``checkpoints.md`` list."""
+    def render_metrics(self) -> None:
+        """Split the run's ``metrics.jsonl`` into training vs validation CSVs
+        (``val/*`` keys → validation). Validation rows accumulate across evals."""
         try:
-            self._render_training(checkpoints)
-        except Exception:  # pragma: no cover - defensive
-            log.debug("run_log.render_training failed", exc_info=True)
-
-    def _find_metrics_jsonl(self) -> Path | None:
-        for cand in (
-            self.root / "logs" / "metrics.jsonl",
-            self.root / "logs" / "jsonl" / "metrics.jsonl",
-        ):
-            if cand.exists():
-                return cand
-        hits = list(self.root.glob("logs/**/metrics.jsonl"))
-        return hits[0] if hits else None
-
-    def _render_training(self, checkpoints) -> None:
-        path = self._find_metrics_jsonl()
-        if path is not None:
-            rows = []
-            keys: list[str] = []
+            path = self._find_metrics_jsonl()
+            if path is None:
+                return
+            train_rows, val_rows = [], []
+            train_keys, val_keys = [], []
             for line in path.read_text().splitlines():
                 line = line.strip()
                 if not line:
@@ -296,134 +330,98 @@ class RunLog:
                 except json.JSONDecodeError:
                     continue
                 metrics = rec.get("metrics", rec)
-                kept = {
-                    k: v for k, v in metrics.items()
-                    if isinstance(v, (int, float))
-                    and any(w in k.lower() for w in _METRIC_WHITELIST)
-                }
-                if not kept:
-                    continue
-                row = {"step": rec.get("step")}
-                row.update(kept)
-                rows.append(row)
-                for k in row:
-                    if k not in keys:
-                        keys.append(k)
-            if rows:
-                buf = io.StringIO()
-                w = csv.DictWriter(buf, fieldnames=keys)
-                w.writeheader()
-                w.writerows(rows)
-                (self.human / "04_training" / "metrics.csv").write_text(buf.getvalue())
-        if checkpoints:
-            lines = ["# Checkpoints", ""]
-            for c in checkpoints:
-                tag = " (final)" if c.get("is_final") else ""
-                lines.append(f"- step {c.get('step', '?')} · `{c.get('label') or c.get('uri')}`{tag}")
-            (self.human / "04_training" / "checkpoints.md").write_text("\n".join(lines) + "\n")
-
-    # -- 05_benchmark --------------------------------------------------------
-
-    def log_eval(
-        self,
-        name: str,
-        metrics: dict[str, float],
-        *,
-        predictions: Sequence[dict[str, Any]] | None = None,
-        breakdowns: dict[str, Any] | None = None,
-    ) -> None:
-        """Render a benchmark's metrics table + a failure-biased sample of
-        predictions, and remember the headline for ``summary.md``."""
-        try:
-            self._log_eval(name, metrics, predictions, breakdowns)
+                step = rec.get("step")
+                tr, vl = {}, {}
+                for k, v in metrics.items():
+                    if not isinstance(v, (int, float)):
+                        continue
+                    kl = k.lower()
+                    if kl.startswith("val") or "/val" in kl:
+                        vl[k] = v
+                    elif any(w in kl for w in _METRIC_WHITELIST):
+                        tr[k] = v
+                if tr:
+                    train_rows.append({"step": step, **tr})
+                    train_keys += [k for k in tr if k not in train_keys]
+                if vl:
+                    val_rows.append({"step": step, **vl})
+                    val_keys += [k for k in vl if k not in val_keys]
+            if train_rows:
+                self._write_csv(self.dir(TRAIN_METRICS) / "metrics.csv",
+                               ["step", *train_keys], train_rows)
+            if val_rows:
+                self._write_csv(self.dir(VAL_METRICS) / "metrics.csv",
+                               ["step", *val_keys], val_rows)
         except Exception:  # pragma: no cover - defensive
-            log.debug("run_log.log_eval failed", exc_info=True)
+            log.debug("run_log.render_metrics failed", exc_info=True)
 
-    def _log_eval(self, name, metrics, predictions, breakdowns) -> None:
-        self._evals.append({"name": name, "metrics": dict(metrics)})
-        d = self.human / "05_benchmark"
-        # results.md (append per benchmark).
-        res = [f"## {name}", "", "| metric | value |", "| --- | --- |"]
-        for k, v in metrics.items():
-            res.append(f"| {k} | {v:.4f} |" if isinstance(v, float) else f"| {k} | {v} |")
-        res.append("")
-        for field, buckets in (breakdowns or {}).items():
-            if not isinstance(buckets, dict):
-                continue
-            res.append(f"by `{field}`:")
-            for value, stats in buckets.items():
-                mr = stats.get("mean_reward") if isinstance(stats, dict) else stats
-                res.append(f"- {value}: {mr}")
-            res.append("")
-        rp = d / "results.md"
-        with rp.open("a") as f:
-            f.write(("" if rp.exists() else "# Benchmark results\n\n") + "\n".join(res) + "\n")
-        # predictions.md — failures first, then a couple passes.
-        if predictions:
-            preds = sorted(predictions, key=lambda p: float(p.get("reward") or 0.0))
-            sample = preds[:3] + [p for p in preds if float(p.get("reward") or 0.0) > 0][:2]
-            pl = [f"## {name} — sample predictions", ""]
-            seen = set()
-            for p in sample:
-                key = (p.get("task_id"), p.get("sample_idx"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                pl.append(f"**task `{p.get('task_id')}`** · reward {float(p.get('reward') or 0.0):.3f}")
-                if p.get("instruction"):
-                    pl.append(f"> {_clip(str(p['instruction']), 200)}")
-                if p.get("expected") is not None:
-                    pl.append(f"- expected: `{_clip(str(p['expected']), 200)}`")
-                pl.append("")
-            pp = d / "predictions.md"
-            with pp.open("a") as f:
-                f.write(("" if pp.exists() else "# Sample predictions\n\n") + "\n".join(pl) + "\n")
+    def log_validation_metrics(self, name: str, metrics: dict[str, float], *,
+                               step: int | None = None) -> None:
+        """Append one benchmark's validation metrics block (one per eval, so
+        repeated evals each leave a record)."""
+        try:
+            self._evals.append({"name": name, "metrics": dict(metrics)})
+            head = f"## {name}" + (f" @ step {step}" if step is not None else "")
+            out = [head, "", "| metric | value |", "| --- | --- |"]
+            for k, v in metrics.items():
+                out.append(f"| {k} | {v:.4f} |" if isinstance(v, float) else f"| {k} | {v} |")
+            out.append("")
+            path = self.dir(VAL_METRICS) / "metrics.md"
+            with path.open("a") as f:
+                f.write(("" if path.exists() else "# Validation metrics\n\n") + "\n".join(out) + "\n")
+        except Exception:  # pragma: no cover - defensive
+            log.debug("run_log.log_validation_metrics failed", exc_info=True)
 
     # -- summary -------------------------------------------------------------
 
-    def write_summary(
-        self,
-        *,
-        status: str | None = None,
-        best_metric: str | None = None,
-        best_value: float | None = None,
-        conclusion: str | None = None,
-    ) -> None:
+    def write_summary(self, *, status: str | None = None, best_metric: str | None = None,
+                      best_value: float | None = None, conclusion: str | None = None) -> None:
         try:
-            self._write_summary(status, best_metric, best_value, conclusion)
+            m = self._meta
+            out = [f"# {m.get('experiment_name') or 'experiment'} — run `{m.get('run_name') or ''}`", ""]
+            if m.get("hypothesis"):
+                out += [f"**Hypothesis:** {m['hypothesis']}", ""]
+            if status:
+                out.append(f"- status: **{status}**")
+            if best_metric and best_value is not None:
+                out.append(f"- {best_metric}: **{best_value:.4f}**")
+            out.append("")
+            if self._evals:
+                out += ["## Validation", ""]
+                for ev in self._evals:
+                    head = ", ".join(
+                        f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
+                        for k, v in list(ev["metrics"].items())[:4]
+                    )
+                    out.append(f"- **{ev['name']}** — {head}")
+                out.append("")
+            if conclusion:
+                out += ["## Conclusion", "", conclusion, ""]
+            (self.root / "summary.md").write_text("\n".join(out) + "\n")
         except Exception:  # pragma: no cover - defensive
             log.debug("run_log.write_summary failed", exc_info=True)
 
-    def _write_summary(self, status, best_metric, best_value, conclusion) -> None:
-        m = self._meta
-        out = [f"# {m.get('experiment_name') or 'experiment'} — run `{m.get('run_name') or ''}`", ""]
-        if m.get("hypothesis"):
-            out.append(f"**Hypothesis:** {m['hypothesis']}")
-            out.append("")
-        if status:
-            out.append(f"- status: **{status}**")
-        if best_metric and best_value is not None:
-            out.append(f"- {best_metric}: **{best_value:.4f}**")
-        out.append("")
-        if self._evals:
-            out.append("## Benchmarks")
-            out.append("")
-            for ev in self._evals:
-                head = ", ".join(
-                    f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
-                    for k, v in list(ev["metrics"].items())[:4]
-                )
-                out.append(f"- **{ev['name']}** — {head}")
-            out.append("")
-        if conclusion:
-            out.append("## Conclusion")
-            out.append("")
-            out.append(conclusion)
-            out.append("")
-        out.append("---")
-        out.append("Full data: `agent/harbor/` (rollouts), `04_training/metrics.csv`, "
-                   "`05_benchmark/`.")
-        (self.human / "summary.md").write_text("\n".join(out) + "\n")
+    # -- internals -----------------------------------------------------------
+
+    def _find_metrics_jsonl(self) -> Path | None:
+        for cand in (self.root / "logs" / "metrics.jsonl",
+                     self.root / "logs" / "jsonl" / "metrics.jsonl"):
+            if cand.exists():
+                return cand
+        hits = list(self.root.glob("logs/**/metrics.jsonl"))
+        return hits[0] if hits else None
+
+    @staticmethod
+    def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+        path.write_text(buf.getvalue())
 
 
-__all__ = ["RunLog"]
+def _safe(name: str) -> str:
+    return "".join(c if (c.isalnum() or c in "-_/") else "_" for c in str(name))
+
+
+__all__ = ["RunLog", "get_run_log"]

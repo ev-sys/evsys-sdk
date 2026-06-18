@@ -611,12 +611,11 @@ class Experiment:
             step=None,
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
-        # Curated human benchmark view (results table + failure-biased sample).
+        # Readable validation view: metrics block + decoded rollout predictions.
         # The full per-task rollouts live in harbor's eval jobs dir (referenced).
         if run_log is not None:
-            human_preds = eval_predictions(tasks, score.rollouts, eval_id=None, step=None)
-            run_log.log_eval(eval_name, dict(score.metrics),
-                             predictions=human_preds, breakdowns=dict(score.breakdowns))
+            run_log.log_validation_metrics(eval_name, dict(score.metrics))
+            run_log.log_validation_rollouts(eval_name, score.rollouts, tasks=tasks)
 
         eval_id = self._record_eval(arm, bench, bench_meta, score)
         # Upload eval rollouts only (training rollouts are never uploaded), and

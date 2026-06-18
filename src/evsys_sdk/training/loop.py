@@ -200,10 +200,12 @@ class TrainingLoop:
         callbacks: list[Callback] | None = None,
         log_prefix: str = "",
         metric_keys: _LoopMetricKeys | None = None,
+        run_log: Any = None,
     ) -> None:
         self.backend = backend
         self.step_builder = step_builder
         self.log_store = log_store
+        self.run_log = run_log
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.adam_params = adam_params
@@ -233,6 +235,7 @@ class TrainingLoop:
             backend=self.backend,
             log_store=self.log_store,
             checkpoint_mgr=self.checkpoint_mgr,
+            run_log=self.run_log,
         )
         self._dispatch("on_train_start", state)
 

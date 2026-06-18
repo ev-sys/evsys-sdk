@@ -141,6 +141,9 @@ class BenchmarkEvaluator:
     store: Any = None
     run_id: str | None = None
     benchmark_id: str | None = None
+    run_log: Any = None
+    """The run's RunLog (or None). When set, each in-loop eval writes its
+    validation rollouts (03_validation_rollouts) + metrics (05_validation_metrics)."""
 
     async def evaluate(
         self, sampler: Any, *,
@@ -191,10 +194,15 @@ class BenchmarkEvaluator:
             metrics=list(self.metrics) or None,
             n_concurrent=self.n_concurrent,
         )
+        tasks = (self.benchmark.tasks if self.limit is None
+                 else self.benchmark.tasks[: max(0, self.limit)])
         if self.store is not None and self.run_id:
-            tasks = (self.benchmark.tasks if self.limit is None
-                     else self.benchmark.tasks[: max(0, self.limit)])
             self._upload(tasks, score.rollouts, dict(score.metrics), step)
+        # Readable validation log for this eval (one block/file per step).
+        if self.run_log is not None:
+            label = f"{self.name}_step_{step}" if step is not None else self.name
+            self.run_log.log_validation_metrics(self.name, dict(score.metrics), step=step)
+            self.run_log.log_validation_rollouts(label, score.rollouts, tasks=tasks)
         return dict(score.metrics)
 
     def _upload(
@@ -250,6 +258,7 @@ def build_in_loop_evaluators(
     model_name: str | None = None,
     workspace_dir: Any = None,
     run_id: str | None = None,
+    run_log: Any = None,
 ) -> list[BenchmarkEvaluator]:
     """Read ``metadata.benchmark`` and return one
     :class:`BenchmarkEvaluator` per entry whose ``run_every`` > 0.
@@ -307,6 +316,7 @@ def build_in_loop_evaluators(
             n_concurrent=int(spec.get("n_concurrent", 8)),
             store=store,
             run_id=run_id,
+            run_log=run_log,
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out

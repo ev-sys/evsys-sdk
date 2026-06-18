@@ -146,8 +146,7 @@ class SDFT(BaseAlgorithm):
             system_prompt=self.cfg.system_prompt,
         )
         if self._run_log is not None and (step_idx == 0 or step_idx % 10 == 0):
-            self._run_log.note_rollouts("sdft", groups, tokenizer=self._tokenizer,
-                                        step=step_idx)
+            self._run_log.log_training_rollouts(step_idx, groups, tokenizer=self._tokenizer)
         student_trajs = [
             g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
         ]

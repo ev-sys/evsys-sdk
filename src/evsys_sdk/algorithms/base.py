@@ -199,6 +199,7 @@ class BaseAlgorithm:
             model_name=model_name,
             workspace_dir=_val_workspace,
             run_id=ctx.extras.get("dashboard_run_id"),
+            run_log=_run_log,
         )
         loop = TrainingLoop(
             backend=backend,
@@ -214,6 +215,7 @@ class BaseAlgorithm:
             save_every=save_every,
             evaluators=evaluators,
             callbacks=build_callbacks(self.cfg.callbacks),
+            run_log=_run_log,
         )
         artifacts = await loop.run(num_steps=total_steps)
 

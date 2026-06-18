@@ -125,16 +125,19 @@ def _execute_run(
     run_dir = base_output_dir / safe_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Two-track local logging (human + agent) rooted at this run's dir. Harbor
-    # rollouts are routed into run_log.harbor_dir(...) by the algorithms, so the
-    # dense rollout store stays harbor-native (no copies).
-    from .run_log import RunLog
+    # One human-readable log per run, organized into folders (data, rollouts,
+    # metrics, ...). Harbor's full rollout store is referenced via
+    # run_log.harbor_dir(...) — never copied. Set it as the current run log so
+    # user code (custom transforms, build_batch, callbacks) can reach it via
+    # evsys_sdk.get_run_log().
+    from .run_log import RunLog, _CURRENT
     run_log = RunLog(
         run_dir,
         experiment_name=cfg.name,
         run_name=run.name,
         hypothesis=(cfg.metadata or {}).get("hypothesis"),
     )
+    _rl_token = _CURRENT.set(run_log)
 
     # Build stores. Log store gets log_dir wired in from run_dir if not provided.
     ds_cls = get_data_store(cfg.data_store.kind)
@@ -191,6 +194,8 @@ def _execute_run(
         result = RunResult(run_id=safe_name, status="failed", error=str(e))
         log_store.close()
         _persist_result(run_dir, result, hparams=run.model_dump())
+        run_log.write_summary(status=result.status)
+        _CURRENT.reset(_rl_token)
         return result
 
     extras: dict[str, Any] = {
@@ -239,10 +244,11 @@ def _execute_run(
 
     log_store.close()
     _persist_result(run_dir, result, hparams=run.model_dump())
-    # Render the human track from what the run produced (metrics.csv from the
-    # log store's metrics.jsonl, then summary.md). Best-effort; never fatal.
-    run_log.render_training()
+    # Render the readable metrics (train + validation CSVs) + summary from what
+    # the run produced. Best-effort; never fatal.
+    run_log.render_metrics()
     run_log.write_summary(status=result.status)
+    _CURRENT.reset(_rl_token)
     return result
 
 

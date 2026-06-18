@@ -79,6 +79,20 @@ class SFT(BaseAlgorithm):
         self._n_rows = len(rows)
         self._steps_per_epoch = max(1, self._n_rows // self.cfg.batch_size)
 
+        # Log the exact chat template (decoded text, not token ids) the model
+        # sees, for the first few examples. Best-effort.
+        run_log = ctx.extras.get("run_log")
+        if run_log is not None:
+            try:
+                tok = backend.get_tokenizer()
+                rendered = [
+                    tok.apply_chat_template(r.messages, tokenize=False)
+                    for r in chat_rows[:3]
+                ]
+                run_log.log_chat_templates(rendered, n=len(rendered))
+            except Exception:
+                pass
+
     async def build_batch(self, step_idx: int) -> TrainingBatch:
         """Slice ``batch_size`` Datums for ``step_idx``, wrapping the dataset
         when the slice straddles the end."""
