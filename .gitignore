@@ -16,5 +16,12 @@ dist/
 examples/outputs/07/
 outputs/
 
+# Local SDK logging roots (experiment records, dataset cache, run outputs).
+# The dirs also self-ignore via a generated .gitignore, but pin them here too
+# so output is never tracked regardless of where a run is launched from.
+# Leading slash = repo root only, so this never matches src/evsys_sdk/.
+/.evsys/
+/evsys_sdk/
+
 # Skill-generated configs (created by /train-local, not hand-authored)
 examples/configs/generated_*.yaml

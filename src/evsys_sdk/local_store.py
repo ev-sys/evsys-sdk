@@ -1,8 +1,9 @@
 """Always-on local mirror of experiment data (wandb-offline style).
 
 Every DashboardClient write is also persisted under ``EVSYS_LOG_DIR``
-(default ``./evsys_sdk``). This guarantees no data is lost even
-when the backend is unreachable, and is the *only* store used in offline mode.
+(default ``./.evsys`` — the single local root shared with the Workspace cache).
+This guarantees no data is lost even when the backend is unreachable, and is the
+*only* store used in offline mode.
 
 Layout (flat by id, so each call only needs its own id)::
 
@@ -49,6 +50,22 @@ class LocalExperimentStore:
     def __init__(self, log_dir: str | None = None) -> None:
         self.root = resolve_log_dir(log_dir)
         self._lock = threading.Lock()
+        self._ensure_gitignored(self.root)
+
+    @staticmethod
+    def _ensure_gitignored(root: Path) -> None:
+        """Make the local root self-ignoring so SDK output is never tracked.
+
+        Mirrors :class:`~evsys_sdk.workspace.Workspace`: a ``.gitignore`` of
+        ``*`` at the root keeps the whole ``.evsys`` tree out of git (the lack of
+        this on the old ``./evsys_sdk`` root is how run output got committed)."""
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            gi = root / ".gitignore"
+            if not gi.exists():
+                gi.write_text("*\n")
+        except OSError:
+            pass  # best-effort; never block a run on the ignore file
 
     # -- paths -------------------------------------------------------------
 
