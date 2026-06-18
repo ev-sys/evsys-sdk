@@ -15,6 +15,9 @@ import pytest
 pytest.importorskip("harbor")
 pytest.importorskip("tinker")  # harbor_agents imports TinkerLLM at module top
 
+from types import SimpleNamespace
+
+from evsys_sdk import AgentSpec
 from evsys_sdk.data_types import HarborTask, InProcessVerifier
 from evsys_sdk.training.harbor_engine import run_harbor_rollouts
 
@@ -70,3 +73,25 @@ def test_real_harbor_rollouts_generation_only(tmp_path):
     assert len(groups) == 2
     trajs = [g.trajectories[0] for g in groups]
     assert all(t.turns and t.turns[0].completion_tokens and t.reward == 0.0 for t in trajs)
+
+
+def test_agent_spec_flows_into_jobconfig(tmp_path):
+    # The registered `agent` plugin (kind+params) resolves into the harbor
+    # JobConfig: import_path = the plugin's harbor agent, and explicit params
+    # (max_turns) override the rollout default. Capture the JobConfig via a
+    # _job_factory instead of running a real Job.
+    captured = {}
+
+    async def _capture(config):
+        captured["config"] = config
+        return SimpleNamespace(trial_results=[])
+
+    asyncio.run(run_harbor_rollouts(
+        [_task("t", "solve", expected="ECHO")],
+        agent_spec=AgentSpec(kind="basic_loop", params={"max_turns": 2}),
+        model_name="echo", model_path=None, workspace_dir=tmp_path,
+        _job_factory=_capture,
+    ))
+    agent_cfg = captured["config"].agents[0]
+    assert agent_cfg.import_path.endswith(":BasicLoopAgent")
+    assert agent_cfg.kwargs["max_turns"] == 2          # spec param overrode the default (1)

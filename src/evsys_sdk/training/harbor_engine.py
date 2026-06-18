@@ -189,6 +189,31 @@ def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any])
     )
 
 
+def resolve_agent(agent_spec: Any) -> tuple[str, dict[str, Any]]:
+    """Resolve an ``AgentSpec`` / ``{kind, params}`` dict / ``None`` → the harbor
+    agent ``import_path`` + validated agent-behaviour params, via the ``agent``
+    registry. ``None`` → the default ``"basic_loop"`` harness. Params use
+    ``exclude_unset`` so they only OVERRIDE the rollout's own ``max_turns`` /
+    ``system_prompt`` when a researcher explicitly sets them in ``params:``."""
+    import evsys_sdk.agents  # noqa: F401 — ensure built-in agent plugins register
+    from ..registry import get_agent
+
+    kind: str | None = "basic_loop"
+    raw: dict[str, Any] = {}
+    if agent_spec is not None:
+        kind = getattr(agent_spec, "kind", None)
+        if kind is None and isinstance(agent_spec, dict):
+            kind = agent_spec.get("kind")
+        kind = kind or "basic_loop"
+        params = getattr(agent_spec, "params", None)
+        if params is None and isinstance(agent_spec, dict):
+            params = agent_spec.get("params")
+        raw = dict(params or {})
+    plugin = get_agent(kind)
+    validated = plugin.Config(**raw).model_dump(exclude_unset=True)
+    return plugin.agent_path, validated
+
+
 async def run_harbor_rollouts(
     items: Sequence[Any],
     *,
@@ -203,6 +228,7 @@ async def run_harbor_rollouts(
     max_tokens: int = 512,
     temperature: float = 1.0,
     system_prompt: str | None = None,
+    agent_spec: Any = None,
     agent_import_path: str | None = None,
     n_concurrent: int = 4,
     max_retries: int = 2,
@@ -245,21 +271,33 @@ async def run_harbor_rollouts(
         VerifierConfig,
     )
 
-    import_path, agent_kwargs = _agent_import_and_kwargs(
-        model_client,
-        agent_import_path=agent_import_path,
-        model_name=model_name,
-        model_path=model_path,
-        renderer_name=renderer_name,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        max_turns=max_turns,
-        system_prompt=system_prompt,
-    )
-    agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
+    # Resolve the rollout harness. A legacy explicit ``agent_import_path`` (fully
+    # self-configured) still wins; otherwise the registered ``agent`` plugin
+    # (default ``basic_loop``) gives the import path + behaviour params, and the
+    # model/sampling kwargs are injected here.
+    if agent_import_path is not None:
+        import_path, agent_kwargs = _agent_import_and_kwargs(
+            model_client, agent_import_path=agent_import_path,
+            model_name=model_name, model_path=model_path, renderer_name=renderer_name,
+            max_tokens=max_tokens, temperature=temperature,
+            max_turns=max_turns, system_prompt=system_prompt,
+        )
+    else:
+        import_path, agent_params = resolve_agent(agent_spec)
+        _, agent_kwargs = _agent_import_and_kwargs(
+            model_client, agent_import_path=None,
+            model_name=model_name, model_path=model_path, renderer_name=renderer_name,
+            max_tokens=max_tokens, temperature=temperature,
+            max_turns=agent_params.get("max_turns", max_turns),
+            system_prompt=agent_params.get("system_prompt", system_prompt),
+        )
+        # extra agent-behaviour params (beyond max_turns/system_prompt) for custom agents
+        agent_kwargs.update({k: v for k, v in agent_params.items()
+                             if k not in ("max_turns", "system_prompt")})
+    agent_cfg = _to_agent_config(AgentConfig, import_path, agent_kwargs)
     config = JobConfig(
         tasks=task_configs,
-        agents=[agent],
+        agents=[agent_cfg],
         environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
         # outcome_reward: host-side EvsysVerifier wraps the registered fn (SHARED
         # mode, no container) → reward per trajectory. Else: no verifier, reward 0.

@@ -179,6 +179,7 @@ def _execute_run(
         "n_train_rows": len(train_rows),
         "backend_handles": handles,
         "model_name": run.model.name,
+        "agent": run.agent,
         "tags": run.tags,
     }
     # Dashboard plumbing (store + run_id) so in-loop benchmark eval can upload
