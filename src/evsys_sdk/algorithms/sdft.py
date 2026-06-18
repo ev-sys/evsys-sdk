@@ -186,6 +186,22 @@ class SDFT(BaseAlgorithm):
             getattr(r, "topk_prompt_logprobs", None) for r in teacher_responses
         ]
 
+        # 4b. SDFT-specific logging: the teacher's top-K (token, logprob) per
+        # completion position, decoded to text, into our own folder. Bounded
+        # cadence + a couple datums so the log stays readable.
+        if self._run_log is not None and (step_idx == 0 or step_idx % 10 == 0):
+            for di, topk in enumerate(teacher_topk[:2]):
+                start = (completion_slices[di].teacher_prompt_len
+                         if di < len(completion_slices) else 0)
+                rows = format_teacher_topk(
+                    topk, decode=lambda t: self._tokenizer.decode([t]), start=start,
+                )
+                if rows:
+                    self._run_log.record(
+                        "teacher_logprobs",
+                        {"step": step_idx, "datum": di, "positions": rows},
+                    )
+
         # 5. Build CE Datums with (N, K) soft targets.
         ce_datums, sdft_metrics = build_topk_targets(
             student_data=student_datums,
@@ -246,4 +262,36 @@ class SDFT(BaseAlgorithm):
         return self.cfg.user_template.format(question=question, prompt=question)
 
 
-__all__ = ["SDFT", "SDFTConfig"]
+# ---------------------------------------------------------------------------
+# Pure helper (harbor/tinker-free) — formats teacher top-K for the run log.
+# ---------------------------------------------------------------------------
+
+
+def format_teacher_topk(
+    topk_per_pos: Any,
+    *,
+    decode: Any,
+    start: int = 0,
+    max_positions: int = 20,
+    max_k: int = 8,
+) -> list[dict[str, Any]]:
+    """Turn one datum's teacher top-K (``[pos] -> [(token_id, logprob), …] | None``)
+    into readable rows: ``[{"pos", "topk": [[token_text, logprob], …]}]``.
+
+    ``decode(token_id) -> str`` makes it tinker-free (and unit-testable). Positions
+    before ``start`` (the teacher-prompt region) and ``None`` positions are skipped;
+    at most ``max_positions`` rows of ``max_k`` candidates each are kept."""
+    rows: list[dict[str, Any]] = []
+    for pos, cands in enumerate(topk_per_pos or []):
+        if pos < start or not cands:
+            continue
+        rows.append({
+            "pos": pos,
+            "topk": [[decode(tid), round(float(lp), 4)] for tid, lp in list(cands)[:max_k]],
+        })
+        if len(rows) >= max_positions:
+            break
+    return rows
+
+
+__all__ = ["SDFT", "SDFTConfig", "format_teacher_topk"]
