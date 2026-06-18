@@ -217,6 +217,23 @@ def test_score_aggregates(benchmark_dir: Path):
     assert score.per_task[0].expected == "A"
 
 
+def test_score_num_samples_drives_pass_at_k(benchmark_dir: Path):
+    bench = Benchmark.from_dir(benchmark_dir)
+    # 2 tasks (limit=2), 3 samples each. t1 expects "A", t2 expects "B".
+    #   t1 samples: A, A, X  -> any pass (pass@3), not all (pass^3)
+    #   t2 samples: B, B, B  -> all pass
+    client = _ScriptedInference(["A", "A", "X", "B", "B", "B"])
+    score = bench.score(
+        client, limit=2, num_samples=3, metrics=["pass@3", "pass^3", "avg"]
+    )
+    assert score.metrics["n_tasks"] == 2.0
+    assert score.metrics["pass@3"] == pytest.approx(1.0)   # both have ≥1 pass
+    assert score.metrics["pass^3"] == pytest.approx(0.5)   # only t2 all-pass
+    assert score.metrics["avg"] == pytest.approx((2 / 3 + 1.0) / 2)
+    # 3 generations per task were issued.
+    assert len(client.calls) == 6
+
+
 def test_score_empty_benchmark(tmp_path: Path):
     root = tmp_path / "empty"
     root.mkdir()
@@ -363,3 +380,68 @@ def test_task_result_dataclass_shape():
                             expected="x", reward=0.5, metadata={"k": "v"})
     assert r.reward == 0.5
     assert r.metadata == {"k": "v"}
+
+
+# ---------------------------------------------------------------------------
+# score_via_harbor (harbor engine; rollout mocked at run_harbor_rollouts)
+# ---------------------------------------------------------------------------
+
+
+def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch, tmp_path):
+    import asyncio
+    from pathlib import Path
+
+    # score_via_harbor pulls in evsys_sdk.training (loop/data_processing/...), which
+    # imports tinker at module level. CI runs without the [tinker] extra, so skip
+    # there — consistent with every other tinker-dependent test in the suite.
+    pytest.importorskip("tinker")
+
+    from evsys_sdk.training.harbor_eval import eval_predictions
+    from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
+
+    bench = Benchmark.from_iterable("b", [
+        _row("t0", "P0", "exact_match", "x", toolkit="A"),
+        _row("t1", "P1", "exact_match", "x", toolkit="B"),
+    ])
+
+    async def _fake_rollouts(items, **kwargs):
+        # The runner is adapter-aware, so (mocked here) it receives the
+        # benchmark's HarborTasks directly. 2 samples/task; t0 both pass, t1 both fail.
+        per = {"t0": [1.0, 1.0], "t1": [0.0, 0.0]}
+        return [
+            TrajectoryGroup(trajectories=[
+                Trajectory(
+                    turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3])],
+                    reward=r,
+                )
+                for r in per[task.task_id]
+            ])
+            for task in items
+        ]
+
+    monkeypatch.setattr(
+        "evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_rollouts
+    )
+
+    score = asyncio.run(bench.score_via_harbor(
+        model_name="m", model_path="ckpt", workspace_dir=tmp_path,
+        num_samples=2, breakdown_keys=["toolkit"], metrics=["mean_reward", "pass_rate"],
+    ))
+
+    assert isinstance(score, BenchmarkScore)
+    assert score.metrics["n_tasks"] == 2.0
+    assert score.metrics["mean_reward"] == 0.5          # (1.0 + 0.0) per-task means
+    # per_task: one row per task (mean reward), in task order
+    assert [r.task_id for r in score.per_task] == ["t0", "t1"]
+    assert score.per_task[0].reward == 1.0 and score.per_task[1].reward == 0.0
+    # rollouts carries the raw per-(task, sample) groups
+    assert len(score.rollouts) == 2
+    assert all(len(g.trajectories) == 2 for g in score.rollouts)
+    # breakdown by toolkit metadata
+    assert score.breakdowns["toolkit"]["A"]["mean_reward"] == 1.0
+    assert score.breakdowns["toolkit"]["B"]["mean_reward"] == 0.0
+    # eval_predictions builds one row per (task, sample) from score.rollouts
+    rows = eval_predictions(bench.tasks, score.rollouts, eval_id="e1")
+    assert len(rows) == 4
+    assert rows[0]["completion_token_ids"] == [2, 3]
+    assert all(r["eval_id"] == "e1" and r["kind"] == "eval" for r in rows)

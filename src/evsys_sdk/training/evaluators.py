@@ -118,6 +118,9 @@ class BenchmarkEvaluator:
     max_tokens: int = 256
     temperature: float = 0.0
     breakdown_keys: list[str] = field(default_factory=list)
+    metrics: list[str] = field(default_factory=list)
+    """Registered metric names to compute (harbor engine), e.g.
+    ``["pass@3", "pass^3", "avg"]``. Empty → ``mean_reward`` + ``pass_rate``."""
     chat_template: dict[str, Any] = field(default_factory=dict)
     limit: int | None = None
     """Cap the number of tasks scored per eval — useful when the benchmark
@@ -128,6 +131,9 @@ class BenchmarkEvaluator:
     model_name: str | None = None
     workspace_dir: Any = None
     num_samples: int = 1
+    n_concurrent: int = 8
+    """Concurrent harbor trials (harbor engine only). Higher = more rollouts in
+    flight against the sampler; all share one cached sampling client."""
     # Dashboard upload wiring. When ``store`` + ``run_id`` are present, the
     # harbor branch records one ``eval`` per invocation (tagged with ``step``,
     # so the many validations across a run stay distinct) and uploads its
@@ -153,6 +159,8 @@ class BenchmarkEvaluator:
             temperature=self.temperature,
             breakdown_keys=list(self.breakdown_keys),
             limit=self.limit,
+            metrics=list(self.metrics),
+            num_samples=self.num_samples,
         )
         return dict(score.metrics)
 
@@ -165,17 +173,12 @@ class BenchmarkEvaluator:
         import tempfile
         from pathlib import Path
 
-        from .harbor_eval import eval_metrics, score_via_harbor
-
-        tasks = (self.benchmark.tasks if self.limit is None
-                 else self.benchmark.tasks[: max(0, self.limit)])
         ws = Path(self.workspace_dir) if self.workspace_dir else Path(
             tempfile.mkdtemp(prefix="evsys_val_")
         )
         if step is not None:
             ws = ws / f"step_{step}"
-        groups = await score_via_harbor(
-            tasks,
+        score = await self.benchmark.score_via_harbor(
             model_name=self.model_name,
             model_path=model_path,
             workspace_dir=ws,
@@ -183,11 +186,16 @@ class BenchmarkEvaluator:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             system_prompt=(self.chat_template or {}).get("system_prompt"),
+            limit=self.limit,
+            breakdown_keys=list(self.breakdown_keys),
+            metrics=list(self.metrics) or None,
+            n_concurrent=self.n_concurrent,
         )
-        metrics = eval_metrics(groups)
         if self.store is not None and self.run_id:
-            self._upload(tasks, groups, metrics, step)
-        return metrics
+            tasks = (self.benchmark.tasks if self.limit is None
+                     else self.benchmark.tasks[: max(0, self.limit)])
+            self._upload(tasks, score.rollouts, dict(score.metrics), step)
+        return dict(score.metrics)
 
     def _upload(
         self, tasks: list[Any], groups: list[Any],
@@ -274,7 +282,7 @@ def build_in_loop_evaluators(
         run_every = int(spec.get("run_every") or 0)
         if run_every <= 0:
             continue
-        bench = _materialize_benchmark(spec, store)
+        bench = Benchmark.load(spec, store=store)
         if bench is None:
             logger.warning(
                 "build_in_loop_evaluators: benchmark[%d] (%r) didn't resolve — skipping",
@@ -289,36 +297,19 @@ def build_in_loop_evaluators(
             max_tokens=int(spec.get("max_tokens", 256)),
             temperature=float(spec.get("temperature", 0.0)),
             breakdown_keys=list(spec.get("breakdown_keys") or []),
+            metrics=list(spec.get("metrics") or []),
             chat_template=dict(spec.get("chat_template") or {}),
             limit=int(spec["limit"]) if spec.get("limit") is not None else None,
             engine=str(spec.get("engine", "")),
             model_name=model_name,
             workspace_dir=workspace_dir,
             num_samples=int(spec.get("num_samples", 1)),
+            n_concurrent=int(spec.get("n_concurrent", 8)),
             store=store,
             run_id=run_id,
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out
-
-
-def _materialize_benchmark(spec: dict[str, Any], store: Any) -> Benchmark | None:
-    """Same logic as ``Experiment._materialize_benchmark`` — resolve a spec
-    to a :class:`Benchmark`. Duplicated here so the training/ package stays
-    independent of ``Experiment``; the two paths must stay in sync."""
-    path = spec.get("path")
-    if path:
-        return Benchmark.from_dir(path)
-    bid, dashboard_name = spec.get("id"), spec.get("name")
-    if not (bid or dashboard_name):
-        return None
-    from ..data_types import harbor_task_from_dict
-    from ..workspace import Workspace, read_jsonl_rows
-    ws = Workspace(store) if store is not None else Workspace()
-    resolved = str(bid) if bid else ws.benchmark_id_for_name(str(dashboard_name))
-    mat = ws.pull_benchmark(resolved)
-    tasks = [harbor_task_from_dict(r) for r in read_jsonl_rows(mat.path)]
-    return Benchmark.from_iterable(dashboard_name or "benchmark", tasks)
 
 
 __all__ = ["BenchmarkEvaluator", "build_in_loop_evaluators"]

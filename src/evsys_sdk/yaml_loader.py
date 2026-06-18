@@ -104,14 +104,6 @@ def validate_yaml(
                     cls.Config.model_validate(t.params)
             except Exception as e:
                 errors.append(f"{prefix} data.transforms[{i}]: {e}")
-        # Eval metrics
-        for i, m in enumerate(r.eval.metrics):
-            try:
-                cls = regs["metric"].get(m.kind)
-                if hasattr(cls, "Config"):
-                    cls.Config.model_validate(m.params)
-            except Exception as e:
-                errors.append(f"{prefix} eval.metrics[{i}]: {e}")
     return errors
 
 

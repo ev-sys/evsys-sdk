@@ -29,74 +29,124 @@ def _task(task_id="t0", instruction="solve it", expected="42"):
     )
 
 
-# --- materialize_task ------------------------------------------------------
+# --- adapters (our data formats → harbor task dir + TaskConfig) -------------
 
 
-def test_materialize_writes_minimal_dir_no_dockerfile_no_testsh(tmp_path: Path):
-    dest = he.materialize_task(_task(), tmp_path / "task")
+def test_harbor_task_adapter_writes_scored_task_dir(tmp_path: Path):
+    import json
+    cfgs = he.HarborTaskAdapter([_task(expected="42")]).to_harbor(tmp_path)
+    assert len(cfgs) == 1
+    dest = Path(cfgs[0].path)
+    assert dest.name == "t0"                                  # dir basename == _safe(task_id)
     assert (dest / "instruction.md").read_text() == "solve it"
-    toml = (dest / "task.toml").read_text()
-    assert 'environment_mode = "separate"' in toml      # skips test.sh at load
-    assert "harbor_agents:EvsysVerifier" in toml
-    assert 'fn_name = "exact_match"' in toml
-    # explicitly: no Dockerfile, no test.sh
-    assert not (dest / "environment" / "Dockerfile").exists()
-    assert not (dest / "tests").exists()
+    # SHARED mode (no environment_mode); our EvsysVerifier is the job-level verifier.
+    assert 'environment_mode' not in (dest / "task.toml").read_text()
+    # dummy test.sh only satisfies harbor's load check (never executed)
+    assert (dest / "tests" / "test.sh").exists()
+    # per-task verifier spec the host-side EvsysVerifier reads
+    spec = json.loads((dest / "evsys_verifier.json").read_text())
+    assert spec == {"fn_name": "exact_match", "expected": "42", "params": {}}
 
 
-def test_materialize_rejects_non_in_process_verifier(tmp_path: Path):
-    t = HarborTask(task_id="t1", instruction="i", verifier=E2BVerifier())
+def test_harbor_task_adapter_rejects_non_in_process_verifier(tmp_path: Path):
+    adapter = he.HarborTaskAdapter(
+        [HarborTask(task_id="t1", instruction="i", verifier=E2BVerifier())]
+    )
     with pytest.raises(RuntimeError, match="only 'in_process'"):
-        he.materialize_task(t, tmp_path / "t1")
+        adapter.to_harbor(tmp_path)
+
+
+def test_prompt_adapter_writes_generation_task_dir(tmp_path: Path):
+    # generation-only: instruction + separate-mode task.toml, no verifier spec, no test.sh.
+    cfgs = he.PromptAdapter(["write a poem"]).to_harbor(tmp_path)
+    assert len(cfgs) == 1
+    dest = Path(cfgs[0].path)
+    assert dest.name == "gen_0"
+    assert (dest / "instruction.md").read_text() == "write a poem"
+    assert 'environment_mode = "separate"' in (dest / "task.toml").read_text()
+    assert not (dest / "evsys_verifier.json").exists()
+    assert not (dest / "tests" / "test.sh").exists()
 
 
 # --- harvest ---------------------------------------------------------------
 
 
-def _trial(trial_name, *, tokens, logprobs, reward):
+def _trial(task_name, *, tokens, reward):
+    # Harbor 0.13.2: trials are grouped by task_name (the dir basename); the
+    # reward comes from verifier_result (our host-side EvsysVerifier produced it).
     rollout = {
         "prompt_token_ids": [[1, 2, 3]],
         "completion_token_ids": [list(tokens)],
-        "logprobs": [list(logprobs)],
+        "logprobs": [[-0.1] * len(tokens)],
     }
     return SimpleNamespace(
-        trial_name=trial_name,
-        agent_result=SimpleNamespace(rollout_details=[rollout]),
+        trial_name=f"{task_name}__abc",
+        task_name=task_name,
+        agent_result=SimpleNamespace(rollout_details=[rollout], metadata={}),
         verifier_result=SimpleNamespace(rewards={"reward": reward}),
     )
 
 
-def test_harvest_maps_trials_to_groups():
-    tasks = [_task("t0"), _task("t1")]
+def _tc(task_name):
+    # Stand-in TaskConfig: _harvest matches trials by the dir basename of .path.
+    return SimpleNamespace(path=Path("/tmp/tasks") / task_name)
+
+
+def test_harvest_maps_trials_to_groups_with_verifier_reward():
     job_result = SimpleNamespace(trial_results=[
-        _trial("t0__s0", tokens=[10, 11], logprobs=[-0.1, -0.2], reward=1.0),
-        _trial("t1__s0", tokens=[20], logprobs=[-0.3], reward=0.0),
+        _trial("t0", tokens=[10, 11], reward=1.0),
+        _trial("t1", tokens=[20], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks, num_samples=1)
+    groups = he._harvest(job_result, [_tc("t0"), _tc("t1")])
     assert len(groups) == 2
-    assert groups[0].tags == ["x"]
-    assert groups[0].trajectories[0].reward == 1.0
+    assert groups[0].trajectories[0].reward == 1.0       # from verifier_result
     assert groups[0].trajectories[0].turns[0].completion_tokens == [10, 11]
     assert groups[1].trajectories[0].reward == 0.0
 
 
-def test_harvest_groups_num_samples_per_task():
-    tasks = [_task("t0")]
+def test_harvest_groups_n_attempts_per_task():
     job_result = SimpleNamespace(trial_results=[
-        _trial("t0__s0", tokens=[1], logprobs=[-0.1], reward=1.0),
-        _trial("t0__s1", tokens=[2], logprobs=[-0.2], reward=0.0),
+        _trial("t0", tokens=[1], reward=1.0),
+        _trial("t0", tokens=[2], reward=0.0),
     ])
-    groups = he._harvest(job_result, tasks, num_samples=2)
+    groups = he._harvest(job_result, [_tc("t0")])
     assert len(groups) == 1
-    assert len(groups[0].trajectories) == 2          # both samples
+    assert len(groups[0].trajectories) == 2              # both attempts (samples)
     assert {t.reward for t in groups[0].trajectories} == {1.0, 0.0}
 
 
 def test_harvest_drops_trials_with_no_rollout():
-    tasks = [_task("t0")]
-    empty = SimpleNamespace(trial_name="t0__s0", agent_result=None, verifier_result=None)
-    groups = he._harvest(SimpleNamespace(trial_results=[empty]), tasks, num_samples=1)
+    empty = SimpleNamespace(trial_name="t0__abc", task_name="t0", agent_result=None)
+    groups = he._harvest(SimpleNamespace(trial_results=[empty]), [_tc("t0")])
     assert groups[0].trajectories == []
+
+
+def test_trial_to_trajectory_keeps_api_model_trial_without_tokens():
+    # Closed/API models (litellm) return no token ids, but an eval trial still
+    # has a verifier reward — harvest must KEEP it (token-less) so it's scored,
+    # carrying the reward + usage. (Previously it was dropped → n_tasks=0.)
+    tr = SimpleNamespace(
+        trial_name="t0__abc", task_name="t0",
+        agent_result=SimpleNamespace(
+            rollout_details=None, cost_usd=0.01, n_input_tokens=5,
+            n_output_tokens=7, n_cache_tokens=0,
+        ),
+        verifier_result=SimpleNamespace(rewards={"reward": 1.0}),
+    )
+    traj = he._trial_to_trajectory(tr)
+    assert traj is not None
+    assert traj.turns == []                              # no token-level turns
+    assert traj.reward == 1.0                            # reward preserved
+    assert traj.metadata["usage"]["cost_usd"] == 0.01    # usage preserved
+
+
+def test_trial_to_trajectory_drops_errored_trial():
+    tr = SimpleNamespace(
+        trial_name="t0__abc", task_name="t0",
+        exception_info={"exception_type": "BadRequestError"},
+        agent_result=None, verifier_result=None,
+    )
+    assert he._trial_to_trajectory(tr) is None
 
 
 # --- usage (cost / tokens / timing) ----------------------------------------

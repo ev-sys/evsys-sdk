@@ -13,7 +13,7 @@ For everything else:
         Benchmark, BenchmarkScore, Checkpoint,
         # Config models
         ExperimentConfig, RunConfig, AlgorithmConfig, DataConfig, ModelConfig,
-        BackendConfig, EvalConfig, MetricSpec, VerifierSpec,
+        BackendConfig, VerifierSpec,
         # YAML
         load_yaml, dump_yaml, validate_yaml,
         # Registries (decorators for extensions)
@@ -36,11 +36,8 @@ from .config import (
     CallbackSpec,
     DataConfig,
     DataStoreSpec,
-    EvalConfig,
     ExperimentConfig,
-    InferenceSpec,
     LogStoreSpec,
-    MetricSpec,
     ModelConfig,
     RunConfig,
     TransformSpec,
@@ -88,6 +85,7 @@ from .registry import (
     register_verifier,
 )
 from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
+from .benchmark_run import run_benchmark
 from .checkpoint import Checkpoint, find_manifest, read_manifest
 from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
@@ -148,11 +146,8 @@ __all__ = [
     "DataConfig",
     "DataStoreSpec",
     "CallbackSpec",
-    "EvalConfig",
     "ExperimentConfig",
-    "InferenceSpec",
     "LogStoreSpec",
-    "MetricSpec",
     "ModelConfig",
     "RunConfig",
     "TransformSpec",
@@ -242,6 +237,7 @@ __all__ = [
     # OOP orchestration (researcher-project layout)
     "ArmResult",
     "Benchmark",
+    "run_benchmark",
     "BenchmarkScore",
     "BenchmarkTaskResult",
     "Checkpoint",

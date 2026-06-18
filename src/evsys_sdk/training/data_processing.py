@@ -11,14 +11,16 @@ The two-step pipeline:
    :class:`TrajectoryGroup` (subtract the group mean → reduces variance
    without bias).
 2. :func:`assemble_training_data` — flatten to a ``list[tinker.Datum]``
-   with ``loss_fn_inputs["advantages"]`` per token, ``mask`` over
-   completion positions, and ``logprobs`` from the sampler (for IS).
+   with ``loss_fn_inputs`` = ``target_tokens`` + per-position ``advantages``
+   (0 off-completion → masks the loss) + ``logprobs`` from the sampler (the
+   "old" logprobs for the IS ratio). These are the only keys tinker's
+   ``importance_sampling`` loss accepts.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import tinker
@@ -71,8 +73,7 @@ class DatumMetadata:
 
     group_idx: int
     """Index into the original ``trajectory_groups`` list — used for SDFT
-    teacher-prompt lookup and for tag-keyed metrics."""
-    tags: list[str] = field(default_factory=list)
+    teacher-prompt lookup."""
 
 
 def assemble_training_data(
@@ -86,12 +87,13 @@ def assemble_training_data(
     trajectory-level advantage. Each Datum carries:
 
       * ``model_input``: turn prompt + completion[:-1] (left-shifted).
-      * ``loss_fn_inputs["target_tokens"]``: completion tokens.
-      * ``loss_fn_inputs["mask"]``: ``1.0`` on completion positions, else ``0``.
+      * ``loss_fn_inputs["target_tokens"]``: the shifted next-token targets.
       * ``loss_fn_inputs["logprobs"]``: sampler's per-position logprobs (zero on
-        prompt positions). Used by the IS loss.
+        prompt positions). The "old" logprobs for the IS ratio.
       * ``loss_fn_inputs["advantages"]``: the trajectory's group-normalized
-        reward, broadcast to completion positions; 0 on prompt positions.
+        reward on completion positions; 0 on prompt positions — which is what
+        masks the loss to the completion (tinker's ``importance_sampling`` takes
+        no mask/weights key, only target_tokens + logprobs + advantages).
 
     Turns with no completion tokens are dropped silently — IS loss is a no-op.
     """
@@ -104,7 +106,7 @@ def assemble_training_data(
                 if datum is None:
                     continue
                 datums.append(datum)
-                metas.append(DatumMetadata(group_idx=group_idx, tags=list(group.tags)))
+                metas.append(DatumMetadata(group_idx=group_idx))
     return datums, metas
 
 
@@ -124,27 +126,25 @@ def _turn_to_datum(turn: Turn, *, advantage: float) -> tinker.Datum | None:
     n_positions = len(full_ids) - 1
     targets = full_ids[1:]
 
-    mask = [0.0] * n_positions
     lp_per_pos = [0.0] * n_positions
     adv_per_pos = [0.0] * n_positions
     start = len(prompt_tokens) - 1
     end = start + len(completion)
     j_lp = 0
     for j in range(max(0, start), min(n_positions, end)):
-        mask[j] = 1.0
         if j_lp < len(logprobs):
             lp_per_pos[j] = float(logprobs[j_lp])
         adv_per_pos[j] = float(advantage)
         j_lp += 1
 
+    # tinker's importance_sampling loss accepts ONLY target_tokens + logprobs +
+    # advantages (no mask/weights). advantages are 0 on prompt positions, so the
+    # loss is naturally masked to the completion (0 advantage → 0 gradient).
     return tinker.Datum(
         model_input=tinker.ModelInput.from_ints(full_ids[:-1]),
         loss_fn_inputs={
             "target_tokens": tinker.TensorData.from_torch(
                 torch.tensor(targets, dtype=torch.long)
-            ),
-            "mask": tinker.TensorData.from_torch(
-                torch.tensor(mask, dtype=torch.float32)
             ),
             "logprobs": tinker.TensorData.from_torch(
                 torch.tensor(lp_per_pos, dtype=torch.float32)

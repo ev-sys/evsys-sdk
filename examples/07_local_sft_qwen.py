@@ -23,7 +23,6 @@ from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    EvalConfig,
     ExperimentConfig,
     LogStoreSpec,
     ModelConfig,
@@ -87,7 +86,6 @@ def main() -> None:
                     "warmup_steps": 2,
                 },
             ),
-            eval=EvalConfig(enabled=False),
         ),
     )
 

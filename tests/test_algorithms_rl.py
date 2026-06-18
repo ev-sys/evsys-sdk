@@ -55,7 +55,7 @@ async def _fake_run_harbor_rollouts(tasks, *, num_samples=1, **kwargs):
     """Stand-in for the harbor engine: one TrajectoryGroup per task, each with
     a canned single-turn trajectory + reward (no harbor / containers)."""
     groups = []
-    for t in tasks:
+    for _ in tasks:   # tasks are now harbor TaskConfigs (one per materialized task)
         trajs = [
             Trajectory(
                 turns=[Turn(
@@ -67,7 +67,7 @@ async def _fake_run_harbor_rollouts(tasks, *, num_samples=1, **kwargs):
             )
             for _ in range(num_samples)
         ]
-        groups.append(TrajectoryGroup(trajectories=trajs, tags=list(t.metadata.get("tags") or [])))
+        groups.append(TrajectoryGroup(trajectories=trajs))
     return groups
 
 

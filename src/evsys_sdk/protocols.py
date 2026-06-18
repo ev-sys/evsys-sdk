@@ -12,7 +12,7 @@ messages, but most are duck-typed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Protocol, runtime_checkable
+from typing import Any, ClassVar, Iterable, Protocol, Sequence, runtime_checkable
 
 
 # ---------------------------------------------------------------------------
@@ -109,21 +109,15 @@ class Verifier(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Metric — aggregates over a list of predictions/targets.
+# Metric — reduces per-task rollout rewards to a scalar.
 # ---------------------------------------------------------------------------
 
 
 @runtime_checkable
 class Metric(Protocol):
     name: ClassVar[str]
-    Config: ClassVar[type]
 
-    def compute(
-        self,
-        *,
-        predictions: list[dict[str, Any]],
-        targets: list[dict[str, Any]],
-    ) -> float: ...
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float: ...
 
 
 # ---------------------------------------------------------------------------

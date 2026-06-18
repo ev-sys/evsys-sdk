@@ -15,50 +15,13 @@ The metrics / prediction builders are pure functions over
 
 from __future__ import annotations
 
-from pathlib import Path
+import logging
 from typing import Any, Sequence
 
 from ..data_types import HarborTask
 from .trajectory import TrajectoryGroup
 
-
-async def score_via_harbor(
-    tasks: Sequence[HarborTask],
-    *,
-    model_name: str,
-    model_path: str | None,
-    workspace_dir: Path,
-    num_samples: int = 1,
-    max_turns: int = 1,
-    max_tokens: int = 512,
-    temperature: float = 0.0,
-    renderer_name: str | None = None,
-    system_prompt: str | None = None,
-    agent_import_path: str | None = None,
-    n_concurrent: int = 8,
-    max_retries: int = 2,
-    _job_factory: Any | None = None,
-) -> list[TrajectoryGroup]:
-    """Score ``tasks`` through harbor (one TrajectoryGroup per task, rewards
-    from each task's verifier). Thin wrapper over the shared rollout engine."""
-    from .harbor_engine import run_harbor_rollouts
-
-    return await run_harbor_rollouts(
-        tasks,
-        model_name=model_name,
-        model_path=model_path,
-        workspace_dir=workspace_dir,
-        renderer_name=renderer_name,
-        num_samples=num_samples,
-        max_turns=max_turns,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system_prompt=system_prompt,
-        agent_import_path=agent_import_path,
-        n_concurrent=n_concurrent,
-        max_retries=max_retries,
-        _job_factory=_job_factory,
-    )
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -66,26 +29,41 @@ async def score_via_harbor(
 # ---------------------------------------------------------------------------
 
 
-def eval_metrics(groups: Sequence[TrajectoryGroup]) -> dict[str, float]:
-    """Aggregate reward + economics stats over the eval rollouts. Always
-    reports ``{mean_reward, pass_rate, n_tasks}`` (a completion passes when its
-    reward >= 1.0); adds ``{time_per_task, tokens_per_task, cost_per_task}``
-    whenever harbor reported the underlying usage (cost is omitted for runs
-    with no API price, e.g. on-policy tinker). Every stat is a mean over the
-    per-task mean (so ``num_samples`` > 1 averages within a task first)."""
-    task_means: list[float] = []
-    passes = 0
-    total = 0
+def eval_metrics(
+    groups: Sequence[TrajectoryGroup],
+    *,
+    metrics: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """Reduce per-task rollout rewards to the benchmark's declared metrics,
+    plus per-task economics.
+
+    ``metrics`` is a list of registered metric names (e.g. ``["pass@3",
+    "pass^3", "avg"]``); each is looked up via :func:`get_metric` and applied
+    to the per-task sample rewards (one inner list per task, holding that task's
+    ``num_samples`` rewards). ``n_tasks`` is always included; when no metrics
+    are declared it defaults to ``mean_reward`` + ``pass_rate``.
+
+    Independently, ``{time_per_task, tokens_per_task, cost_per_task}`` are added
+    whenever harbor reported the underlying usage (cost is omitted for runs with
+    no API price, e.g. on-policy tinker)."""
+    from ..registry import get_metric
+
+    task_rewards = [list(g.rewards) for g in groups if g.rewards]
+    names = list(metrics) if metrics else ["mean_reward", "pass_rate"]
+    out: dict[str, float] = {"n_tasks": float(len(task_rewards))}
+    for name in names:
+        try:
+            out[name] = float(get_metric(name)().compute(task_rewards))
+        except Exception:
+            logger.warning("eval metric %r failed; skipping", name, exc_info=True)
+
+    # Per-task economics (independent of the reward metrics above).
     times: list[float] = []
     tokens: list[float] = []
     costs: list[float] = []
     for g in groups:
-        rewards = g.rewards
-        if not rewards:
+        if not g.rewards:
             continue
-        task_means.append(sum(rewards) / len(rewards))
-        passes += sum(1 for r in rewards if r >= 1.0)
-        total += len(rewards)
         u = _task_usage_means(g)
         if u["latency_s"] is not None:
             times.append(u["latency_s"])
@@ -93,12 +71,6 @@ def eval_metrics(groups: Sequence[TrajectoryGroup]) -> dict[str, float]:
             tokens.append(u["tokens"])
         if u["cost_usd"] is not None:
             costs.append(u["cost_usd"])
-    n = len(task_means)
-    out: dict[str, float] = {
-        "mean_reward": (sum(task_means) / n) if n else 0.0,
-        "pass_rate": (passes / total) if total else 0.0,
-        "n_tasks": float(n),
-    }
     if times:
         out["time_per_task"] = sum(times) / len(times)
     if tokens:
@@ -205,4 +177,4 @@ def upload_eval_rollouts(store: Any, run_id: str, predictions: list[dict]) -> No
             )
 
 
-__all__ = ["score_via_harbor", "eval_metrics", "eval_predictions", "upload_eval_rollouts"]
+__all__ = ["eval_metrics", "eval_predictions", "upload_eval_rollouts"]

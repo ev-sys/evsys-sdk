@@ -19,7 +19,6 @@ from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    EvalConfig,
     ExperimentConfig,
     ModelConfig,
     RunConfig,
@@ -64,7 +63,6 @@ def main():
             model=ModelConfig(name="tiny/fake"),
             algorithm=AlgorithmConfig(kind="cosine_toy", params={"num_steps": 30, "period": 5.0}),
             backend=BackendConfig(kind="mock"),
-            eval=EvalConfig(enabled=False),
         ),
     )
     [result] = run_experiment(cfg)

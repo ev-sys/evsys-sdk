@@ -1,109 +1,124 @@
-"""Built-in metrics: exact_match, mean_reward, pass@k, toolkit_match."""
+"""Built-in benchmark metrics — reduce per-task rollout rewards to a scalar.
+
+A benchmark scores each task by running its verifier on ``num_samples`` rollouts,
+yielding a list of per-sample rewards per task. A **metric** reduces that
+``list[list[float]]`` (one inner list per task, holding that task's sample
+rewards) to a single number. Metrics are referenced by **string name** on a
+benchmark's ``metrics:`` list and registered with ``@register_metric``; add your
+own the same way in a project.
+
+Built-ins:
+  * ``mean_reward`` / ``avg`` — macro mean reward (mean over tasks of each task's
+    mean sample reward).
+  * ``pass_rate`` — micro pass rate (passing samples / total samples, pooled).
+  * ``pass@k`` — a task is solved if **any** of its first ``k`` samples passes.
+  * ``pass^k`` — a task is solved only if **all** of its first ``k`` samples pass
+    (consistency / "pass-hat-k").
+
+The interface is one method::
+
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float
+"""
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
-
-from pydantic import BaseModel, ConfigDict
+from typing import ClassVar, Sequence
 
 from ..registry import register_metric
 
-
-class _NoConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-@register_metric("exact_match")
-class ExactMatch:
-    """Exact-string match between prediction['answer'] and target['answer']."""
-
-    name: ClassVar[str] = "exact_match"
-    Config: ClassVar[type] = _NoConfig
-
-    def compute(
-        self,
-        *,
-        predictions: list[dict[str, Any]],
-        targets: list[dict[str, Any]],
-    ) -> float:
-        if not predictions:
-            return 0.0
-        if len(predictions) != len(targets):
-            raise ValueError("predictions and targets must have the same length")
-        n_correct = sum(
-            1 for p, t in zip(predictions, targets) if p.get("answer") == t.get("answer")
-        )
-        return n_correct / len(predictions)
+# A sample "passes" when its reward clears this threshold.
+PASS_THRESHOLD = 1.0
 
 
-@register_metric("toolkit_match")
-class ToolkitMatch:
-    """Predicted answer's toolkit prefix matches target's toolkit."""
+def _passes(reward: float) -> bool:
+    return reward >= PASS_THRESHOLD
 
-    name: ClassVar[str] = "toolkit_match"
-    Config: ClassVar[type] = _NoConfig
 
-    def compute(
-        self,
-        *,
-        predictions: list[dict[str, Any]],
-        targets: list[dict[str, Any]],
-    ) -> float:
-        if not predictions:
-            return 0.0
-        n = 0
-        for p, t in zip(predictions, targets):
-            ans = p.get("answer", "") or ""
-            tk = t.get("toolkit", "") or ""
-            if tk and ans.startswith(tk + "_"):
-                n += 1
-        return n / len(predictions)
+def _nonempty(task_rewards: Sequence[Sequence[float]]) -> list[Sequence[float]]:
+    return [rs for rs in task_rewards if rs]
 
 
 @register_metric("mean_reward")
 class MeanReward:
-    """Mean of prediction['reward']."""
+    """Macro mean reward: mean over tasks of each task's mean sample reward."""
 
     name: ClassVar[str] = "mean_reward"
-    Config: ClassVar[type] = _NoConfig
 
-    def compute(
-        self,
-        *,
-        predictions: list[dict[str, Any]],
-        targets: list[dict[str, Any]],
-    ) -> float:
-        if not predictions:
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        tasks = _nonempty(task_rewards)
+        if not tasks:
             return 0.0
-        return sum(float(p.get("reward", 0.0)) for p in predictions) / len(predictions)
+        return sum(sum(rs) / len(rs) for rs in tasks) / len(tasks)
 
 
-class PassAtKConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    k: int = 1
+@register_metric("avg")
+class Avg(MeanReward):
+    """Alias for ``mean_reward``."""
+
+    name: ClassVar[str] = "avg"
 
 
-@register_metric("pass_at_k")
-class PassAtK:
-    """Pass@k: prediction['samples'] is a list[str]; target['answer'] must appear in first k."""
+@register_metric("pass_rate")
+class PassRate:
+    """Micro pass rate: passing samples / total samples across all tasks."""
 
-    name: ClassVar[str] = "pass_at_k"
-    Config: ClassVar[type] = PassAtKConfig
+    name: ClassVar[str] = "pass_rate"
 
-    def __init__(self, *, k: int = 1) -> None:
-        self.k = k
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        passes = sum(1 for rs in task_rewards for r in rs if _passes(r))
+        total = sum(len(rs) for rs in task_rewards)
+        return passes / total if total else 0.0
 
-    def compute(
-        self,
-        *,
-        predictions: list[dict[str, Any]],
-        targets: list[dict[str, Any]],
-    ) -> float:
-        if not predictions:
+
+class _PassAtK:
+    """pass@k: a task is solved if **any** of its first ``k`` samples passes."""
+
+    k: ClassVar[int]
+
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        tasks = _nonempty(task_rewards)
+        if not tasks:
             return 0.0
-        n = 0
-        for p, t in zip(predictions, targets):
-            samples = p.get("samples") or [p.get("answer")]
-            if t.get("answer") in samples[: self.k]:
-                n += 1
-        return n / len(predictions)
+        solved = sum(1 for rs in tasks if any(_passes(r) for r in rs[: self.k]))
+        return solved / len(tasks)
+
+
+class _PassHatK:
+    """pass^k: a task is solved only if **all** of its first ``k`` samples pass."""
+
+    k: ClassVar[int]
+
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        tasks = _nonempty(task_rewards)
+        if not tasks:
+            return 0.0
+        solved = sum(1 for rs in tasks if all(_passes(r) for r in rs[: self.k]))
+        return solved / len(tasks)
+
+
+@register_metric("pass@1")
+class PassAt1(_PassAtK):
+    name: ClassVar[str] = "pass@1"
+    k: ClassVar[int] = 1
+
+
+@register_metric("pass@3")
+class PassAt3(_PassAtK):
+    name: ClassVar[str] = "pass@3"
+    k: ClassVar[int] = 3
+
+
+@register_metric("pass^3")
+class PassHat3(_PassHatK):
+    name: ClassVar[str] = "pass^3"
+    k: ClassVar[int] = 3
+
+
+__all__ = [
+    "MeanReward",
+    "Avg",
+    "PassRate",
+    "PassAt1",
+    "PassAt3",
+    "PassHat3",
+]

@@ -1,8 +1,10 @@
-"""Built-in metrics. Importing registers them."""
+"""Built-in benchmark metrics. Importing registers them."""
 
 from .basic import (  # noqa: F401
-    ExactMatch,
+    Avg,
     MeanReward,
-    PassAtK,
-    ToolkitMatch,
+    PassAt1,
+    PassAt3,
+    PassHat3,
+    PassRate,
 )

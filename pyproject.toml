@@ -17,8 +17,10 @@ dependencies = [
 
 [project.optional-dependencies]
 tinker = [
-    "tinker>=0.18.2",
-    "tinker-cookbook>=0.3.0",
+    # Pinned: the importance_sampling loss inputs (target_tokens/logprobs/advantages,
+    # no mask/weights) are validated against this exact server/SDK version.
+    "tinker==0.22.3",
+    "tinker-cookbook==0.4.2",
     "chz",
 ]
 local = [

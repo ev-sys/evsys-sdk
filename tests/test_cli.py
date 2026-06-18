@@ -22,7 +22,6 @@ def _make_cfg_dict(tmp_path: Path) -> dict:
             "model": {"name": "tiny/fake"},
             "algorithm": {"kind": "mock_sft", "params": {"num_epochs": 1}},
             "backend": {"kind": "mock"},
-            "eval": {"enabled": False},
         },
     }
 

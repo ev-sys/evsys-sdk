@@ -116,18 +116,18 @@ class _SDFTMockSampler:
 # ---------------------------------------------------------------------------
 
 
-async def _fake_run_harbor_generations(prompts, **kwargs):
-    """Stand-in for the harbor engine's student generation: one canned 4-token
-    completion per prompt (the teacher topK path still runs against the mock
-    teacher client)."""
-    from evsys_sdk.training.trajectory import Trajectory, Turn
+async def _fake_run_harbor_rollouts(tasks, **kwargs):
+    """Stand-in for the harbor engine's student rollout (verify=False): one
+    canned 4-token completion per task, as a one-trajectory TrajectoryGroup (the
+    teacher topK path still runs against the mock teacher client)."""
+    from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
 
     return [
-        Trajectory(turns=[Turn(
+        TrajectoryGroup(trajectories=[Trajectory(turns=[Turn(
             prompt_tokens=[1, 2, 3], completion_tokens=[11, 12, 13, 14],
             logprobs=[-0.5, -0.5, -0.5, -0.5],
-        )])
-        for _ in prompts
+        )])])
+        for _ in tasks
     ]
 
 
@@ -145,8 +145,8 @@ def patched_tinker_backend(monkeypatch):
 
     monkeypatch.setattr(sdft_module.TinkerBackend, "create", _factory)
     monkeypatch.setattr(
-        "evsys_sdk.training.harbor_engine.run_harbor_generations",
-        _fake_run_harbor_generations,
+        "evsys_sdk.training.harbor_engine.run_harbor_rollouts",
+        _fake_run_harbor_rollouts,
     )
     return backend
 

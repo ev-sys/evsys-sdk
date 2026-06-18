@@ -1,6 +1,6 @@
 """In-loop validation through harbor (BenchmarkEvaluator engine='harbor').
 
-Mocks score_via_harbor so the evaluator's harbor branch is exercised without
+Mocks run_harbor_rollouts so the evaluator's harbor branch is exercised without
 a harbor install."""
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def test_harbor_engine_scores_via_harbor(monkeypatch):
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     ev = BenchmarkEvaluator(
         name="val", benchmark=_bench(), tokenizer=None,
@@ -60,7 +60,7 @@ def test_harbor_validation_uploads_eval_per_step(monkeypatch):
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     class _Store:
         def __init__(self):
@@ -104,7 +104,7 @@ def test_harbor_validation_skips_upload_without_eval_id(monkeypatch):
             reward=1.0,
         )]) for _ in tasks]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     class _Store:
         def __init__(self):
@@ -133,7 +133,7 @@ def test_non_harbor_engine_uses_sampler_path(monkeypatch):
         called["harbor"] = True
         return []
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _boom)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _boom)
 
     # benchmark.score is what the sampler path calls — stub it via a fake bench.
     class _Bench:

@@ -1,6 +1,6 @@
 """Post-training benchmark eval through harbor (opt-in `engine: harbor`).
 
-Mocks score_via_harbor (no harbor/containers) and checks Experiment._eval_arm_harbor
+Mocks run_harbor_rollouts (no harbor/containers) and checks Experiment._eval_arm_harbor
 scores the benchmark + uploads eval rollouts (kind='eval')."""
 
 from __future__ import annotations
@@ -50,6 +50,90 @@ def _run_cfg():
     )
 
 
+def test_api_models_run_once_even_when_benchmark_has_run_every(monkeypatch):
+    # A run_every benchmark is scored in-loop (checkpoint) — skipped here — but
+    # its closed-source `models` still run ONCE post-training (static weights,
+    # never in-loop).
+    calls: list = []
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: (lambda rr, c: object()))
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    meta = {"name": "b", "run_every": 200, "engine": "harbor",
+            "models": ["anthropic/claude-opus-4-1", "openai/gpt-4o"]}
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {})
+
+    # both API models scored once; the checkpoint (api_model=None) is NOT scored
+    # here (run_every → handled in-loop).
+    assert calls == ["anthropic/claude-opus-4-1", "openai/gpt-4o"]
+    assert None not in calls
+
+
+def test_score_api_models_false_skips_api_evals_keeps_checkpoint(monkeypatch):
+    # Continual stages after the first pass score_api_models=False: the closed/API
+    # `models` benchmark is NOT re-scored (fixed weights), but the trained
+    # checkpoint (engine: harbor → api_model=None) still is.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    calls: list = []
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    meta = {"name": "b", "engine": "harbor", "models": ["anthropic/claude-opus-4-8"]}
+
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {})                 # stage 0 (default True)
+    assert calls == ["anthropic/claude-opus-4-8", None]              # api model + checkpoint
+
+    calls.clear()
+    e._eval_arm(arm, run_cfg, [(_bench(), meta)], {}, score_api_models=False)
+    assert calls == [None]                                           # checkpoint only
+
+
+def test_harbor_benchmark_runs_without_inference_factory(monkeypatch):
+    # Gate fix: engine: harbor benchmarks don't depend on the legacy inference
+    # factory — the harbor eval runs even when no factory is available.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: None)
+    calls: list = []
+    monkeypatch.setattr(
+        e, "_eval_arm_harbor",
+        lambda arm, rc, bench, meta, *, api_model=None: calls.append(api_model),
+    )
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    e._eval_arm(arm, run_cfg, [(_bench(), {"name": "b", "engine": "harbor"})], {})
+    assert calls == [None]   # checkpoint scored via harbor despite factory=None
+
+
+def test_legacy_benchmark_skipped_without_factory(monkeypatch):
+    # The ONLY path that needs a factory is the legacy bench.score(client) path;
+    # with no factory it's skipped (warning), not a crash and not an eval.
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    monkeypatch.setattr(e, "_resolve_inference_factory", lambda rc: None)
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed", artifacts={}),
+    )
+    e._eval_arm(arm, run_cfg, [(_bench(), {"name": "b"})], {})   # no engine: harbor
+    assert arm.evals == []
+
+
 def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     async def _fake_score(tasks, **kwargs):
         return [
@@ -58,12 +142,11 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                     reward=1.0,
                 )],
-                tags=["test"],
             )
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     store = _Store()
     run_cfg = _run_cfg()
@@ -89,6 +172,69 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
     assert rows[0]["completion_token_ids"] == [2, 3]
 
 
+def test_eval_arm_harbor_forwards_n_concurrent_from_bench_meta(monkeypatch):
+    captured: dict = {}
+
+    async def _fake_score(tasks, **kwargs):
+        captured.update(kwargs)
+        return [TrajectoryGroup(trajectories=[Trajectory(turns=[], reward=0.0)]) for _ in tasks]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed",
+                             artifacts={"checkpoint-final": "tinker://ckpt"}),
+    )
+    e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "n_concurrent": 32})
+    assert captured["n_concurrent"] == 32                       # config value forwarded
+    captured.clear()
+    e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b"})
+    assert captured["n_concurrent"] == 8                        # default when unset
+
+
+def test_eval_arm_harbor_api_model_uses_litellm_and_per_model_eval(monkeypatch):
+    # api_model → score that closed model via litellm (not the checkpoint),
+    # recorded as its own per-model eval.
+    captured: dict = {}
+
+    async def _fake_score(tasks, **kwargs):
+        captured.update(kwargs)
+        return [
+            TrajectoryGroup(
+                trajectories=[Trajectory(
+                    turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
+                    reward=1.0,
+                )],
+            )
+            for _ in tasks
+        ]
+
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
+
+    run_cfg = _run_cfg()
+    e = Experiment(ExperimentConfig(name="x", run=run_cfg), store=_Store())
+    arm = ArmResult(
+        name="r", run_config=run_cfg, status="completed", run_id="run1",
+        run_result=RunResult(run_id="run1", status="completed",
+                             artifacts={"checkpoint-final": "tinker://ckpt"}),
+    )
+
+    e._eval_arm_harbor(
+        arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]},
+        api_model="anthropic/claude-opus-4-1",
+    )
+
+    assert captured["model_client"] == "litellm"
+    assert captured["model_name"] == "anthropic/claude-opus-4-1"
+    assert captured["model_path"] is None              # API model, not the checkpoint
+    # recorded as a distinct per-model eval (name + tag carry the model)
+    ev = arm.evals[0]
+    assert ev.name == "b@anthropic/claude-opus-4-1"
+    assert "anthropic/claude-opus-4-1" in ev.tags
+
+
 def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
     # Eval rollouts must land under the run's output dir (harbor_eval/<bench>),
     # not an ephemeral tempdir — so they survive the run like training/val do.
@@ -102,12 +248,11 @@ def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
                     turns=[Turn(prompt_tokens=[1], completion_tokens=[2, 3], logprobs=[-0.1, -0.2])],
                     reward=1.0,
                 )],
-                tags=["test"],
             )
             for _ in tasks
         ]
 
-    monkeypatch.setattr("evsys_sdk.training.harbor_eval.score_via_harbor", _fake_score)
+    monkeypatch.setattr("evsys_sdk.training.harbor_engine.run_harbor_rollouts", _fake_score)
 
     run_cfg = _run_cfg()
     cfg = ExperimentConfig(name="x", run=run_cfg, output_dir=str(tmp_path))
