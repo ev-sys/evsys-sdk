@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..registry import register_log_store, get_log_store
+from ..registry import get_log_store, register_log_store
 
 
 class MultiplexLogStoreConfig(BaseModel):
@@ -42,9 +42,9 @@ class MultiplexLogStore:
         for c in self._children:
             c.log_scalar(key, value, step)
 
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int, *, split: str = "train") -> None:
         for c in self._children:
-            c.log_metrics(metrics, step)
+            c.log_metrics(metrics, step, split=split)
 
     def log_hyperparams(self, params: dict[str, Any]) -> None:
         for c in self._children:

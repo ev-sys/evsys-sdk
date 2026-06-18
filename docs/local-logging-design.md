@@ -72,9 +72,22 @@ guarded on `ctx.extras.get("run_log")` / `state.run_log`, so absence is a no-op.
 |---|---|
 | 01_data | rows count + meta + transforms (in order), first ~5 rows, exact chat template for ~3 examples |
 | 02_training_rollouts | per logged step: a few groups; per sample reward + advantage + decoded prediction + first ~80 tokens' logprobs |
-| 03_validation_rollouts | per eval: a few groups' decoded predictions + rewards |
+| 03_validation_rollouts | per eval, **split into `val/` and `test/` subfolders** by the benchmark's tag: decoded predictions + rewards |
 | 04_training_metrics | whitelisted scalars → CSV (`loss`, `nll`, `reward/mean`, `lr`, `kl`, `advantage`, …) |
-| 05_validation_metrics | `val/*` scalars → CSV (accumulates across evals) + a markdown block per eval |
+| 05_validation_metrics | eval scalars → CSV with a **`split` column** (`val`/`test`) + a markdown block per eval, tagged `[val]`/`[test]` |
+
+## Eval tagging (val / test)
+
+Benchmarks carry a `tags` list; `split_from_tags()` maps it to an eval split
+(`test` if tagged test, else `val`). Both kinds can run **in-loop n times**
+(`run_every`). The split flows everywhere so val and test never blur:
+
+- in-loop metric keys are `{split}/{name}/{metric}` and the log-store row is tagged
+  `split=` (the `JSONLLogStore.log_metrics(split=)` bug — it rejected the kwarg and
+  crashed every in-loop eval — is fixed; the loop no longer hardcodes `val`).
+- `forward_step_metrics` forwards each split to the dashboard under its own `split`.
+- `run_log` rollouts go to `03_validation_rollouts/{split}/…`; metrics carry a `split`
+  column + `[split]` headers; the summary shows `[val]`/`[test]` per eval.
 
 ## Verification
 

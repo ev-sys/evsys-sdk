@@ -611,11 +611,14 @@ class Experiment:
             step=None,
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
-        # Readable validation view: metrics block + decoded rollout predictions.
-        # The full per-task rollouts live in harbor's eval jobs dir (referenced).
+        # Readable eval view: metrics block + decoded rollout predictions,
+        # tagged by the benchmark's split (val / test). The full per-task
+        # rollouts live in harbor's eval jobs dir (referenced).
         if run_log is not None:
-            run_log.log_validation_metrics(eval_name, dict(score.metrics))
-            run_log.log_validation_rollouts(eval_name, score.rollouts, tasks=tasks)
+            from .run_log import split_from_tags
+            split = split_from_tags(bench_meta.get("tags"))
+            run_log.log_validation_metrics(eval_name, dict(score.metrics), split=split)
+            run_log.log_validation_rollouts(eval_name, score.rollouts, split=split, tasks=tasks)
 
         eval_id = self._record_eval(arm, bench, bench_meta, score)
         # Upload eval rollouts only (training rollouts are never uploaded), and

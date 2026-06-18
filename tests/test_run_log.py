@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from evsys_sdk.run_log import RunLog, get_run_log, _CURRENT
+from evsys_sdk.run_log import RunLog, get_run_log, split_from_tags, _CURRENT
 
 
 @dataclass
@@ -77,35 +77,48 @@ def test_training_rollouts_reward_advantage_and_per_token(tmp_path):
     assert "per-token logprobs" in md and "logprob" in md  # loss-per-token signal
 
 
-def test_validation_rollouts(tmp_path):
+def test_split_from_tags():
+    assert split_from_tags(["test"]) == "test"
+    assert split_from_tags(["val"]) == "val"
+    assert split_from_tags([]) == "val"           # default
+    assert split_from_tags(["foo", "test"]) == "test"
+
+
+def test_validation_rollouts_tagged_by_split(tmp_path):
     rl = RunLog(tmp_path / "run")
-    rl.log_validation_rollouts("bench1", [_group([1.0])], tasks=[_Task("q")])
-    md = (tmp_path / "run" / "03_validation_rollouts" / "bench1.md").read_text()
-    assert "reward 1.000" in md
+    rl.log_validation_rollouts("bench1", [_group([1.0])], split="val", tasks=[_Task("q")])
+    rl.log_validation_rollouts("bench2", [_group([0.0])], split="test", tasks=[_Task("q")])
+    # val and test land in separate subfolders.
+    assert (tmp_path / "run" / "03_validation_rollouts" / "val" / "bench1.md").exists()
+    assert (tmp_path / "run" / "03_validation_rollouts" / "test" / "bench2.md").exists()
 
 
-def test_render_metrics_splits_train_and_val(tmp_path):
+def test_render_metrics_splits_train_val_test(tmp_path):
     rl = RunLog(tmp_path / "run")
     logs = tmp_path / "run" / "logs"
     logs.mkdir(parents=True)
     with (logs / "metrics.jsonl").open("w") as f:
-        f.write(json.dumps({"step": 0, "metrics": {"train/loss": 2.0, "optim/lr": 1e-4, "noise": 9}}) + "\n")
-        f.write(json.dumps({"step": 1, "metrics": {"train/loss": 1.0, "val/bench/pass_rate": 0.5}}) + "\n")
+        f.write(json.dumps({"step": 0, "split": "train", "metrics": {"train/loss": 2.0, "optim/lr": 1e-4, "noise": 9}}) + "\n")
+        f.write(json.dumps({"step": 1, "split": "val", "metrics": {"val/bench/pass_rate": 0.5}}) + "\n")
+        f.write(json.dumps({"step": 1, "split": "test", "metrics": {"test/bench/pass_rate": 0.9}}) + "\n")
     rl.render_metrics()
     train_csv = (tmp_path / "run" / "04_training_metrics" / "metrics.csv").read_text()
     assert "train/loss" in train_csv and "lr" in train_csv and "noise" not in train_csv
-    val_csv = (tmp_path / "run" / "05_validation_metrics" / "metrics.csv").read_text()
-    assert "val/bench/pass_rate" in val_csv
+    eval_csv = (tmp_path / "run" / "05_validation_metrics" / "metrics.csv").read_text()
+    assert "split" in eval_csv  # tagged column
+    assert "val/bench/pass_rate" in eval_csv and "test/bench/pass_rate" in eval_csv
+    assert "val" in eval_csv and "test" in eval_csv
 
 
-def test_validation_metrics_block_and_summary(tmp_path):
+def test_validation_metrics_block_and_summary_tagged(tmp_path):
     rl = RunLog(tmp_path / "run", experiment_name="exp", run_name="armA", hypothesis="h")
-    rl.log_validation_metrics("bench1", {"pass_rate": 0.75, "n_tasks": 4.0}, step=10)
+    rl.log_validation_metrics("bench1", {"pass_rate": 0.75}, step=10, split="val")
+    rl.log_validation_metrics("bench2", {"pass_rate": 0.9}, step=10, split="test")
     rl.write_summary(status="completed", conclusion="it worked")
     vm = (tmp_path / "run" / "05_validation_metrics" / "metrics.md").read_text()
-    assert "bench1" in vm and "pass_rate" in vm and "step 10" in vm
+    assert "[val] bench1" in vm and "[test] bench2" in vm and "step 10" in vm
     summary = (tmp_path / "run" / "summary.md").read_text()
-    assert "h" in summary and "completed" in summary and "it worked" in summary and "bench1" in summary
+    assert "completed" in summary and "[val]" in summary and "[test]" in summary
 
 
 def test_user_named_folder_api(tmp_path):

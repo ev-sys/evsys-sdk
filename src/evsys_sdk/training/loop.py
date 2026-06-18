@@ -361,10 +361,13 @@ class TrainingLoop:
                     "evaluator %r raised at step %d; continuing", ev.name, step
                 )
                 continue
+            # Tag by the evaluator's split (val / test) so both in-loop eval
+            # kinds stay distinct in the metric keys and the store split.
+            ev_split = getattr(ev, "split", "val")
             self.log_store.log_metrics(
-                {f"val/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
+                {f"{ev_split}/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
                 step=step + 1,
-                split="val",
+                split=ev_split,
             )
             if state is not None:
                 self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))

@@ -38,8 +38,9 @@ import csv
 import io
 import json
 import statistics
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 
 from .logger import get_logger
 
@@ -68,7 +69,7 @@ _MAX_TOKENS_SHOWN = 80
 _CURRENT: contextvars.ContextVar = contextvars.ContextVar("evsys_run_log", default=None)
 
 
-def get_run_log() -> "RunLog | None":
+def get_run_log() -> RunLog | None:
     """Return the RunLog for the run currently executing, or ``None`` outside a run.
 
     Lets user-written ``transforms`` / helpers log into the same per-run log::
@@ -223,7 +224,7 @@ class RunLog:
     def log_training_rollouts(
         self,
         step: int,
-        groups: "Sequence[TrajectoryGroup]",
+        groups: Sequence[TrajectoryGroup],
         *,
         advantages: Sequence[Sequence[float]] | None = None,
         tokenizer: Any = None,
@@ -244,18 +245,21 @@ class RunLog:
     def log_validation_rollouts(
         self,
         label: str,
-        groups: "Sequence[TrajectoryGroup]",
+        groups: Sequence[TrajectoryGroup],
         *,
+        split: str = "val",
         tokenizer: Any = None,
         tasks: Sequence[Any] | None = None,
         k_groups: int = 3,
         max_tokens: int = _MAX_TOKENS_SHOWN,
     ) -> None:
-        """Record validation rollout predictions for one eval (``label`` e.g.
-        the benchmark name or ``step_N``)."""
+        """Record eval rollout predictions for one eval, tagged by ``split``
+        (the benchmark's tag — ``val`` or ``test``). Files land under
+        ``03_validation_rollouts/{split}/{label}.md`` so val and test stay
+        separated even when both run in-loop."""
         try:
-            self._log_rollouts(VAL_ROLLOUTS, _safe(label), groups, None,
-                               tokenizer, tasks, k_groups, max_tokens)
+            self._log_rollouts(f"{VAL_ROLLOUTS}/{_safe(split)}", _safe(label), groups,
+                               None, tokenizer, tasks, k_groups, max_tokens)
         except Exception:  # pragma: no cover - defensive
             log.debug("run_log.log_validation_rollouts failed", exc_info=True)
 
@@ -301,7 +305,7 @@ class RunLog:
                     toks = list(getattr(last, "completion_tokens", None) or [])
                     lps = list(getattr(last, "logprobs", None) or [])
                     if toks and lps:
-                        out.append("per-token logprobs (first %d):" % min(max_tokens, len(toks)))
+                        out.append(f"per-token logprobs (first {min(max_tokens, len(toks))}):")
                         out.append("| i | token | logprob |")
                         out.append("| - | --- | --- |")
                         for i in range(min(max_tokens, len(toks), len(lps))):
@@ -313,14 +317,17 @@ class RunLog:
     # -- 04 / 05 metrics -----------------------------------------------------
 
     def render_metrics(self) -> None:
-        """Split the run's ``metrics.jsonl`` into training vs validation CSVs
-        (``val/*`` keys → validation). Validation rows accumulate across evals."""
+        """Split the run's ``metrics.jsonl`` into training (``04``) vs eval
+        (``05``) CSVs. Eval metrics keep their tag (``val`` / ``test``) — taken
+        from the row's ``split`` or the metric key's leading segment — in a
+        ``split`` column, so val and test stay distinct even when both run
+        in-loop n times."""
         try:
             path = self._find_metrics_jsonl()
             if path is None:
                 return
-            train_rows, val_rows = [], []
-            train_keys, val_keys = [], []
+            train_rows, eval_rows = [], []
+            train_keys, eval_keys = [], []
             for line in path.read_text().splitlines():
                 line = line.strip()
                 if not line:
@@ -331,44 +338,51 @@ class RunLog:
                     continue
                 metrics = rec.get("metrics", rec)
                 step = rec.get("step")
-                tr, vl = {}, {}
+                row_split = str(rec.get("split", "") or "").lower()
+                tr: dict[str, Any] = {}
+                ev: dict[str, dict[str, Any]] = {}   # split -> {key: val}
                 for k, v in metrics.items():
                     if not isinstance(v, (int, float)):
                         continue
-                    kl = k.lower()
-                    if kl.startswith("val") or "/val" in kl:
-                        vl[k] = v
-                    elif any(w in kl for w in _METRIC_WHITELIST):
+                    seg = k.split("/", 1)[0].lower()
+                    split = (seg if seg in ("val", "test")
+                             else row_split if row_split in ("val", "test", "valid", "validation")
+                             else None)
+                    if split:
+                        split = "val" if split.startswith("val") else split
+                        ev.setdefault(split, {})[k] = v
+                    elif any(w in k.lower() for w in _METRIC_WHITELIST):
                         tr[k] = v
                 if tr:
                     train_rows.append({"step": step, **tr})
                     train_keys += [k for k in tr if k not in train_keys]
-                if vl:
-                    val_rows.append({"step": step, **vl})
-                    val_keys += [k for k in vl if k not in val_keys]
+                for split, m in ev.items():
+                    eval_rows.append({"step": step, "split": split, **m})
+                    eval_keys += [k for k in m if k not in eval_keys]
             if train_rows:
                 self._write_csv(self.dir(TRAIN_METRICS) / "metrics.csv",
                                ["step", *train_keys], train_rows)
-            if val_rows:
+            if eval_rows:
                 self._write_csv(self.dir(VAL_METRICS) / "metrics.csv",
-                               ["step", *val_keys], val_rows)
+                               ["step", "split", *eval_keys], eval_rows)
         except Exception:  # pragma: no cover - defensive
             log.debug("run_log.render_metrics failed", exc_info=True)
 
     def log_validation_metrics(self, name: str, metrics: dict[str, float], *,
-                               step: int | None = None) -> None:
-        """Append one benchmark's validation metrics block (one per eval, so
-        repeated evals each leave a record)."""
+                               step: int | None = None, split: str = "val") -> None:
+        """Append one benchmark's eval metrics block, tagged by ``split`` (the
+        benchmark's tag — ``val`` or ``test``). One block per eval, so repeated
+        in-loop evals each leave a record."""
         try:
-            self._evals.append({"name": name, "metrics": dict(metrics)})
-            head = f"## {name}" + (f" @ step {step}" if step is not None else "")
+            self._evals.append({"name": name, "split": split, "metrics": dict(metrics)})
+            head = f"## [{split}] {name}" + (f" @ step {step}" if step is not None else "")
             out = [head, "", "| metric | value |", "| --- | --- |"]
             for k, v in metrics.items():
                 out.append(f"| {k} | {v:.4f} |" if isinstance(v, float) else f"| {k} | {v} |")
             out.append("")
             path = self.dir(VAL_METRICS) / "metrics.md"
             with path.open("a") as f:
-                f.write(("" if path.exists() else "# Validation metrics\n\n") + "\n".join(out) + "\n")
+                f.write(("" if path.exists() else "# Eval metrics (val / test)\n\n") + "\n".join(out) + "\n")
         except Exception:  # pragma: no cover - defensive
             log.debug("run_log.log_validation_metrics failed", exc_info=True)
 
@@ -387,13 +401,13 @@ class RunLog:
                 out.append(f"- {best_metric}: **{best_value:.4f}**")
             out.append("")
             if self._evals:
-                out += ["## Validation", ""]
+                out += ["## Eval (val / test)", ""]
                 for ev in self._evals:
                     head = ", ".join(
                         f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
                         for k, v in list(ev["metrics"].items())[:4]
                     )
-                    out.append(f"- **{ev['name']}** — {head}")
+                    out.append(f"- `[{ev.get('split', 'val')}]` **{ev['name']}** — {head}")
                 out.append("")
             if conclusion:
                 out += ["## Conclusion", "", conclusion, ""]
@@ -424,4 +438,12 @@ def _safe(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_/") else "_" for c in str(name))
 
 
-__all__ = ["RunLog", "get_run_log"]
+def split_from_tags(tags: Sequence[str] | None) -> str:
+    """Map a benchmark's ``tags`` to its eval split. ``test`` wins if present
+    (the held-out set), else ``val``. Used to tag eval metrics + rollouts so
+    val and test stay distinct when both run in-loop."""
+    tl = {str(t).lower() for t in (tags or [])}
+    return "test" if "test" in tl else "val"
+
+
+__all__ = ["RunLog", "get_run_log", "split_from_tags"]

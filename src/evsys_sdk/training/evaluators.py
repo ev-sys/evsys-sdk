@@ -29,6 +29,7 @@ import tinker
 
 from ..benchmark import Benchmark
 from ..inference.chat_templated import ChatTemplatedInference
+from ..run_log import split_from_tags
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,10 @@ class BenchmarkEvaluator:
     benchmark_id: str | None = None
     run_log: Any = None
     """The run's RunLog (or None). When set, each in-loop eval writes its
-    validation rollouts (03_validation_rollouts) + metrics (05_validation_metrics)."""
+    eval rollouts (03_validation_rollouts/{split}) + metrics (05_validation_metrics)."""
+    split: str = "val"
+    """The benchmark's eval tag — ``val`` or ``test`` (from its ``tags``). Used to
+    tag this eval's metrics + rollouts so val and test stay distinct in-loop."""
 
     async def evaluate(
         self, sampler: Any, *,
@@ -198,11 +202,14 @@ class BenchmarkEvaluator:
                  else self.benchmark.tasks[: max(0, self.limit)])
         if self.store is not None and self.run_id:
             self._upload(tasks, score.rollouts, dict(score.metrics), step)
-        # Readable validation log for this eval (one block/file per step).
+        # Readable eval log for this eval, tagged by split (val / test).
         if self.run_log is not None:
             label = f"{self.name}_step_{step}" if step is not None else self.name
-            self.run_log.log_validation_metrics(self.name, dict(score.metrics), step=step)
-            self.run_log.log_validation_rollouts(label, score.rollouts, tasks=tasks)
+            self.run_log.log_validation_metrics(self.name, dict(score.metrics),
+                                                step=step, split=self.split)
+            self.run_log.log_validation_rollouts(label, score.rollouts,
+                                                 split=self.split, tokenizer=self.tokenizer,
+                                                 tasks=tasks)
         return dict(score.metrics)
 
     def _upload(
@@ -317,6 +324,7 @@ def build_in_loop_evaluators(
             store=store,
             run_id=run_id,
             run_log=run_log,
+            split=split_from_tags(spec.get("tags")),
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out
