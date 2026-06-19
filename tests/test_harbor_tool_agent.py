@@ -7,13 +7,20 @@ class with ``@register_agent``. No model/credentials: the "policy" is scripted s
 test is deterministic, but the harness (multi-turn loop + tool execution + per-turn
 harvest) is exactly what a real agent would do.
 
-Harbor loads it by import path ``tests.harbor_tool_agent:ToolLoopAgent`` at runtime.
+Harbor loads it by import path ``tests.test_harbor_tool_agent:ToolLoopAgent`` at
+runtime. It defines no test functions — it's a registered agent used by
+``test_harbor_rollout_smoke.py`` — so the ``importorskip`` below also makes pytest
+skip it cleanly in CI (where harbor isn't installed) instead of erroring on import.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
+import pytest
+
+pytest.importorskip("harbor")  # subclasses harbor BaseAgent; skip collection without harbor
 
 from harbor.agents.base import BaseAgent
 from harbor.environments.base import BaseEnvironment

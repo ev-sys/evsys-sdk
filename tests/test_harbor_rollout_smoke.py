@@ -101,7 +101,7 @@ def test_tool_loop_agent_runs_multi_turn_tool_rollout(tmp_path):
     # A custom multi-turn TOOL-using agent, registered via @register_agent, selected
     # by agent_spec={kind: tool_loop}. Proves the plugin path runs a real tool loop
     # and harvests one Turn per loop iteration. (Real harbor Job, no model.)
-    import tests.harbor_tool_agent  # noqa: F401 — registers @register_agent("tool_loop")
+    import tests.test_harbor_tool_agent  # noqa: F401 — registers @register_agent("tool_loop")
 
     task = _task("t_tool", "find the right tool", expected="TOOLS_OK")
     groups = asyncio.run(run_harbor_rollouts(
