@@ -36,7 +36,9 @@ from harbor.llms.tinker import TinkerLLM
 from harbor.models.agent.context import AgentContext
 from harbor.models.verifier.result import VerifierResult
 from harbor.verifier.base import BaseVerifier
+from pydantic import BaseModel, ConfigDict
 
+from ..registry import register_agent
 from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
 
 
@@ -96,10 +98,23 @@ class NoOpEnvironment(BaseEnvironment):
         return ExecResult(stdout="", stderr="", return_code=0)
 
 
+@register_agent("basic_loop")
 class BasicLoopAgent(BaseAgent):
     """Drive ``Chat(TinkerLLM(model_path))`` and record the rollout: token-level
     ``rollout_details`` + the completion text on the ``AgentContext``, and the
-    completion written to the agent dir for the host-side verifier to score."""
+    completion written to the agent dir for the host-side verifier to score.
+
+    The default rollout harness, registered as ``basic_loop``. A researcher writes
+    their own harness by subclassing harbor's ``BaseAgent`` (implement ``name`` /
+    ``version`` / ``setup`` / ``run`` — a single call or a full multi-turn tool loop)
+    and decorating it with ``@register_agent("<name>")``; ``Config`` (optional) is the
+    Pydantic model validating the ``params`` a researcher sets in ``agent: {kind, params}``."""
+
+    #: agent-behaviour params settable via ``agent.params`` in the run config.
+    class Config(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        max_turns: int = 1
+        system_prompt: str | None = None
 
     def __init__(
         self,

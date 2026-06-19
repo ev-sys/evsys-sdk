@@ -1,9 +1,9 @@
-"""The agent harness as a registry extension ({kind, params} plugin).
+"""Agent harness as a registry extension — a harbor ``BaseAgent`` subclass is
+registered directly with ``@register_agent`` (same contract as harbor).
 
-The registry / AgentSpec / RunConfig tests are tinker-free and run in CI. The
-``resolve_agent`` tests import ``evsys_sdk.training.harbor_engine`` (which pulls in
-``evsys_sdk.training`` → ``import tinker``), so they go behind a tinker-guarded
-fixture — same convention as the rest of the suite.
+Registry mechanics / AgentSpec / RunConfig tests are tinker-free (CI). Tests that
+resolve the built-in ``basic_loop`` import the real harbor ``BaseAgent`` (→ tinker),
+so they go behind a tinker-guarded fixture.
 """
 
 from __future__ import annotations
@@ -17,47 +17,49 @@ from evsys_sdk.config import AlgorithmConfig, DataConfig, ModelConfig, RunConfig
 
 @pytest.fixture
 def resolve_agent():
-    pytest.importorskip("tinker")  # harbor_engine import triggers evsys_sdk.training → tinker
+    pytest.importorskip("tinker")  # resolve imports harbor_agents (the real BaseAgent) → tinker
     from evsys_sdk.training.harbor_engine import resolve_agent as _resolve
     return _resolve
 
 
 def _run(**kw) -> RunConfig:
-    base = dict(
-        name="r", data=DataConfig(path="d.jsonl"),
-        model=ModelConfig(name="Qwen/Qwen3-8B"),
-        algorithm=AlgorithmConfig(kind="sft"),
-    )
+    base = dict(name="r", data=DataConfig(path="d.jsonl"),
+                model=ModelConfig(name="Qwen/Qwen3-8B"), algorithm=AlgorithmConfig(kind="sft"))
     base.update(kw)
     return RunConfig(**base)
 
 
-# --- registry (CI-runnable) ------------------------------------------------
+# --- registry mechanics (CI-runnable, no harbor) ---------------------------
 
 
-def test_basic_loop_is_registered():
-    assert "basic_loop" in list_agents()
-    plugin = get_agent("basic_loop")
-    assert plugin.name == "basic_loop"
-    assert plugin.agent_path == "evsys_sdk.training.harbor_agents:BasicLoopAgent"
+def test_register_agent_keeps_name_method():
+    # A harbor BaseAgent exposes name() as a METHOD; registering must not clobber it.
+    @register_agent("dummy_agent")
+    class DummyAgent:
+        @staticmethod
+        def name() -> str:  # noqa: D401
+            return "dummy_agent"
 
-
-def test_custom_agent_registers_and_resolves(resolve_agent):
-    @register_agent("custom_react")
-    class _ReactPlugin:
-        name = "custom_react"
-        agent_path = "my.pkg:ReactAgent"
+        @classmethod
+        def import_path(cls) -> str:
+            return "pkg.mod:DummyAgent"
 
         class Config(BaseModel):
             model_config = ConfigDict(extra="forbid")
-            max_tool_calls: int = 5
+            max_turns: int = 1
     try:
-        path, params = resolve_agent(AgentSpec(kind="custom_react", params={"max_tool_calls": 9}))
-        assert path == "my.pkg:ReactAgent"
-        assert params == {"max_tool_calls": 9}
+        assert "dummy_agent" in list_agents()
+        cls = get_agent("dummy_agent")
+        assert cls is DummyAgent
+        assert callable(cls.name) and cls.name() == "dummy_agent"  # method preserved
     finally:
         from evsys_sdk.registry import _agents
-        _agents.unregister("custom_react")
+        _agents.unregister("dummy_agent")
+
+
+def test_get_unknown_agent_raises():
+    with pytest.raises(KeyError):
+        get_agent("nope_not_registered")
 
 
 # --- AgentSpec + RunConfig wiring (CI-runnable) ----------------------------
@@ -77,16 +79,22 @@ def test_runconfig_accepts_agent_spec():
     assert rc.agent.params == {"max_turns": 2}
 
 
-# --- resolve_agent (tinker-guarded) ----------------------------------------
+# --- resolve_agent against the real BaseAgent (tinker-guarded) --------------
 
 
-def test_resolve_none_is_default_harness(resolve_agent):
-    assert resolve_agent(None) == ("evsys_sdk.training.harbor_agents:BasicLoopAgent", {})
+def test_resolve_none_is_basic_loop_class():
+    pytest.importorskip("tinker")
+    from evsys_sdk.training.harbor_engine import resolve_agent
+    from evsys_sdk.training.harbor_agents import BasicLoopAgent
+    path, params = resolve_agent(None)
+    assert path == BasicLoopAgent.import_path()        # harbor's own import_path()
+    assert "basic_loop" in list_agents()               # the real BaseAgent registered
+    assert params == {}
 
 
 def test_resolve_default_spec_yields_no_overrides(resolve_agent):
-    # exclude_unset → an unset spec does NOT clobber the rollout's own max_turns/system_prompt
-    assert resolve_agent(AgentSpec()) == ("evsys_sdk.training.harbor_agents:BasicLoopAgent", {})
+    _, params = resolve_agent(AgentSpec())             # exclude_unset → no clobber
+    assert params == {}
 
 
 def test_resolve_explicit_params_override(resolve_agent):
@@ -99,11 +107,6 @@ def test_resolve_accepts_plain_dict(resolve_agent):
     assert params == {"system_prompt": "hi"}
 
 
-def test_resolve_unknown_kind_raises(resolve_agent):
-    with pytest.raises(KeyError):
-        resolve_agent({"kind": "does_not_exist"})
-
-
 def test_resolve_rejects_unknown_param(resolve_agent):
-    with pytest.raises(Exception):  # pydantic ValidationError (extra=forbid)
+    with pytest.raises(Exception):  # pydantic ValidationError (Config extra=forbid)
         resolve_agent(AgentSpec(params={"bogus": 1}))

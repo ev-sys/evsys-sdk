@@ -130,7 +130,6 @@ from .data_types import (
 )
 
 # Trigger registration of built-in extensions.
-from . import agents as _agents_mod  # noqa: F401  registers built-in agent harnesses
 from . import algorithms as _algorithms  # noqa: F401
 from . import backends as _backends  # noqa: F401
 from . import data_stores as _data_stores  # noqa: F401

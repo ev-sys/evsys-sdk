@@ -40,11 +40,14 @@ class Registry:
                     f"(existing={self._items[key].__module__}.{self._items[key].__name__}, "
                     f"new={cls.__module__}.{cls.__name__})"
                 )
-            # Best-effort: ensure the class declares its name attribute
-            try:
-                setattr(cls, "name", key)
-            except (TypeError, AttributeError):
-                pass
+            # Best-effort: record the registry key as the class's `name` — but NEVER
+            # clobber a `name()` method (harbor's BaseAgent exposes name() as a method,
+            # so agents register the real BaseAgent subclass directly).
+            if not callable(getattr(cls, "name", None)):
+                try:
+                    setattr(cls, "name", key)
+                except (TypeError, AttributeError):
+                    pass
             self._items[key] = cls
             return cls
 

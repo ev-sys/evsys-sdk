@@ -192,10 +192,13 @@ def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any])
 def resolve_agent(agent_spec: Any) -> tuple[str, dict[str, Any]]:
     """Resolve an ``AgentSpec`` / ``{kind, params}`` dict / ``None`` → the harbor
     agent ``import_path`` + validated agent-behaviour params, via the ``agent``
-    registry. ``None`` → the default ``"basic_loop"`` harness. Params use
-    ``exclude_unset`` so they only OVERRIDE the rollout's own ``max_turns`` /
-    ``system_prompt`` when a researcher explicitly sets them in ``params:``."""
-    import evsys_sdk.agents  # noqa: F401 — ensure built-in agent plugins register
+    registry. ``None`` → the default ``"basic_loop"`` harness.
+
+    A registered agent IS a harbor ``BaseAgent`` subclass: we read its import path
+    from harbor's own ``cls.import_path()`` and validate ``params`` against the
+    class's optional ``Config`` (Pydantic). ``exclude_unset`` means params only
+    OVERRIDE the rollout's ``max_turns``/``system_prompt`` when explicitly set."""
+    import evsys_sdk.training.harbor_agents  # noqa: F401 — registers built-in agents (basic_loop)
     from ..registry import get_agent
 
     kind: str | None = "basic_loop"
@@ -209,9 +212,10 @@ def resolve_agent(agent_spec: Any) -> tuple[str, dict[str, Any]]:
         if params is None and isinstance(agent_spec, dict):
             params = agent_spec.get("params")
         raw = dict(params or {})
-    plugin = get_agent(kind)
-    validated = plugin.Config(**raw).model_dump(exclude_unset=True)
-    return plugin.agent_path, validated
+    cls = get_agent(kind)                       # the harbor BaseAgent subclass
+    Config = getattr(cls, "Config", None)
+    validated = Config(**raw).model_dump(exclude_unset=True) if Config is not None else dict(raw)
+    return cls.import_path(), validated
 
 
 async def run_harbor_rollouts(
