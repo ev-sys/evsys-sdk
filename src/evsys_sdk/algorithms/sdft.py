@@ -101,6 +101,14 @@ class SDFT(BaseAlgorithm):
         # saves a sampler checkpoint and points the harbor agent at it).
         self._backend = backend
         self._snapshot_i = 0
+        # Resolve the renderer the SAME way the backend/teacher do
+        # (base.py): the algorithm config first, then the model's renderer from
+        # backend handles. Without this fallback the student rollout would pass
+        # ``None`` and harbor would default to the thinking-enabled base
+        # renderer — mismatching a no-thinking ``model.renderer_name``.
+        self._renderer_name = self.cfg.renderer_name or ctx.extras.get(
+            "backend_handles", {}
+        ).get("renderer_name")
         # Rollouts persist under the run's workspace on disk; training rollouts
         # are NOT uploaded to the dashboard (only eval rollouts are).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
@@ -135,7 +143,7 @@ class SDFT(BaseAlgorithm):
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,
-            renderer_name=self.cfg.renderer_name,
+            renderer_name=self._renderer_name,
             max_tokens=self.cfg.max_tokens,
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
