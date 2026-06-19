@@ -435,6 +435,120 @@ class EarlyStoppingCallback(Callback):
 
 
 # ---------------------------------------------------------------------------
+# Logger callbacks — one per backend, each owning its sink across the full
+# lifecycle (on_run_start → on_step_end/on_eval/on_benchmark_eval → on_run_end).
+# ---------------------------------------------------------------------------
+
+
+class WandbLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str | None = None
+    entity: str | None = None
+    name: str | None = None
+    mode: str = "online"        # online | offline | disabled
+    log_every: int = 1          # log per-step metrics every N steps
+    max_pred_rows: int = 100    # cap rows in the predictions wandb.Table
+
+
+@register_callback("wandb_logger")
+class WandbLoggerCallback(Callback):
+    """Log metrics + benchmark predictions to Weights & Biases.
+
+    One W&B run per arm: opened in ``on_run_start`` (so it exists before the
+    first step) and closed in ``on_run_end``. wandb is imported lazily — if it
+    isn't installed the callback warns once and every hook no-ops (training is
+    never affected; :func:`dispatch` also isolates errors). The run URL is
+    surfaced on ``ctx.extras['wandb_url']`` so a downstream logger
+    (evsys_logger) can record it on the dashboard run.
+    """
+
+    name: ClassVar[str] = "wandb_logger"
+    Config: ClassVar[type] = WandbLoggerConfig
+
+    def __init__(
+        self,
+        *,
+        project: str | None = None,
+        entity: str | None = None,
+        name: str | None = None,
+        mode: str = "online",
+        log_every: int = 1,
+        max_pred_rows: int = 100,
+    ) -> None:
+        self.project = project
+        self.entity = entity
+        self.name = name
+        self.mode = mode
+        self.log_every = max(1, int(log_every))
+        self.max_pred_rows = max(0, int(max_pred_rows))
+        self._wandb: Any = None
+        self._run: Any = None
+        self._disabled = False
+
+    def _lazy_wandb(self) -> Any:
+        if self._wandb is None and not self._disabled:
+            try:
+                import wandb  # noqa: PLC0415
+                self._wandb = wandb
+            except Exception:
+                self._disabled = True
+                logger.warning("wandb_logger: wandb not installed; disabling W&B logging")
+        return self._wandb
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        wb = self._lazy_wandb()
+        if wb is None:
+            return
+        cfg = ctx.run_config.model_dump() if ctx.run_config is not None else {}
+        project = self.project or (getattr(ctx.config, "name", None) if ctx.config else None) or "evsys"
+        run_name = self.name or (getattr(ctx.run_config, "name", None) if ctx.run_config else None) or ctx.run_key
+        try:
+            self._run = wb.init(
+                project=project, entity=self.entity, name=run_name,
+                config=cfg, mode=self.mode, reinit=True,
+            )
+            url = getattr(self._run, "url", None)
+            if url:
+                ctx.extras["wandb_url"] = url
+        except Exception:
+            logger.exception("wandb_logger: wandb.init failed; disabling")
+            self._run = None
+            self._disabled = True
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._run is None or (self.log_every > 1 and (step_idx + 1) % self.log_every):
+            return
+        self._run.log({k: float(v) for k, v in metrics.items()}, step=step_idx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._run is None:
+            return
+        self._run.log(
+            {f"val/{eval_name}/{k}": float(v) for k, v in metrics.items()}, step=step_idx
+        )
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._run is None:
+            return
+        ename = getattr(eval_result, "name", "benchmark")
+        metrics = getattr(eval_result, "metrics", {}) or {}
+        payload: dict[str, Any] = {f"eval/{ename}/{k}": float(v) for k, v in metrics.items()}
+        if predictions and self.max_pred_rows:
+            tbl = self._wandb.Table(columns=["task_id", "expected", "reward"])
+            for p in predictions[: self.max_pred_rows]:
+                tbl.add_data(p.get("task_id"), str(p.get("expected")), p.get("reward"))
+            payload[f"eval/{ename}/predictions"] = tbl
+        self._run.log(payload, **({"step": step} if step is not None else {}))
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._run is not None:
+            try:
+                self._run.finish()
+            finally:
+                self._run = None
+
+
+# ---------------------------------------------------------------------------
 # Factory — build callbacks from {kind, params} specs (YAML surface)
 # ---------------------------------------------------------------------------
 
@@ -482,6 +596,7 @@ __all__ = [
     "LogContext",
     "LoopState",
     "PrintProgressCallback",
+    "WandbLoggerCallback",
     "build_callbacks",
     "dispatch",
 ]
