@@ -198,6 +198,7 @@ class TrainingLoop:
         save_every: int,
         evaluators: list[Evaluator] | None = None,
         callbacks: list[Callback] | None = None,
+        log_context: Any = None,
         log_prefix: str = "",
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
@@ -210,6 +211,9 @@ class TrainingLoop:
         self.save_every = save_every
         self.evaluators: list[Evaluator] = list(evaluators or [])
         self.callbacks: list[Callback] = list(callbacks or [])
+        # The experiment-wide LogContext (shared with experiment-scope hooks),
+        # threaded onto LoopState so loop-scope logger hooks reach ctx.ids/store.
+        self.log_context = log_context
         self.log_prefix = log_prefix
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
@@ -233,6 +237,7 @@ class TrainingLoop:
             backend=self.backend,
             log_store=self.log_store,
             checkpoint_mgr=self.checkpoint_mgr,
+            ctx=self.log_context,
         )
         self._dispatch("on_train_start", state)
 
