@@ -875,6 +875,127 @@ class EvsysLoggerCallback(Callback):
         self._buf.clear()
 
 
+class DebugLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    max_len: int = 400          # truncate each value's repr to this many chars
+    max_pred_rows: int = 3      # how many prediction rows to show
+
+
+@register_callback("debug_logger")
+class DebugLoggerCallback(Callback):
+    """Pretty-print EVERYTHING handed to each callback hook — every lifecycle
+    and loop event, with its arguments summarized. Pure introspection (no
+    persistence); drop it into ``callbacks:`` to see exactly what the logger
+    callbacks receive and in what order."""
+
+    name: ClassVar[str] = "debug_logger"
+    Config: ClassVar[type] = DebugLoggerConfig
+
+    def __init__(self, *, max_len: int = 400, max_pred_rows: int = 3) -> None:
+        self.max_len = int(max_len)
+        self.max_pred_rows = int(max_pred_rows)
+
+    def _short(self, v: Any) -> str:
+        s = repr(v)
+        return s if len(s) <= self.max_len else s[: self.max_len] + f"… (+{len(s) - self.max_len} chars)"
+
+    def _ctx(self, ctx: Any) -> dict:
+        rc = getattr(ctx, "run_config", None)
+        return {
+            "run_key": getattr(ctx, "run_key", None),
+            "group_name": getattr(ctx, "group_name", None),
+            "ids": dict(getattr(ctx, "ids", {}) or {}),
+            "store": type(getattr(ctx, "store", None)).__name__ if getattr(ctx, "store", None) else None,
+            "extras": dict(getattr(ctx, "extras", {}) or {}),
+            "run_config.name": getattr(rc, "name", None),
+            "output_dir": str(getattr(ctx, "output_dir", "")),
+        }
+
+    def _state(self, state: Any) -> dict:
+        return {
+            "step": getattr(state, "step", None),
+            "num_steps": getattr(state, "num_steps", None),
+            "has_ctx": getattr(state, "ctx", None) is not None,
+        }
+
+    def _emit(self, hook: str, fields: dict) -> None:
+        print(f"\n🔍 [debug_logger] {hook}", flush=True)
+        for k, v in fields.items():
+            print(f"      {k} = {self._short(v)}", flush=True)
+
+    # -- experiment scope ---------------------------------------------------
+    def on_experiment_start(self, ctx):
+        self._emit("on_experiment_start", {"ctx": self._ctx(ctx)})
+
+    def on_group_start(self, ctx, group_name):
+        self._emit("on_group_start", {"group_name": group_name, "ctx": self._ctx(ctx)})
+
+    def on_run_start(self, ctx):
+        self._emit("on_run_start", {"ctx": self._ctx(ctx)})
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None):
+        self._emit("on_benchmark_eval", {
+            "step": step,
+            "eval_result.name": getattr(eval_result, "name", None),
+            "eval_result.metrics": getattr(eval_result, "metrics", None),
+            "eval_result.breakdowns": getattr(eval_result, "breakdowns", None),
+            "eval_result.tags": getattr(eval_result, "tags", None),
+            "n_predictions": len(predictions),
+            "predictions[:n]": predictions[: self.max_pred_rows],
+            "ctx.ids": dict(getattr(ctx, "ids", {}) or {}),
+        })
+
+    def on_run_end(self, ctx, run_result, arm):
+        self._emit("on_run_end", {
+            "run_result.status": getattr(run_result, "status", None),
+            "run_result.metrics": getattr(run_result, "metrics", None),
+            "arm.name": getattr(arm, "name", None),
+            "arm.status": getattr(arm, "status", None),
+            "ctx.ids": dict(getattr(ctx, "ids", {}) or {}),
+        })
+
+    def on_experiment_end(self, ctx, result):
+        self._emit("on_experiment_end", {
+            "result.status": getattr(result, "status", None),
+            "result.best_arm": getattr(getattr(result, "best_arm", None), "name", None),
+            "result.best_score": getattr(result, "best_score", None),
+            "result.conclusion": getattr(result, "conclusion", None),
+        })
+
+    # -- loop scope ---------------------------------------------------------
+    def on_train_start(self, state):
+        self._emit("on_train_start", {"state": self._state(state)})
+
+    def on_step_end(self, state, step_idx, batch, metrics):
+        self._emit("on_step_end", {
+            "step_idx": step_idx,
+            "metrics": metrics,
+            "batch.loss_fn": getattr(batch, "loss_fn", None),
+            "batch.n_data": len(getattr(batch, "data", []) or []),
+            "batch.metrics": getattr(batch, "metrics", None),
+            "state": self._state(state),
+        })
+
+    def on_eval(self, state, step_idx, eval_name, metrics):
+        self._emit("on_eval", {"step_idx": step_idx, "eval_name": eval_name, "metrics": metrics})
+
+    def on_checkpoint(self, state, row):
+        self._emit("on_checkpoint", {
+            "row.name": getattr(row, "name", None),
+            "row.batch": getattr(row, "batch", None),
+            "row.sampler_path": getattr(row, "sampler_path", None),
+            "row.state_path": getattr(row, "state_path", None),
+        })
+
+    def on_train_end(self, state, artifacts):
+        self._emit("on_train_end", {
+            "artifacts.total_requested_steps": getattr(artifacts, "total_requested_steps", None),
+            "artifacts.train_seconds": getattr(artifacts, "train_seconds", None),
+            "artifacts.run_dir": str(getattr(artifacts, "run_dir", "")),
+            "n_checkpoints": len(getattr(artifacts, "checkpoints", []) or []),
+        })
+
+
 # ---------------------------------------------------------------------------
 # Factory — build callbacks from {kind, params} specs (YAML surface)
 # ---------------------------------------------------------------------------
@@ -920,6 +1041,7 @@ __all__ = [
     "Callback",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "DebugLoggerCallback",
     "EvsysLoggerCallback",
     "LocalLoggerCallback",
     "LogContext",
