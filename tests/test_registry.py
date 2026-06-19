@@ -44,7 +44,7 @@ def test_builtin_transforms():
         assert k in names
 
 
-def test_register_decorator_assigns_name():
+def test_register_decorator_registers_by_key_without_mutating_class():
     from pydantic import BaseModel, ConfigDict
 
     class _C(BaseModel):
@@ -57,9 +57,10 @@ def test_register_decorator_assigns_name():
             return None
 
     try:
-        cls = get_algorithm("test_dummy_alg")
-        assert cls is Dummy
-        assert cls.name == "test_dummy_alg"
+        # The registry key (the decorator arg) is the single source of truth — it's
+        # exactly the `kind:` used in config. The class itself is NOT mutated.
+        assert get_algorithm("test_dummy_alg") is Dummy
+        assert not hasattr(Dummy, "name")  # registry injects no `name` attribute
     finally:
         _algorithms.unregister("test_dummy_alg")
 

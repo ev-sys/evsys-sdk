@@ -28,11 +28,17 @@ class Registry:
 
     def register(self, name: str | None = None) -> Callable[[type[T]], type[T]]:
         def decorator(cls: type[T]) -> type[T]:
-            key = name or getattr(cls, "name", None)
+            # The registry key is THE name — exactly the ``kind:`` used in config.
+            # It is the decorator arg, or a string ``name`` class attribute as a
+            # fallback. (A ``name()`` METHOD — e.g. harbor's BaseAgent — is not a key,
+            # so those classes must pass an explicit name to the decorator.) The
+            # class is never mutated; the registry dict is the single source of truth.
+            declared = getattr(cls, "name", None)
+            key = name or (declared if isinstance(declared, str) else None)
             if not key:
                 raise ValueError(
-                    f"{self._kind} class {cls.__name__} has no `name` and "
-                    f"register_{self._kind} was called without a name."
+                    f"register_{self._kind}: {cls.__name__} needs a name — pass one to "
+                    f"register_{self._kind}('<name>') or set a string `name` class attribute."
                 )
             if key in self._items and self._items[key] is not cls:
                 raise ValueError(
@@ -40,14 +46,6 @@ class Registry:
                     f"(existing={self._items[key].__module__}.{self._items[key].__name__}, "
                     f"new={cls.__module__}.{cls.__name__})"
                 )
-            # Best-effort: record the registry key as the class's `name` — but NEVER
-            # clobber a `name()` method (harbor's BaseAgent exposes name() as a method,
-            # so agents register the real BaseAgent subclass directly).
-            if not callable(getattr(cls, "name", None)):
-                try:
-                    setattr(cls, "name", key)
-                except (TypeError, AttributeError):
-                    pass
             self._items[key] = cls
             return cls
 
