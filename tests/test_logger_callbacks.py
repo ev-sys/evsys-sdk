@@ -99,3 +99,58 @@ def test_wandb_logger_disabled_when_absent_is_noop():
     cb.on_step_end(SimpleNamespace(), 0, None, {"loss": 1.0})  # no crash
     cb.on_run_end(ctx, None, None)
     assert cb._run is None and "wandb_url" not in ctx.extras
+
+
+# --- LocalLoggerCallback ----------------------------------------------------
+
+def test_local_logger_writes_metrics_and_predictions(tmp_path, capsys):
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+    import json
+
+    cb = LocalLoggerCallback(print_every=1)
+    ctx = LogContext(output_dir=tmp_path, run_key="arm0")
+    cb.on_run_start(ctx)
+    st = SimpleNamespace(num_steps=2)
+    cb.on_step_end(st, 0, None, {"loss": 1.5})
+    cb.on_step_end(st, 1, None, {"loss": 1.0})
+
+    eval_result = SimpleNamespace(name="val/full", metrics={"pass@3": 0.5})
+    preds = [{"task_id": "t1", "reward": 1.0}, {"task_id": "t2", "reward": 0.0}]
+    cb.on_benchmark_eval(ctx, eval_result, preds, step=None)
+    cb.on_run_end(ctx, SimpleNamespace(status="completed"), SimpleNamespace(name="arm0"))
+
+    run_dir = tmp_path / "arm0"
+    rows = [json.loads(l) for l in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    assert [r["split"] for r in rows] == ["train", "train"]
+    assert rows[0]["metrics"]["loss"] == 1.5
+    # predictions file written (name slashes sanitized)
+    pred_lines = (run_dir / "predictions" / "val_full.jsonl").read_text().splitlines()
+    assert len(pred_lines) == 2
+    # summary.md mentions the eval
+    summary = (run_dir / "summary.md").read_text()
+    assert "val/full" in summary and "status: completed" in summary
+    # printed a per-step line
+    assert "[1/2]" in capsys.readouterr().out
+
+
+def test_local_logger_registered():
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+    assert get_callback("local_logger") is LocalLoggerCallback
+
+
+# --- TensorBoardLoggerCallback (no torch → disables cleanly) -----------------
+
+def test_tensorboard_logger_disables_without_torch():
+    from evsys_sdk.training.callbacks import TensorBoardLoggerCallback
+    cb = TensorBoardLoggerCallback()
+    cb._disabled = True   # simulate torch/tensorboard absent
+    ctx = LogContext(output_dir=Path("."), run_key="r0")
+    cb.on_run_start(ctx)                       # no writer opened
+    cb.on_step_end(SimpleNamespace(), 0, None, {"loss": 1.0})  # no crash
+    cb.on_run_end(ctx, None, None)
+    assert cb._writer is None
+
+
+def test_tensorboard_logger_registered():
+    from evsys_sdk.training.callbacks import TensorBoardLoggerCallback
+    assert get_callback("tensorboard_logger") is TensorBoardLoggerCallback

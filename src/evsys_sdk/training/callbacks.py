@@ -548,6 +548,162 @@ class WandbLoggerCallback(Callback):
                 self._run = None
 
 
+class TensorBoardLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    log_dir: str | None = None   # default: <output_dir>/tb/<run_key>
+    flush_secs: int = 30
+
+
+@register_callback("tensorboard_logger")
+class TensorBoardLoggerCallback(Callback):
+    """Log scalar metrics + eval scalars to TensorBoard, one event dir per arm.
+
+    Opens a ``SummaryWriter`` in ``on_run_start`` (lazy import so the callback
+    registers without torch installed) and closes it in ``on_run_end``."""
+
+    name: ClassVar[str] = "tensorboard_logger"
+    Config: ClassVar[type] = TensorBoardLoggerConfig
+
+    def __init__(self, *, log_dir: str | None = None, flush_secs: int = 30) -> None:
+        self._log_dir = log_dir
+        self._flush_secs = int(flush_secs)
+        self._writer: Any = None
+        self._disabled = False
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        if self._disabled:
+            return
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # noqa: PLC0415
+        except Exception:
+            self._disabled = True
+            logger.warning("tensorboard_logger: tensorboard/torch missing; disabling")
+            return
+        path = self._log_dir or str(Path(ctx.output_dir) / "tb" / (ctx.run_key or "run"))
+        self._writer = SummaryWriter(log_dir=path, flush_secs=self._flush_secs)
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._writer is None:
+            return
+        for k, v in metrics.items():
+            self._writer.add_scalar(k, float(v), global_step=step_idx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._writer is None:
+            return
+        for k, v in metrics.items():
+            self._writer.add_scalar(f"val/{eval_name}/{k}", float(v), global_step=step_idx)
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._writer is None:
+            return
+        ename = getattr(eval_result, "name", "benchmark")
+        gs = step if step is not None else 0
+        for k, v in (getattr(eval_result, "metrics", {}) or {}).items():
+            self._writer.add_scalar(f"eval/{ename}/{k}", float(v), global_step=gs)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            finally:
+                self._writer = None
+
+
+class LocalLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    print_every: int = 1         # stdout one-liner cadence (0 = silent)
+    keys: list[str] | None = None  # restrict printed keys
+
+
+@register_callback("local_logger")
+class LocalLoggerCallback(Callback):
+    """Human-readable local logging: prints what's happening per step AND
+    persists metrics + benchmark predictions to files under the run dir.
+
+    Writes ``<output_dir>/<run_key>/`` : ``metrics.jsonl`` (train + val rows),
+    ``predictions/<name>.jsonl`` (per benchmark), and ``summary.md`` at
+    run end. The "print what's happening" requirement is the per-step one-liner
+    (cadence ``print_every``)."""
+
+    name: ClassVar[str] = "local_logger"
+    Config: ClassVar[type] = LocalLoggerConfig
+
+    def __init__(self, *, print_every: int = 1, keys: list[str] | None = None) -> None:
+        self.print_every = int(print_every)
+        self.keys = keys
+        self._dir: Path | None = None
+        self._metrics_fp: Any = None
+        self._evals: list[dict] = []
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        self._dir = Path(ctx.output_dir) / (ctx.run_key or "run")
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._metrics_fp = (self._dir / "metrics.jsonl").open("a")
+        self._evals = []
+        if self.print_every:
+            print(f"[local_logger] run {ctx.run_key} → {self._dir}", flush=True)
+
+    def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
+        if self._metrics_fp is None:
+            return
+        import json  # noqa: PLC0415
+        self._metrics_fp.write(
+            json.dumps({"step": step, "split": split,
+                        "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n"
+        )
+        self._metrics_fp.flush()
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        self._write_metrics(step_idx, metrics, "train")
+        if self.print_every and (step_idx + 1) % self.print_every == 0:
+            view = metrics if self.keys is None else {k: metrics[k] for k in self.keys if k in metrics}
+            line = f"[{step_idx + 1}/{state.num_steps}] " + " ".join(
+                f"{k}={_fmt_value(v)}" for k, v in view.items()
+            )
+            print(line, flush=True)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        self._write_metrics(step_idx, metrics, "val")
+        if self.print_every:
+            cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+            print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._dir is None:
+            return
+        import json  # noqa: PLC0415
+        ename = getattr(eval_result, "name", "benchmark")
+        metrics = dict(getattr(eval_result, "metrics", {}) or {})
+        self._evals.append({"name": ename, "step": step, "metrics": metrics})
+        if predictions:
+            pdir = self._dir / "predictions"
+            pdir.mkdir(exist_ok=True)
+            safe = ename.replace("/", "_").replace(" ", "_")
+            with (pdir / f"{safe}.jsonl").open("w") as f:
+                for p in predictions:
+                    f.write(json.dumps(p, default=str) + "\n")
+        if self.print_every:
+            cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+            print(f"  [benchmark {ename}] {cells}  n_pred={len(predictions)}", flush=True)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._dir is not None:
+            lines = [f"# {ctx.run_key}", ""]
+            status = getattr(run_result, "status", None)
+            lines.append(f"- status: {status}")
+            for ev in self._evals:
+                cells = ", ".join(f"{k}={v:.4f}" for k, v in ev["metrics"].items()
+                                  if isinstance(v, (int, float)))
+                lines.append(f"- eval **{ev['name']}** (step={ev['step']}): {cells}")
+            (self._dir / "summary.md").write_text("\n".join(lines) + "\n")
+        if self._metrics_fp is not None:
+            try:
+                self._metrics_fp.close()
+            finally:
+                self._metrics_fp = None
+
+
 # ---------------------------------------------------------------------------
 # Factory — build callbacks from {kind, params} specs (YAML surface)
 # ---------------------------------------------------------------------------
@@ -593,9 +749,11 @@ __all__ = [
     "Callback",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "LocalLoggerCallback",
     "LogContext",
     "LoopState",
     "PrintProgressCallback",
+    "TensorBoardLoggerCallback",
     "WandbLoggerCallback",
     "build_callbacks",
     "dispatch",
