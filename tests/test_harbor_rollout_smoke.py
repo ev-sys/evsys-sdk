@@ -95,3 +95,22 @@ def test_agent_spec_flows_into_jobconfig(tmp_path):
     agent_cfg = captured["config"].agents[0]
     assert agent_cfg.import_path.endswith(":BasicLoopAgent")
     assert agent_cfg.kwargs["max_turns"] == 2          # spec param overrode the default (1)
+
+
+def test_tool_loop_agent_runs_multi_turn_tool_rollout(tmp_path):
+    # A custom multi-turn TOOL-using agent, registered via @register_agent, selected
+    # by agent_spec={kind: tool_loop}. Proves the plugin path runs a real tool loop
+    # and harvests one Turn per loop iteration. (Real harbor Job, no model.)
+    import tests.harbor_tool_agent  # noqa: F401 — registers @register_agent("tool_loop")
+
+    task = _task("t_tool", "find the right tool", expected="TOOLS_OK")
+    groups = asyncio.run(run_harbor_rollouts(
+        [task],
+        agent_spec=AgentSpec(kind="tool_loop", params={"max_turns": 3}),
+        model_name="x", model_path=None, workspace_dir=tmp_path,
+        num_samples=1, max_retries=0,
+    ))
+    assert len(groups) == 1
+    traj = groups[0].trajectories[0]
+    assert len(traj.turns) == 3      # 3 tool-loop turns harvested (multi-turn)
+    assert traj.reward == 1.0        # verifier scored the tool-produced answer (TOOLS_OK)
