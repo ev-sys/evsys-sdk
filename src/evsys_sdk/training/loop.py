@@ -369,18 +369,11 @@ class TrainingLoop:
     # --- callback dispatch -------------------------------------------------
 
     def _dispatch(self, hook: str, *args: Any) -> None:
-        """Call ``hook`` on every callback. A raising callback NEVER kills
-        the loop; the exception is logged at WARNING and we move on."""
-        for cb in self.callbacks:
-            fn = getattr(cb, hook, None)
-            if fn is None:
-                continue
-            try:
-                fn(*args)
-            except Exception:
-                logger.exception(
-                    "callback %s.%s raised; continuing", type(cb).__name__, hook,
-                )
+        """Call ``hook`` on every callback (error-isolated). Thin wrapper over
+        the shared :func:`~evsys_sdk.training.callbacks.dispatch` so the loop
+        and the Experiment fan out identically."""
+        from .callbacks import dispatch
+        dispatch(self.callbacks, hook, *args)
 
 
 __all__ = [

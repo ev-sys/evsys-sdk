@@ -34,9 +34,11 @@ from .callbacks import (
     Callback,
     CsvMetricsCallback,
     EarlyStoppingCallback,
+    LogContext,
     LoopState,
     PrintProgressCallback,
     build_callbacks,
+    dispatch,
 )
 from .checkpoints import CheckpointManager, ManifestRow
 from .loop import (
@@ -84,6 +86,7 @@ __all__ = [
     "CheckpointManager",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "LogContext",
     "LoopState",
     "PrintProgressCallback",
     "Evaluator",
@@ -104,6 +107,7 @@ __all__ = [
     "TrajectoryGroup",
     "assemble_training_data",
     "build_callbacks",
+    "dispatch",
     "coerce_floats",
     "extract_completion_tokens_from_response",
     "extract_weights",

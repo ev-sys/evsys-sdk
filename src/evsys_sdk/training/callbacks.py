@@ -44,6 +44,9 @@ from pydantic import BaseModel, ConfigDict
 from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
+    from ..config import ExperimentConfig, RunConfig
+    from ..experiment import ArmResult, EvalResult, ExperimentResult
+    from ..protocols import RunResult
     from .backend import Backend, SamplingClient
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
@@ -52,7 +55,42 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# LoopState — what callbacks see
+# LogContext — experiment-wide context shared across ALL hooks (both scopes)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LogContext:
+    """Mutable context threaded to every callback hook, in BOTH the
+    Experiment scope (lifecycle / benchmark eval) and the TrainingLoop scope
+    (per-step / checkpoint). Logger callbacks *create* the dashboard ids and
+    write them onto :attr:`ids`; later hooks read them back.
+
+    The framework owns only :attr:`run_key` (the local output-dir name). All
+    dashboard ids (``experiment_id`` / ``group:<name>`` / ``run_id``) are
+    callback-owned and accumulate on :attr:`ids` as the ``create_*`` hooks
+    fire. Arms run sequentially, so ``ids["run_id"]`` is the current arm's.
+    """
+
+    output_dir: Path
+    config: "ExperimentConfig | None" = None
+    store: Any = None
+    """Resolved store handle (EvsysStore / LocalStore / DashboardClient) or
+    None when no store is configured."""
+    run_key: str | None = None
+    run_config: "RunConfig | None" = None
+    group_name: str | None = None
+    ids: dict[str, str] = field(default_factory=dict)
+    """Callback-populated dashboard ids: ``experiment_id``, ``group:<name>``,
+    ``run_id``. Read parents here to link children (e.g. create_run reads
+    ``ids['experiment_id']``)."""
+    extras: dict[str, Any] = field(default_factory=dict)
+    """Scratch for passing values between callbacks within a run (e.g.
+    ``wandb_url`` set by wandb_logger, read by evsys_logger's create_run)."""
+
+
+# ---------------------------------------------------------------------------
+# LoopState — what loop-scope callbacks see
 # ---------------------------------------------------------------------------
 
 
@@ -76,6 +114,10 @@ class LoopState:
     auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
     checkpoint_mgr: "CheckpointManager"
     stop_requested: bool = False
+    ctx: "LogContext | None" = None
+    """The experiment-wide :class:`LogContext` (shared with the Experiment-scope
+    hooks). ``None`` for a bare ``run_experiment`` with no Experiment driving it;
+    populated when the Experiment threads callbacks into the loop."""
 
     def request_stop(self) -> None:
         """Signal the loop to break after the current step completes.
@@ -143,7 +185,77 @@ class Callback:
     ) -> None:
         """Fires per evaluator after each in-loop eval completes. Useful
         for pushing to a dashboard, plotting val curves, driving
-        early-stopping decisions."""
+        early-stopping decisions. (Logger callbacks that also need the
+        rollout predictions should use :meth:`on_benchmark_eval`, which the
+        loop fires for benchmark evaluators with the full payload.)"""
+
+    # --- experiment scope (dispatched by Experiment, not the loop) ---------
+    # These let ONE logger callback instance own the full lifecycle: create
+    # the experiment/run records, persist benchmark predictions, close the run.
+    # The shared LogContext carries the dashboard ids between them.
+
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        """Fires once at the start of an experiment, before any arm. A logger
+        creates the experiment record here (``ctx.ids['experiment_id'] = ...``)."""
+
+    def on_group_start(self, ctx: LogContext, group_name: str) -> None:
+        """Fires when a new run-group is needed (n_repeats replicates or
+        continual stages). A logger creates the group
+        (``ctx.ids[f'group:{group_name}'] = ...``)."""
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        """Fires per arm, before training. ``ctx.run_config`` is set. A logger
+        opens its run-scoped sink (wandb.init / create_run →
+        ``ctx.ids['run_id']``), reading ``ctx.ids['experiment_id']`` /
+        ``ctx.ids[f'group:{ctx.group_name}']`` to parent it."""
+
+    def on_benchmark_eval(
+        self,
+        ctx: LogContext,
+        eval_result: "EvalResult",
+        predictions: list[dict],
+        *,
+        step: int | None = None,
+    ) -> None:
+        """Fires per benchmark scored — in-loop (``step`` = the train step) or
+        post-training (``step=None``). Carries metrics + breakdowns + tags
+        (on ``eval_result``) AND the per-task prediction rows. A logger
+        creates one eval row per ``(eval_result.name, step)`` and persists the
+        predictions."""
+
+    def on_run_end(
+        self, ctx: LogContext, run_result: "RunResult", arm: "ArmResult",
+    ) -> None:
+        """Fires per arm, after eval, before the run is marked completed. A
+        logger flushes/closes its run-scoped sink (wandb.finish) and records
+        the final status (update_run)."""
+
+    def on_experiment_end(
+        self, ctx: LogContext, result: "ExperimentResult",
+    ) -> None:
+        """Fires once at the end of the experiment. Final summary / flush."""
+
+
+# ---------------------------------------------------------------------------
+# dispatch — error-isolated fan-out, shared by the loop AND the Experiment
+# ---------------------------------------------------------------------------
+
+
+def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) -> None:
+    """Call ``hook`` on every callback. A raising callback NEVER propagates —
+    the exception is logged at WARNING and the next callback runs. Used by both
+    the TrainingLoop (loop-scope hooks) and the Experiment (experiment-scope
+    hooks) so error isolation is identical everywhere."""
+    for cb in callbacks or []:
+        fn = getattr(cb, hook, None)
+        if fn is None:
+            continue
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.exception(
+                "callback %s.%s raised; continuing", type(cb).__name__, hook,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +479,9 @@ __all__ = [
     "Callback",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "LogContext",
     "LoopState",
     "PrintProgressCallback",
     "build_callbacks",
+    "dispatch",
 ]
