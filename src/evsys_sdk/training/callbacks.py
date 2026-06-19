@@ -704,6 +704,177 @@ class LocalLoggerCallback(Callback):
                 self._metrics_fp = None
 
 
+class EvsysLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str | None = None
+    flush_every: int = 1   # batch per-step metric uploads every N steps
+
+
+@register_callback("evsys_logger")
+class EvsysLoggerCallback(Callback):
+    """Persist EVERYTHING to the evsys dashboard store via callbacks — the
+    experiment/group/run records, per-step metrics, checkpoints, and benchmark
+    evals + predictions. Keyed off the shared ``ctx.ids`` it populates
+    (``experiment_id`` → ``group:<name>`` → ``run_id``).
+
+    This is the "callbacks own the store" mode: construct ``Experiment`` WITHOUT
+    a ``store=`` (so the orchestrator makes no store calls) and add this
+    callback instead. If ``Experiment`` already has a store (``ctx.store`` set),
+    this callback disables itself to avoid double-writing. The store handle is
+    built lazily from the environment (EvsysStore) unless one is injected
+    (``cb._store = ...``) — the test seam."""
+
+    name: ClassVar[str] = "evsys_logger"
+    Config: ClassVar[type] = EvsysLoggerConfig
+
+    def __init__(self, *, project_id: str | None = None, flush_every: int = 1) -> None:
+        self.project_id = project_id
+        self.flush_every = max(1, int(flush_every))
+        self._store: Any = None
+        self._disabled = False
+        self._buf: list[tuple[int, dict, str]] = []
+
+    # -- store lifecycle ----------------------------------------------------
+
+    def _ensure_store(self, ctx: LogContext) -> Any:
+        if self._disabled:
+            return None
+        if ctx.store is not None:
+            self._disabled = True
+            logger.warning(
+                "evsys_logger: Experiment already has a store; disabling to avoid "
+                "double-writes (drop store= from Experiment to use this callback)"
+            )
+            return None
+        if self._store is None:
+            try:
+                from ..store import EvsysStore  # noqa: PLC0415
+                self._store = EvsysStore(project_id=self.project_id)
+            except Exception:
+                self._disabled = True
+                logger.warning("evsys_logger: no usable store (missing EVSYS_API_KEY?); disabling")
+        return self._store
+
+    @staticmethod
+    def _id(resp: Any) -> str | None:
+        return resp.get("id") if isinstance(resp, dict) else None
+
+    # -- experiment scope ---------------------------------------------------
+
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        store = self._ensure_store(ctx)
+        if store is None:
+            return
+        meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        resp = store.create_experiment(
+            experiment_name=getattr(ctx.config, "name", "experiment"),
+            hypothesis=meta.get("hypothesis"),
+            tags=list(meta.get("tags") or []) or None,
+        )
+        eid = self._id(resp)
+        if eid:
+            ctx.ids["experiment_id"] = eid
+
+    def on_group_start(self, ctx: LogContext, group_name: str) -> None:
+        if self._disabled or self._store is None:
+            return
+        resp = self._store.create_group(ctx.ids.get("experiment_id"), group_name)
+        gid = self._id(resp)
+        if gid:
+            ctx.ids[f"group:{group_name}"] = gid
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        if self._disabled or self._store is None:
+            return
+        rc = ctx.run_config
+        gid = ctx.ids.get(f"group:{ctx.group_name}") if ctx.group_name else None
+        resp = self._store.create_run(
+            experiment_id=ctx.ids.get("experiment_id"),
+            group_id=gid,
+            recipe_kind=getattr(getattr(rc, "algorithm", None), "kind", None),
+            run_config=rc.model_dump() if rc is not None else None,
+            seed=getattr(rc, "seed", None),
+            status="running",
+            wandb_run_url=ctx.extras.get("wandb_url"),
+        )
+        rid = self._id(resp)
+        if rid:
+            ctx.ids["run_id"] = rid
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._disabled or self._store is None:
+            return
+        run_id = ctx.ids.get("run_id")
+        if not run_id:
+            return
+        resp = self._store.create_eval(
+            run_id=run_id,
+            benchmark_id=getattr(eval_result, "benchmark_id", None),
+            metrics=dict(getattr(eval_result, "metrics", {}) or {}),
+            breakdowns=dict(getattr(eval_result, "breakdowns", {}) or {}) or None,
+            step=step,
+        )
+        eval_id = self._id(resp)
+        if predictions:
+            from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
+            rows = [{**p, "eval_id": eval_id} for p in predictions]
+            upload_eval_rollouts(self._store, run_id, rows)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._flush(ctx)
+        run_id = ctx.ids.get("run_id")
+        if run_id:
+            status = getattr(run_result, "status", None) or getattr(arm, "status", None)
+            patch = {"status": status}
+            err = getattr(run_result, "error", None) or getattr(arm, "error", None)
+            if err:
+                patch["error_message"] = err
+            self._store.update_run(run_id, **patch)
+
+    # -- loop scope ---------------------------------------------------------
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._buf.append((step_idx, {k: float(v) for k, v in metrics.items()}, "train"))
+        if len(self._buf) >= self.flush_every:
+            self._flush(state.ctx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._buf.append(
+            (step_idx, {f"{eval_name}/{k}": float(v) for k, v in metrics.items()}, "val")
+        )
+
+    def on_checkpoint(self, state: LoopState, row) -> None:
+        if self._disabled or self._store is None:
+            return
+        ctx = state.ctx
+        run_id = ctx.ids.get("run_id") if ctx else None
+        uri = getattr(row, "sampler_path", None) or getattr(row, "state_path", None)
+        if run_id and uri:
+            self._store.add_checkpoint(
+                run_id, uri=uri, label=getattr(row, "name", None), step=getattr(row, "batch", None),
+            )
+
+    def _flush(self, ctx: LogContext | None) -> None:
+        if self._store is None or not self._buf or ctx is None:
+            return
+        run_id = ctx.ids.get("run_id")
+        if not run_id:
+            self._buf.clear()
+            return
+        for step, metrics, split in self._buf:
+            try:
+                self._store.log_metrics(run_id=run_id, step=int(step), metrics=metrics, split=split)
+            except Exception:
+                logger.warning("evsys_logger: log_metrics failed at step %s", step, exc_info=True)
+        self._buf.clear()
+
+
 # ---------------------------------------------------------------------------
 # Factory — build callbacks from {kind, params} specs (YAML surface)
 # ---------------------------------------------------------------------------
@@ -749,6 +920,7 @@ __all__ = [
     "Callback",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "EvsysLoggerCallback",
     "LocalLoggerCallback",
     "LogContext",
     "LoopState",

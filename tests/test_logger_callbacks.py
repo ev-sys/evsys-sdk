@@ -154,3 +154,98 @@ def test_tensorboard_logger_disables_without_torch():
 def test_tensorboard_logger_registered():
     from evsys_sdk.training.callbacks import TensorBoardLoggerCallback
     assert get_callback("tensorboard_logger") is TensorBoardLoggerCallback
+
+
+# --- EvsysLoggerCallback (store-owning, mode B) -----------------------------
+
+class _FakeStore:
+    def __init__(self):
+        self.calls: list[tuple] = []
+        self._n = 0
+
+    def _id(self, kind):
+        self._n += 1
+        return {"id": f"{kind}{self._n}"}
+
+    def create_experiment(self, **kw):
+        self.calls.append(("create_experiment", kw)); return self._id("exp")
+
+    def create_group(self, experiment_id, name):
+        self.calls.append(("create_group", experiment_id, name)); return self._id("grp")
+
+    def create_run(self, **kw):
+        self.calls.append(("create_run", kw)); return self._id("run")
+
+    def log_metrics(self, **kw):
+        self.calls.append(("log_metrics", kw)); return []
+
+    def create_eval(self, **kw):
+        self.calls.append(("create_eval", kw)); return self._id("eval")
+
+    def log_predictions(self, run_id, preds):
+        self.calls.append(("log_predictions", run_id, preds)); return {"ok": True}
+
+    def update_run(self, run_id, **patch):
+        self.calls.append(("update_run", run_id, patch)); return {"id": run_id}
+
+
+def _run_config_stub():
+    return SimpleNamespace(
+        model_dump=lambda: {"name": "arm0"},
+        algorithm=SimpleNamespace(kind="sft"),
+        seed=42,
+        name="arm0",
+    )
+
+
+def test_evsys_logger_owns_full_store_lifecycle():
+    from evsys_sdk.training.callbacks import EvsysLoggerCallback
+
+    cb = EvsysLoggerCallback(flush_every=1)
+    fake = _FakeStore()
+    cb._store = fake   # inject (skip env EvsysStore build)
+    ctx = LogContext(
+        output_dir=Path("."),
+        config=SimpleNamespace(name="exp", metadata={"hypothesis": "h", "tags": ["t"]}),
+        store=None,    # mode B: Experiment has no store
+    )
+
+    cb.on_experiment_start(ctx)
+    assert ctx.ids["experiment_id"] == "exp1"
+
+    ctx.run_config = _run_config_stub()
+    cb.on_run_start(ctx)
+    assert ctx.ids["run_id"] == "run2"
+
+    st = SimpleNamespace(ctx=ctx)
+    cb.on_step_end(st, 0, None, {"loss": 1.5})   # flush_every=1 → immediate
+    cb.on_eval(st, 1, "val", {"pass_rate": 0.5})
+
+    eval_result = SimpleNamespace(name="full", benchmark_id="b1",
+                                  metrics={"pass@3": 0.7}, breakdowns={})
+    preds = [{"task_id": "t1", "reward": 1.0}]
+    cb.on_benchmark_eval(ctx, eval_result, preds, step=None)
+    cb.on_run_end(ctx, SimpleNamespace(status="completed", error=None),
+                  SimpleNamespace(status="completed", error=None))
+
+    kinds = [c[0] for c in fake.calls]
+    assert kinds[:3] == ["create_experiment", "create_run", "log_metrics"]
+    assert "create_eval" in kinds and "log_predictions" in kinds
+    assert kinds[-1] == "update_run"
+    # linkage: run parents to experiment; eval + metrics + update use run_id
+    run_kw = next(c[1] for c in fake.calls if c[0] == "create_run")
+    assert run_kw["experiment_id"] == "exp1" and run_kw["recipe_kind"] == "sft"
+    eval_kw = next(c[1] for c in fake.calls if c[0] == "create_eval")
+    assert eval_kw["run_id"] == "run2"
+    # prediction row carries the eval_id
+    _, _, pr = next(c for c in fake.calls if c[0] == "log_predictions")
+    assert pr[0]["eval_id"] == "eval3"
+
+
+def test_evsys_logger_disables_when_experiment_has_store():
+    from evsys_sdk.training.callbacks import EvsysLoggerCallback
+    cb = EvsysLoggerCallback()
+    cb._store = _FakeStore()
+    ctx = LogContext(output_dir=Path("."), store=object())  # Experiment owns a store
+    cb.on_experiment_start(ctx)
+    assert cb._disabled and not cb._store.calls   # no double-write
