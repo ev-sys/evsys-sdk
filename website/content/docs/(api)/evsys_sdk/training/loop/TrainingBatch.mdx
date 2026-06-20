@@ -1,0 +1,52 @@
+---
+title: TrainingBatch
+---
+
+One step's worth of training data + loss spec.
+
+Constructed by a :class:`StepBuilder` per step. The loop hands ``data``
+to the backend along with ``loss_fn`` and ``loss_fn_config``.
+
+## Attributes
+
+<PyAttribute name={"data"} type={"list[tinker.Datum]"} value={null} />
+
+<PyAttribute name={"loss_fn"} type={"tinker.types.LossFnType | LossCallable"} value={null}>
+
+Either a tinker-recognised string name (``"cross_entropy"`` /
+``"importance_sampling"`` / ...) for a server-side loss, OR a Python
+callable for a client-side custom loss. The loop dispatches the right
+backend method based on the type.
+
+</PyAttribute>
+
+<PyAttribute name={"loss_fn_config"} type={"dict[str, Any] | None"} value={"None"}>
+
+Only used when ``loss_fn`` is a string.
+
+</PyAttribute>
+
+<PyAttribute name={"metrics"} type={"dict[str, float]"} value={"field(default_factory=dict)"}>
+
+Algorithm-precomputed per-step metrics (e.g. teacher entropy,
+reward stats). Merged into the per-step log row.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, data, loss_fn, loss_fn_config=None, metrics=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"data"} type={"list[tinker.Datum]"} value={null} />
+<PyParameter name={"loss_fn"} type={"tinker.types.LossFnType | LossCallable"} value={null} />
+<PyParameter name={"loss_fn_config"} type={"dict[str, Any] | None"} value={"None"} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

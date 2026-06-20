@@ -1,0 +1,82 @@
+---
+title: tinker_backend
+---
+
+TinkerBackend — concrete :class:`~evsys_sdk.training.backend.Backend`
+implementation against ``tinker.ServiceClient``.
+
+Constructed via ``await TinkerBackend.create(model_name=..., lora_rank=...)``
+— the underlying ``create_lora_training_client_async`` is async, so the
+factory is async. Algorithm composers run the loop inside one
+``asyncio.run(...)`` call so the constructor and the loop body share the
+same event loop:
+
+    async def _train(self, ctx):
+        backend = await TinkerBackend.create(...)
+        loop = TrainingLoop(backend=backend, ...)
+        return await loop.run(num_steps=cfg.max_steps)
+
+    def train(self, ctx):
+        return asyncio.run(self._train(ctx))
+
+The wrapper is thin — every method is a one-to-one passthrough to the
+underlying tinker client, plus the one ergonomic affordance of returning
+a wrapped :class:`TinkerSamplingClient` from
+``snapshot_sampling_client`` (so callers don't have to know about the
+sampler URI machinery).
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['TinkerBackend', 'TinkerSamplingClient']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"_CoroFuture"} href={"/docs/evsys_sdk/training/tinker_backend/_CoroFuture"} />
+<Card title={"TinkerSamplingClient"} href={"/docs/evsys_sdk/training/tinker_backend/TinkerSamplingClient"} />
+<Card title={"TinkerBackend"} href={"/docs/evsys_sdk/training/tinker_backend/TinkerBackend"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_result_path"} type={"(result) -> str"}>
+
+Tinker's save_*_async result envelopes carry a ``.path`` attribute
+(verified against cookbook usage in distillation/sdft.py:739, where the
+same dotted access ships).
+
+<PySourceCode >
+
+```python
+def _result_path(result: Any) -> str:
+    """Tinker's save_*_async result envelopes carry a ``.path`` attribute
+    (verified against cookbook usage in distillation/sdft.py:739, where the
+    same dotted access ships)."""
+    path = getattr(result, "path", None)
+    if not path:
+        raise RuntimeError(
+            f"tinker save result missing .path attribute (got {result!r})"
+        )
+    return str(path)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"result"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

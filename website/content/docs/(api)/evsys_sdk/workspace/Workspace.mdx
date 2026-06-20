@@ -1,0 +1,284 @@
+---
+title: Workspace
+---
+
+## Attributes
+
+<PyAttribute name={"store"} type={null} value={"store or EvsysStore()"} />
+
+<PyAttribute name={"root"} type={null} value={"Path(root or os.environ.get(_WORKSPACE_ENV) or _DEFAULT_ROOT)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, store=None, *, root=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, store: EvsysStore | None = None, *, root: str | None = None) -> None:
+    self.store = store or EvsysStore()
+    self.root = Path(root or os.environ.get(_WORKSPACE_ENV) or _DEFAULT_ROOT)
+    self.root.mkdir(parents=True, exist_ok=True)
+    gi = self.root / ".gitignore"
+    if not gi.exists():
+        gi.write_text("*\n")  # self-ignoring: workspace is never tracked
+    for sub in ("datasets", "benchmarks", "scripts", "outputs"):
+        (self.root / sub).mkdir(exist_ok=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"store"} type={"EvsysStore | None"} value={"None"} />
+<PyParameter name={"root"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"pull_dataset"} type={"(self, dataset_id, *, force=False) -> MaterializedDataset"}>
+
+<PySourceCode >
+
+```python
+def pull_dataset(self, dataset_id: str, *, force: bool = False) -> MaterializedDataset:
+    return self._materialize(
+        "datasets", dataset_id, force,
+        get_meta=self.store.get_dataset,
+        get_rows=self.store.get_dataset_rows,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"dataset_id"} type={"str"} value={null} />
+<PyParameter name={"force"} type={"bool"} value={"False"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.workspace.MaterializedDataset"} />
+
+</PyFunction>
+
+<PyFunction name={"pull_benchmark"} type={"(self, benchmark_id, *, force=False) -> MaterializedDataset"}>
+
+<PySourceCode >
+
+```python
+def pull_benchmark(self, benchmark_id: str, *, force: bool = False) -> MaterializedDataset:
+    return self._materialize(
+        "benchmarks", benchmark_id, force,
+        get_meta=self.store.get_benchmark,
+        get_rows=self.store.get_benchmark_rows,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"benchmark_id"} type={"str"} value={null} />
+<PyParameter name={"force"} type={"bool"} value={"False"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.workspace.MaterializedDataset"} />
+
+</PyFunction>
+
+<PyFunction name={"dataset_id_for_name"} type={"(self, name) -> str"}>
+
+<PySourceCode >
+
+```python
+def dataset_id_for_name(self, name: str) -> str:
+    return self._id_for_name(self.store.list_datasets, name, "dataset")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"benchmark_id_for_name"} type={"(self, name) -> str"}>
+
+<PySourceCode >
+
+```python
+def benchmark_id_for_name(self, name: str) -> str:
+    return self._id_for_name(self.store.list_benchmarks, name, "benchmark")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"_id_for_name"} type={"(self, list_fn, name, kind) -> str"}>
+
+Resolve a name to the highest-version record's id for this project.
+
+<PySourceCode >
+
+```python
+def _id_for_name(self, list_fn: Callable[[], list[dict] | None], name: str, kind: str) -> str:
+    """Resolve a name to the highest-version record's id for this project."""
+    records = list_fn() or []
+    matching = [r for r in records if r.get("name") == name]
+    if not matching:
+        raise FileNotFoundError(f"no {kind} named {name!r} in this project")
+    return str(max(matching, key=lambda r: int(r.get("version") or 1))["id"])
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"list_fn"} type={"Callable[[], list[dict] | None]"} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"kind"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"_materialize"} type={"(self, sub, obj_id, force, *, get_meta, get_rows) -> MaterializedDataset"}>
+
+<PySourceCode >
+
+```python
+def _materialize(self, sub: str, obj_id: str, force: bool, *,
+                 get_meta: Callable[[str], dict | None],
+                 get_rows: Callable[..., list[dict]]) -> MaterializedDataset:
+    meta = get_meta(obj_id)
+    if meta is None:
+        raise FileNotFoundError(f"{sub[:-1]} {obj_id} not found")
+    n_rows = int(meta.get("n_rows") or 0)
+    fmt, transform = meta.get("format"), meta.get("transform")
+
+    path = self.root / sub / f"{obj_id}.jsonl"
+    man_path = self.root / sub / f"{obj_id}.meta.json"
+
+    if force:
+        for p in (path, man_path):
+            p.unlink(missing_ok=True)
+    elif path.exists() and man_path.exists():
+        try:
+            man = json.loads(man_path.read_text())
+            if man.get("complete") and int(man.get("n_rows", -1)) == n_rows:
+                return MaterializedDataset(str(path), fmt, transform, n_rows, cached=True)
+        except Exception:
+            pass  # corrupt manifest → re-pull
+
+    # Pull pages → temp file → atomic rename (no half-written cache is trusted).
+    tmp = self.root / sub / f".{obj_id}.tmp.jsonl"
+    written = 0
+    with tmp.open("w") as f:
+        offset = 0
+        while True:
+            page = get_rows(obj_id, limit=_PAGE, offset=offset)
+            if not page:
+                break
+            for row in page:
+                f.write(json.dumps(row.get("payload", row), default=str) + "\n")
+                written += 1
+            if len(page) < _PAGE:
+                break
+            offset += _PAGE
+    tmp.replace(path)
+    man_path.write_text(json.dumps({
+        "id": obj_id, "version": meta.get("version"), "n_rows": written,
+        "format": fmt, "transform": transform, "complete": True,
+    }))
+    return MaterializedDataset(str(path), fmt, transform, written, cached=False)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"sub"} type={"str"} value={null} />
+<PyParameter name={"obj_id"} type={"str"} value={null} />
+<PyParameter name={"force"} type={"bool"} value={null} />
+<PyParameter name={"get_meta"} type={"Callable[[str], dict | None]"} value={null} />
+<PyParameter name={"get_rows"} type={"Callable[..., list[dict]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.workspace.MaterializedDataset"} />
+
+</PyFunction>
+
+<PyFunction name={"script_path"} type={"(self, exp_id) -> str"}>
+
+<PySourceCode >
+
+```python
+def script_path(self, exp_id: str) -> str:
+    return str(self.root / "scripts" / f"exp_{exp_id}.py")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"exp_id"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"outputs_dir"} type={"(self, run_id) -> str"}>
+
+<PySourceCode >
+
+```python
+def outputs_dir(self, run_id: str) -> str:
+    d = self.root / "outputs" / str(run_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

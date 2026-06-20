@@ -1,0 +1,70 @@
+---
+title: FormatOnlyVerifier
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'format_only'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"FormatOnlyConfig"} />
+
+<PyAttribute name={"has_think_reward"} type={null} value={"has_think_reward"} />
+
+<PyAttribute name={"has_answer_reward"} type={null} value={"has_answer_reward"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, has_think_reward=0.5, has_answer_reward=0.5) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, has_think_reward: float = 0.5, has_answer_reward: float = 0.5) -> None:
+    self.has_think_reward = has_think_reward
+    self.has_answer_reward = has_answer_reward
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"has_think_reward"} type={"float"} value={"0.5"} />
+<PyParameter name={"has_answer_reward"} type={"float"} value={"0.5"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"verify"} type={"(self, *, prompt, completion, target) -> VerificationResult"}>
+
+<PySourceCode >
+
+```python
+def verify(self, *, prompt: str, completion: str, target: dict[str, Any]) -> VerificationResult:
+    has_think = "<think>" in completion and "</think>" in completion
+    has_answer = "<answer>" in completion and "</answer>" in completion
+    r = 0.0
+    if has_think:
+        r += self.has_think_reward
+    if has_answer:
+        r += self.has_answer_reward
+    return VerificationResult(reward=r, info={"has_think": has_think, "has_answer": has_answer})
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"completion"} type={"str"} value={null} />
+<PyParameter name={"target"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.VerificationResult"} />
+
+</PyFunction>

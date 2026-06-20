@@ -1,0 +1,111 @@
+---
+title: ChatTemplatedInference
+---
+
+Wraps an InferenceClient to apply a chat template before each ``generate`` call.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'chat_templated'"} />
+
+<PyAttribute name={"system_prompt"} type={null} value={"system_prompt"} />
+
+<PyAttribute name={"user_template"} type={null} value={"user_template"} />
+
+<PyAttribute name={"enable_thinking"} type={null} value={"enable_thinking"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, base, *, system_prompt, user_template='{prompt}', enable_thinking=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    base: Any,
+    *,
+    system_prompt: str,
+    user_template: str = "{prompt}",
+    enable_thinking: bool | None = None,
+) -> None:
+    if not hasattr(base, "_tokenizer"):
+        raise TypeError(
+            "base inference client must expose a `_tokenizer` attribute "
+            "(HF tokenizer with apply_chat_template); "
+            f"got {type(base).__name__}"
+        )
+    self._base = base
+    self.system_prompt = system_prompt
+    self.user_template = user_template
+    # Forwarded to ``apply_chat_template`` only when set, so non-Qwen
+    # tokenizers (which don't accept the kwarg) keep working unchanged.
+    self.enable_thinking = enable_thinking
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"base"} type={"Any"} value={null} />
+<PyParameter name={"system_prompt"} type={"str"} value={null} />
+<PyParameter name={"user_template"} type={"str"} value={"'{prompt}'"} />
+<PyParameter name={"enable_thinking"} type={"bool | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"generate"} type={"(self, *, prompt, max_tokens=256, temperature=0.0, stop=None) -> str"}>
+
+<PySourceCode >
+
+```python
+def generate(
+    self,
+    *,
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    stop: list[str] | None = None,
+) -> str:
+    user_content = self.user_template.format(prompt=prompt)
+    template_kwargs: dict[str, Any] = {
+        "tokenize": False,
+        "add_generation_prompt": True,
+    }
+    if self.enable_thinking is not None:
+        template_kwargs["enable_thinking"] = self.enable_thinking
+    templated = self._base._tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        **template_kwargs,
+    )
+    return self._base.generate(
+        prompt=templated,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stop=stop,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"stop"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

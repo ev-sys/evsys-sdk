@@ -1,0 +1,36 @@
+---
+title: MeanReward
+---
+
+Macro mean reward: mean over tasks of each task's mean sample reward.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'mean_reward'"} />
+
+## Functions
+
+<PyFunction name={"compute"} type={"(self, task_rewards) -> float"}>
+
+<PySourceCode >
+
+```python
+def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+    tasks = _nonempty(task_rewards)
+    if not tasks:
+        return 0.0
+    return sum(sum(rs) / len(rs) for rs in tasks) / len(tasks)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"task_rewards"} type={"Sequence[Sequence[float]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>

@@ -1,0 +1,193 @@
+---
+title: ArmResult
+---
+
+One arm of the experiment (one expanded ``RunConfig``).
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"run_config"} type={"RunConfig"} value={null} />
+
+<PyAttribute name={"status"} type={"str"} value={null} />
+
+<PyAttribute name={"metrics"} type={"dict[str, float]"} value={"field(default_factory=dict)"}>
+
+Training-side metrics from ``RunResult.metrics``.
+
+</PyAttribute>
+
+<PyAttribute name={"eval_metrics"} type={"dict[str, float]"} value={"field(default_factory=dict)"}>
+
+Back-compat alias — mirrors ``evals[\<primary>].metrics``. ``primary``
+is the first ``test``-tagged post-training eval, or the first
+post-training eval, or the first eval overall.
+
+</PyAttribute>
+
+<PyAttribute name={"eval_breakdowns"} type={"dict[str, Any]"} value={"field(default_factory=dict)"} />
+
+<PyAttribute name={"evals"} type={"list[EvalResult]"} value={"field(default_factory=list)"}>
+
+All benchmarks scored against this arm — see ``EvalResult``.
+
+</PyAttribute>
+
+<PyAttribute name={"run_id"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"error"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"train_seconds"} type={"float | None"} value={"None"} />
+
+<PyAttribute name={"eval_seconds"} type={"float | None"} value={"None"} />
+
+<PyAttribute name={"run_result"} type={"RunResult | None"} value={"None"}>
+
+Raw underlying ``RunResult`` for advanced consumers.
+
+</PyAttribute>
+
+<PyAttribute name={"group_id"} type={"str | None"} value={"None"}>
+
+Dashboard ``group_id`` when ``n_repeats > 1`` (else None).
+
+</PyAttribute>
+
+<PyAttribute name={"group_name"} type={"str | None"} value={"None"}>
+
+Primary's name (= the group's name) when grouped; else None.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"eval"} type={"(self, name, *, step=None) -> EvalResult | None"}>
+
+Look up an eval result by benchmark ``name``.
+
+``step=None`` (default) → return the post-training row (``step is None``)
+if present; else the last in-loop row for that benchmark.
+
+``step=\<int>`` → return the exact in-loop row at that step (or
+``None`` if no exact match — callers can do their own nearest-step
+lookup over ``arm.evals``).
+
+<PySourceCode >
+
+```python
+def eval(self, name: str, *, step: int | None = None) -> EvalResult | None:
+    """Look up an eval result by benchmark ``name``.
+
+    ``step=None`` (default) → return the post-training row (``step is None``)
+    if present; else the last in-loop row for that benchmark.
+
+    ``step=<int>`` → return the exact in-loop row at that step (or
+    ``None`` if no exact match — callers can do their own nearest-step
+    lookup over ``arm.evals``).
+    """
+    matches = [e for e in self.evals if e.name == name]
+    if not matches:
+        return None
+    if step is None:
+        post = [e for e in matches if e.step is None]
+        if post:
+            return post[0]
+        in_loop = [e for e in matches if e.step is not None]
+        return max(in_loop, key=lambda e: e.step) if in_loop else None
+    return next((e for e in matches if e.step == step), None)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"step"} type={"int | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.EvalResult | None"} />
+
+</PyFunction>
+
+<PyFunction name={"score"} type={"(self, metric) -> float | None"}>
+
+Return the metric value for ranking by ``success_metric``.
+
+Three forms supported:
+
+* ``"pass_rate"`` (bare) — looked up on ``eval_metrics`` (the
+  primary post-training eval), then ``metrics`` (training-side).
+* ``"bench.pass_rate"`` (dotted) — looked up on
+  ``arm.eval("bench").metrics["pass_rate"]``. The dotted form wins
+  when an experiment carries multiple named benchmarks and
+  ``success_metric`` picks one explicitly.
+* Returns ``None`` if neither path resolves.
+
+<PySourceCode >
+
+```python
+def score(self, metric: str) -> float | None:
+    """Return the metric value for ranking by ``success_metric``.
+
+    Three forms supported:
+
+    * ``"pass_rate"`` (bare) — looked up on ``eval_metrics`` (the
+      primary post-training eval), then ``metrics`` (training-side).
+    * ``"bench.pass_rate"`` (dotted) — looked up on
+      ``arm.eval("bench").metrics["pass_rate"]``. The dotted form wins
+      when an experiment carries multiple named benchmarks and
+      ``success_metric`` picks one explicitly.
+    * Returns ``None`` if neither path resolves.
+    """
+    if "." in metric:
+        bench_name, _, key = metric.partition(".")
+        ev = self.eval(bench_name)
+        if ev is not None and key in ev.metrics:
+            return ev.metrics[key]
+        return None
+    if metric in self.eval_metrics:
+        return self.eval_metrics[metric]
+    return self.metrics.get(metric)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metric"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"float | None"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, name, run_config, status, metrics=dict(), eval_metrics=dict(), eval_breakdowns=dict(), evals=list(), run_id=None, error=None, train_seconds=None, eval_seconds=None, run_result=None, group_id=None, group_name=None) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"run_config"} type={"RunConfig"} value={null} />
+<PyParameter name={"status"} type={"str"} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={"dict()"} />
+<PyParameter name={"eval_metrics"} type={"dict[str, float]"} value={"dict()"} />
+<PyParameter name={"eval_breakdowns"} type={"dict[str, Any]"} value={"dict()"} />
+<PyParameter name={"evals"} type={"list[EvalResult]"} value={"list()"} />
+<PyParameter name={"run_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"error"} type={"str | None"} value={"None"} />
+<PyParameter name={"train_seconds"} type={"float | None"} value={"None"} />
+<PyParameter name={"eval_seconds"} type={"float | None"} value={"None"} />
+<PyParameter name={"run_result"} type={"RunResult | None"} value={"None"} />
+<PyParameter name={"group_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"group_name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

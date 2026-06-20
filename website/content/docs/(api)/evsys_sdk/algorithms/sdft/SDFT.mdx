@@ -1,0 +1,307 @@
+---
+title: SDFT
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'sdft'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"SDFTConfig"} />
+
+## Functions
+
+<PyFunction name={"_check_inputs"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def _check_inputs(self, ctx: RunContext) -> None:
+    rows = ctx.extras.get("train_rows")
+    if not rows:
+        raise RuntimeError("SDFT.train: ctx.extras['train_rows'] missing/empty")
+    # Standardize raw rows → typed PromptExample (strict): inputs['question']
+    # is the prompt, expected is the gold answer. Done here (pre-backend) so
+    # row-shape errors surface before we allocate a (costly) tinker session.
+    examples = cast("list[PromptExample]", parse_rows(rows, TargetFormat.PROMPT_DATASET))
+    self._dataset = SimpleSDFTDataset(rows=examples, batch_size=self.cfg.batch_size)
+    self._n_rows = len(rows)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"setup"} type={"(self, ctx, backend) -> None"}>
+
+<PySourceCode >
+
+```python
+async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
+    self._tokenizer = backend.get_tokenizer()
+
+    # Teacher sampling client (frozen; same base model). snapshot_sampling_client
+    # would bind to the *student* weights, so build a separate sampler over the
+    # untrained base via the underlying service client.
+    teacher_client = backend._service.create_sampling_client(  # type: ignore[attr-defined]
+        base_model=self._model_name,
+    )
+    self._teacher = TinkerSamplingClient(teacher_client, name="teacher")
+
+    # Per-step student rollouts go through harbor (on-policy: each step
+    # saves a sampler checkpoint and points the harbor agent at it).
+    self._backend = backend
+    self._snapshot_i = 0
+    # Resolve the renderer the SAME way the backend/teacher do
+    # (base.py): the algorithm config first, then the model's renderer from
+    # backend handles. Without this fallback the student rollout would pass
+    # ``None`` and harbor would default to the thinking-enabled base
+    # renderer — mismatching a no-thinking ``model.renderer_name``.
+    self._renderer_name = self.cfg.renderer_name or ctx.extras.get(
+        "backend_handles", {}
+    ).get("renderer_name")
+    # Rollouts persist under the run's workspace on disk; training rollouts
+    # are NOT uploaded to the dashboard (only eval rollouts are).
+    self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+
+    self._steps_per_epoch = max(1, len(self._dataset))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+<PyParameter name={"backend"} type={"TinkerBackend"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"build_batch"} type={"(self, step_idx) -> TrainingBatch"}>
+
+<PySourceCode >
+
+```python
+async def build_batch(self, step_idx: int) -> TrainingBatch:
+    from ..training.harbor_engine import run_harbor_rollouts
+
+    questions, golden = self._dataset.get_batch(step_idx)
+
+    # 1. Teacher prompts (golden answer shown as an in-context demo).
+    teacher_prompts = [
+        build_teacher_prompt(
+            question=q, golden_answer=g, tokenizer=self._tokenizer,
+            system_prompt=self.cfg.system_prompt,
+            demo_template=self.cfg.demo_template,
+            enable_thinking=self.cfg.enable_thinking,
+        )
+        for q, g in zip(questions, golden)
+    ]
+
+    # 2. On-policy student rollouts via harbor's engine, generation-only
+    #    (verify=False → no verifier/reward). Save a sampler checkpoint so the
+    #    harbor agent samples from the current weights. One group per prompt
+    #    (prompt order); take its single sample.
+    self._snapshot_i += 1
+    model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
+    groups = await run_harbor_rollouts(
+        [self._student_user_content(q) for q in questions],
+        outcome_reward=False,        # raw prompts → generation-only (no verifier/reward)
+        model_name=self._model_name,
+        model_path=model_path,
+        workspace_dir=self._workspace,
+        renderer_name=self._renderer_name,
+        max_tokens=self.cfg.max_tokens,
+        temperature=self.cfg.temperature,
+        system_prompt=self.cfg.system_prompt,
+    )
+    student_trajs = [
+        g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
+    ]
+
+    # 3. Wrap each rollout as a student Datum (carrying the completion mask).
+    student_datums: list[tinker.Datum] = []
+    completion_slices: list[CompletionSlice] = []
+    teacher_forced_seqs: list[tinker.ModelInput] = []
+
+    for tp, traj in zip(teacher_prompts, student_trajs):
+        turn = traj.turns[0] if traj.turns else None
+        completion = list(turn.completion_tokens) if turn else []
+        sp = tinker.ModelInput.from_ints(list(turn.prompt_tokens) if turn else [])
+        datum = student_datum_from_rollout(prompt=sp, completion_tokens=completion)
+        student_datums.append(datum)
+        slice_ = extract_completion_tokens(
+            datum, teacher_prompt_len=tp.length,
+            max_context_length=self.cfg.max_context_length,
+        )
+        completion_slices.append(slice_)
+        teacher_forced_seqs.append(
+            build_teacher_forced_sequence(tp, slice_.tokens)
+        )
+
+    # 4. Teacher topK at each completion position (one parallel call per datum).
+    teacher_responses = await asyncio.gather(*[
+        self._teacher.sample_async(
+            prompt=seq,
+            params=tinker.SamplingParams(max_tokens=1),
+            num_samples=1,
+            include_prompt_logprobs=True,
+            topk_prompt_logprobs=self.cfg.topk,
+        )
+        for seq in teacher_forced_seqs
+    ])
+    teacher_topk = [
+        getattr(r, "topk_prompt_logprobs", None) for r in teacher_responses
+    ]
+
+    # 5. Build CE Datums with (N, K) soft targets.
+    ce_datums, sdft_metrics = build_topk_targets(
+        student_data=student_datums,
+        completion_slices=completion_slices,
+        teacher_topk_logprobs=teacher_topk,
+        topk=self.cfg.topk,
+        vocab_size=None,
+        skip_first_n=self.cfg.skip_first_n_tokens,
+    )
+
+    return TrainingBatch(
+        data=ce_datums,
+        loss_fn="cross_entropy",
+        metrics=sdft_metrics,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.training.loop.TrainingBatch"} />
+
+</PyFunction>
+
+<PyFunction name={"step_metrics"} type={"(self, step_idx, batch, fb_result) -> dict[str, float]"}>
+
+``train/mean_loss`` = mean negative-logprob of the teacher's
+preferred tokens under the student's distribution.
+
+The loop already merges ``batch.metrics`` (teacher entropy / truncated
+count); here we add the loss derived from the forward-backward output.
+Per-position student logprobs are 0 on non-loss positions, negative on
+the rest; ignore the zeros.
+
+<PySourceCode >
+
+```python
+def step_metrics(
+    self, step_idx: int, batch: TrainingBatch, fb_result: Any,
+) -> dict[str, float]:
+    """``train/mean_loss`` = mean negative-logprob of the teacher's
+    preferred tokens under the student's distribution.
+
+    The loop already merges ``batch.metrics`` (teacher entropy / truncated
+    count); here we add the loss derived from the forward-backward output.
+    Per-position student logprobs are 0 on non-loss positions, negative on
+    the rest; ignore the zeros."""
+    outputs = getattr(fb_result, "loss_fn_outputs", None)
+    if not outputs:
+        return {}
+    total_logprob = 0.0
+    n_tokens = 0
+    for out in outputs:
+        logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
+                                  else getattr(out, "logprobs", None))
+        if not logprobs:
+            continue
+        for v in logprobs:
+            if v != 0.0:
+                total_logprob += v
+                n_tokens += 1
+    if n_tokens == 0:
+        return {}
+    mean_lp = total_logprob / n_tokens
+    return {
+        "train/mean_logprob": float(mean_lp),
+        "train/mean_loss": -float(mean_lp),
+        "train/loss_n_tokens": float(n_tokens),
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+<PyParameter name={"batch"} type={"TrainingBatch"} value={null} />
+<PyParameter name={"fb_result"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, float]"} />
+
+</PyFunction>
+
+<PyFunction name={"_hyperparams_extra"} type={"(self) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def _hyperparams_extra(self) -> dict[str, Any]:
+    return {"n_train_rows": self._n_rows}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"_student_user_content"} type={"(self, question) -> str"}>
+
+The user turn the student sees (no demo). The harbor agent's
+TinkerLLM renders it into a chat-templated prompt internally.
+
+<PySourceCode >
+
+```python
+def _student_user_content(self, question: str) -> str:
+    """The user turn the student sees (no demo). The harbor agent's
+    TinkerLLM renders it into a chat-templated prompt internally."""
+    return self.cfg.user_template.format(question=question, prompt=question)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"question"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

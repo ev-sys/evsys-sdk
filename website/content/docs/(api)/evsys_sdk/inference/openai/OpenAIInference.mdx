@@ -1,0 +1,103 @@
+---
+title: OpenAIInference
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'openai'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"OpenAIInferenceConfig"} />
+
+<PyAttribute name={"cfg"} type={null} value={"OpenAIInferenceConfig.model_validate(kwargs)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, **kwargs) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, **kwargs) -> None:
+    try:
+        from openai import OpenAI  # type: ignore[import-not-found]
+    except ImportError as e:
+        raise ImportError(
+            "OpenAIInference requires the `openai` package. "
+            "Install with: pip install openai"
+        ) from e
+
+    self.cfg = OpenAIInferenceConfig.model_validate(kwargs)
+    key = os.environ.get(self.cfg.api_key_env)
+    if not key:
+        raise RuntimeError(
+            f"OpenAIInference: env var {self.cfg.api_key_env} is not set"
+        )
+    ctor: dict = {"api_key": key, "timeout": self.cfg.timeout_s}
+    if self.cfg.base_url:     ctor["base_url"]     = self.cfg.base_url
+    if self.cfg.organization: ctor["organization"] = self.cfg.organization
+    self._client = OpenAI(**ctor)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"kwargs"} type={null} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"generate"} type={"(self, *, prompt, max_tokens=256, temperature=0.0, stop=None) -> str"}>
+
+<PySourceCode >
+
+```python
+def generate(
+    self,
+    *,
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    stop: list[str] | None = None,
+) -> str:
+    messages: list[dict] = []
+    if self.cfg.system_prompt:
+        messages.append({"role": "system", "content": self.cfg.system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    kwargs: dict = {
+        "model": self.cfg.model,
+        "messages": messages,
+        "max_tokens": max_tokens or self.cfg.default_max_tokens,
+        "temperature": temperature if temperature is not None else self.cfg.default_temperature,
+    }
+    if stop:
+        kwargs["stop"] = stop
+
+    resp = self._client.chat.completions.create(**kwargs)
+    choices = getattr(resp, "choices", []) or []
+    if not choices:
+        return ""
+    msg = choices[0].message
+    return getattr(msg, "content", None) or ""
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"stop"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

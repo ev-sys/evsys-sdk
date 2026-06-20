@@ -1,0 +1,144 @@
+---
+title: DataStore
+---
+
+Abstract data sink+source.
+
+Implementations:
+  * ``LocalDataStore`` — filesystem JSONL/parquet/json, no network.
+  * ``SupabaseDataStore`` — REST against PostgREST tables.
+  * ``InMemoryDataStore`` — for tests.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+## Functions
+
+<PyFunction name={"read_jsonl"} type={"(self, path) -> list[dict[str, Any]]"}>
+
+<PySourceCode >
+
+```python
+def read_jsonl(self, path: str) -> list[dict[str, Any]]: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.DataStore.list[dict[str, typing.Any]]"} />
+
+</PyFunction>
+
+<PyFunction name={"write_jsonl"} type={"(self, path, rows) -> None"}>
+
+<PySourceCode >
+
+```python
+def write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"rows"} type={"Iterable[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"read_json"} type={"(self, path) -> Any"}>
+
+<PySourceCode >
+
+```python
+def read_json(self, path: str) -> Any: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"write_json"} type={"(self, path, value) -> None"}>
+
+<PySourceCode >
+
+```python
+def write_json(self, path: str, value: Any) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"value"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"exists"} type={"(self, path) -> bool"}>
+
+<PySourceCode >
+
+```python
+def exists(self, path: str) -> bool: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+<PyFunction name={"list"} type={"(self, prefix) -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list(self, prefix: str) -> list[str]: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prefix"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.DataStore.list[str]"} />
+
+</PyFunction>

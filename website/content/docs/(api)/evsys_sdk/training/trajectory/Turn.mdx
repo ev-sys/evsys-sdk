@@ -1,0 +1,40 @@
+---
+title: Turn
+---
+
+One assistant turn of a rollout.
+
+``prompt_tokens`` is the full rendered context the policy saw for this turn
+(system + prior turns + the latest observation); ``completion_tokens`` /
+``logprobs`` are the sampled response. A single-turn rollout has exactly one.
+
+``logprobs`` is optional — on-policy tinker rollouts populate it (training
+needs it), but eval / closed-API rollouts often have none. Defaults to empty.
+
+## Attributes
+
+<PyAttribute name={"prompt_tokens"} type={"list[int]"} value={null} />
+
+<PyAttribute name={"completion_tokens"} type={"list[int]"} value={null} />
+
+<PyAttribute name={"logprobs"} type={"list[float]"} value={"field(default_factory=list)"} />
+
+<PyAttribute name={"text"} type={"str"} value={"''"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, prompt_tokens, completion_tokens, logprobs=list(), text='') -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt_tokens"} type={"list[int]"} value={null} />
+<PyParameter name={"completion_tokens"} type={"list[int]"} value={null} />
+<PyParameter name={"logprobs"} type={"list[float]"} value={"list()"} />
+<PyParameter name={"text"} type={"str"} value={"''"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

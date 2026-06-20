@@ -1,0 +1,81 @@
+---
+title: StepBuilder
+---
+
+The only thing each algorithm overrides.
+
+Owns data shaping + per-step metrics. Owns nothing about
+checkpointing / logging / eval / resume.
+
+## Functions
+
+<PyFunction name={"build_batch"} type={"(self, step_idx) -> TrainingBatch"}>
+
+Produce the batch for ``step_idx`` (0-based).
+
+<PySourceCode >
+
+```python
+async def build_batch(self, step_idx: int) -> TrainingBatch:
+    """Produce the batch for ``step_idx`` (0-based)."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.training.loop.TrainingBatch"} />
+
+</PyFunction>
+
+<PyFunction name={"step_metrics"} type={"(self, step_idx, batch, fb_result) -> dict[str, float]"}>
+
+Compute per-step metrics from the forward-backward result.
+
+``fb_result`` is what the backend's
+``forward_backward_*_async()`` future resolved to. For
+``MockBackend`` it's a duck-typed
+:class:`~evsys_sdk.training.backend.ForwardBackwardResult`; for
+``TinkerBackend`` it's the native ``tinker.ForwardBackwardOutput``.
+The StepBuilder is free to inspect ``fb_result.loss_fn_outputs``
+(one entry per Datum).
+
+<PySourceCode >
+
+```python
+def step_metrics(
+    self, step_idx: int, batch: TrainingBatch, fb_result: Any
+) -> dict[str, float]:
+    """Compute per-step metrics from the forward-backward result.
+
+    ``fb_result`` is what the backend's
+    ``forward_backward_*_async()`` future resolved to. For
+    ``MockBackend`` it's a duck-typed
+    :class:`~evsys_sdk.training.backend.ForwardBackwardResult`; for
+    ``TinkerBackend`` it's the native ``tinker.ForwardBackwardOutput``.
+    The StepBuilder is free to inspect ``fb_result.loss_fn_outputs``
+    (one entry per Datum).
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+<PyParameter name={"batch"} type={"TrainingBatch"} value={null} />
+<PyParameter name={"fb_result"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, float]"} />
+
+</PyFunction>

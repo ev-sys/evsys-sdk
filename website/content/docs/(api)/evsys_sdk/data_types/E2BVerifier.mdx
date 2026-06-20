@@ -1,0 +1,37 @@
+---
+title: E2BVerifier
+---
+
+Sandboxed code verifier — runs ``test_state.py`` inside an E2B container.
+
+The runner builds the container per the ``dockerfile``, drops in the
+model's completion + ``test_state.py``, executes ``test_sh`` (default
+``pytest -q test_state.py``), and reads pass/fail from the exit code.
+
+## Attributes
+
+<PyAttribute name={"dockerfile"} type={"str"} value={"''"} />
+
+<PyAttribute name={"test_sh"} type={"str"} value={"''"} />
+
+<PyAttribute name={"test_state_py"} type={"str"} value={"''"} />
+
+<PyAttribute name={"kind"} type={"Literal['e2b']"} value={"'e2b'"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, dockerfile='', test_sh='', test_state_py='', kind='e2b') -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"dockerfile"} type={"str"} value={"''"} />
+<PyParameter name={"test_sh"} type={"str"} value={"''"} />
+<PyParameter name={"test_state_py"} type={"str"} value={"''"} />
+<PyParameter name={"kind"} type={"Literal['e2b']"} value={"'e2b'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

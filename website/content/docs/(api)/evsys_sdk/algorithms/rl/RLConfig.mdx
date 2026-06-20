@@ -1,0 +1,50 @@
+---
+title: RLConfig
+---
+
+Config for :class:`RL` — shared knobs from :class:`BaseAlgorithmConfig`
+plus RL/rollout-engine fields.
+
+## Attributes
+
+<PyAttribute name={"learning_rate"} type={"float"} value={"1e-05"}>
+
+RL needs a lower LR than SFT — IS gradients can be large.
+
+</PyAttribute>
+
+<PyAttribute name={"num_samples"} type={"int"} value={"1"}>
+
+Rollouts per task (``group_size``); >= 2 enables the advantage baseline.
+
+</PyAttribute>
+
+<PyAttribute name={"verifier_name"} type={"str | None"} value={"None"}>
+
+Fallback verifier-fn name when a HarborTask's InProcessVerifier leaves
+``fn_name`` empty (normally the verifier rides per-row on the task).
+
+</PyAttribute>
+
+<PyAttribute name={"max_tokens"} type={"int"} value={"256"} />
+
+<PyAttribute name={"temperature"} type={"float"} value={"1.0"} />
+
+<PyAttribute name={"max_turns"} type={"int"} value={"1"} />
+
+<PyAttribute name={"drop_constant_reward"} type={"bool"} value={"True"} />
+
+<PyAttribute name={"system_prompt"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"user_template"} type={"str"} value={"'{prompt}'"} />
+
+<PyAttribute name={"agent_import_path"} type={"str | None"} value={"None"}>
+
+Override the rollout agent harness (any harbor ``BaseAgent`` import path).
+Default: our ``BasicLoopAgent``.
+
+</PyAttribute>
+
+<PyAttribute name={"n_concurrent"} type={"int"} value={"4"} />
+
+<PyAttribute name={"max_retries"} type={"int"} value={"2"} />

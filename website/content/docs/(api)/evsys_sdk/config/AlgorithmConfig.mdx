@@ -1,0 +1,19 @@
+---
+title: AlgorithmConfig
+---
+
+Training algorithm (recipe) — one of the registered @register_algorithm.
+
+## Attributes
+
+<PyAttribute name={"kind"} type={"str"} value={null}>
+
+Registry key, e.g. 'sft', 'rl_grpo', 'dpo'.
+
+</PyAttribute>
+
+<PyAttribute name={"params"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"}>
+
+Algorithm-specific parameters; validated against \<Algorithm>.Config.
+
+</PyAttribute>

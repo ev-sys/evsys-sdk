@@ -1,0 +1,41 @@
+---
+title: Algorithm
+---
+
+A training recipe.
+
+Implementations must declare:
+  * ``name`` (class var) — registry key, also used as the YAML ``kind``.
+  * ``Config`` (class var) — Pydantic model for the recipe's parameters.
+
+And implement:
+  * ``train(ctx: RunContext) -> RunResult``
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"Config"} type={"type"} value={null} />
+
+## Functions
+
+<PyFunction name={"train"} type={"(self, ctx) -> RunResult"}>
+
+<PySourceCode >
+
+```python
+def train(self, ctx: RunContext) -> RunResult: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.RunResult"} />
+
+</PyFunction>

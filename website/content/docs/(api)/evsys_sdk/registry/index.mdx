@@ -1,0 +1,636 @@
+---
+title: registry
+---
+
+Registries — one per extension point.
+
+Each registry is a tiny namespace with:
+  * ``register_\<thing>(name)`` decorator.
+  * ``get_\<thing>(name)`` lookup.
+  * ``list_\<thing>s()`` enumeration.
+
+Adding a new algorithm/verifier/metric is one decorator + a Pydantic Config
+class. No subclassing the library, no editing any list.
+
+Third-party packages can also register via Python entry points; see
+`_entry_points.py` for the loader.
+
+<PyAttribute name={"T"} type={null} value={"TypeVar('T')"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"Registry"} href={"/docs/evsys_sdk/registry/Registry"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"register_algorithm"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_algorithm(name: str | None = None):
+    return _algorithms.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_verifier"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_verifier(name: str | None = None):
+    return _verifiers.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_metric"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_metric(name: str | None = None):
+    return _metrics.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_data_store"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_data_store(name: str | None = None):
+    return _data_stores.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_log_store"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_log_store(name: str | None = None):
+    return _log_stores.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_backend"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_backend(name: str | None = None):
+    return _backends.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_inference"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_inference(name: str | None = None):
+    return _inference.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_transform"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_transform(name: str | None = None):
+    return _transforms.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_callback"} type={"(name=None)"}>
+
+<PySourceCode >
+
+```python
+def register_callback(name: str | None = None):
+    return _callbacks.register(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+<PyFunction name={"register_default_inference_factory"} type={"(backend_kind) -> Callable[[Callable[..., Any]], Callable[..., Any]]"}>
+
+Register the default ``(run_result, run_cfg) -> InferenceClient`` for
+a backend kind. Called by each inference module's import side-effect
+(e.g. ``inference/tinker.py`` registers ``"tinker"``).
+
+<PySourceCode >
+
+```python
+def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Register the default ``(run_result, run_cfg) -> InferenceClient`` for
+    a backend kind. Called by each inference module's import side-effect
+    (e.g. ``inference/tinker.py`` registers ``"tinker"``).
+    """
+    def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
+        _DEFAULT_INFERENCE_FACTORIES[backend_kind] = fn
+        return fn
+    return deco
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"backend_kind"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Callable[[typing.Callable[..., typing.Any]], typing.Callable[..., typing.Any]]"} />
+
+</PyFunction>
+<PyFunction name={"get_algorithm"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_algorithm(name: str) -> type:
+    return _algorithms.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_verifier"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_verifier(name: str) -> type:
+    return _verifiers.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_metric"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_metric(name: str) -> type:
+    return _metrics.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_data_store"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_data_store(name: str) -> type:
+    return _data_stores.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_log_store"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_log_store(name: str) -> type:
+    return _log_stores.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_backend"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_backend(name: str) -> type:
+    return _backends.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_inference"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_inference(name: str) -> type:
+    return _inference.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_transform"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_transform(name: str) -> type:
+    return _transforms.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_callback"} type={"(name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get_callback(name: str) -> type:
+    return _callbacks.get(name)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+<PyFunction name={"get_default_inference_factory"} type={"(backend_kind) -> Callable[..., Any] | None"}>
+
+Return the registered default factory for ``backend_kind`` or ``None``.
+
+<PySourceCode >
+
+```python
+def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
+    """Return the registered default factory for ``backend_kind`` or ``None``."""
+    return _DEFAULT_INFERENCE_FACTORIES.get(backend_kind)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"backend_kind"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Callable[..., typing.Any] | None"} />
+
+</PyFunction>
+<PyFunction name={"list_algorithms"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_algorithms() -> list[str]:
+    return _algorithms.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_verifiers"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_verifiers() -> list[str]:
+    return _verifiers.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_metrics"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_metrics() -> list[str]:
+    return _metrics.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_data_stores"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_data_stores() -> list[str]:
+    return _data_stores.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_log_stores"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_log_stores() -> list[str]:
+    return _log_stores.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_backends"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_backends() -> list[str]:
+    return _backends.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_inferences"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_inferences() -> list[str]:
+    return _inference.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_transforms"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_transforms() -> list[str]:
+    return _transforms.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"list_callbacks"} type={"() -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list_callbacks() -> list[str]:
+    return _callbacks.list()
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"list[str]"} />
+
+</PyFunction>
+<PyFunction name={"_all_registries"} type={"() -> dict[str, Registry]"}>
+
+<PySourceCode >
+
+```python
+def _all_registries() -> dict[str, Registry]:
+    return {
+        "algorithm": _algorithms,
+        "verifier": _verifiers,
+        "metric": _metrics,
+        "data_store": _data_stores,
+        "log_store": _log_stores,
+        "backend": _backends,
+        "inference_client": _inference,
+        "transform": _transforms,
+        "callback": _callbacks,
+    }
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"dict[str, evsys_sdk.registry.Registry]"} />
+
+</PyFunction>
+<PyFunction name={"schema_for"} type={"(kind, name) -> dict[str, Any]"}>
+
+Return the JSON schema for a registered extension's Config.
+
+Used by evolutionary algorithms to know the legal field space.
+
+<PySourceCode >
+
+```python
+def schema_for(kind: str, name: str) -> dict[str, Any]:
+    """Return the JSON schema for a registered extension's Config.
+
+    Used by evolutionary algorithms to know the legal field space.
+    """
+    reg = _all_registries().get(kind)
+    if reg is None:
+        raise KeyError(f"Unknown registry kind: {kind}")
+    cls = reg.get(name)
+    cfg_cls = getattr(cls, "Config", None)
+    if cfg_cls is None or not hasattr(cfg_cls, "model_json_schema"):
+        return {"type": "object", "properties": {}}
+    return cfg_cls.model_json_schema()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"kind"} type={"str"} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

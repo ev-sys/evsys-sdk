@@ -1,0 +1,37 @@
+---
+title: protocols
+---
+
+Protocol contracts for every extension point.
+
+We use ``typing.Protocol`` (PEP 544) instead of ABCs so extensions don't have
+to subclass anything from the library — any class that implements the methods
+satisfies the protocol. This is what makes third-party algorithms / verifiers
+/ metrics trivial to add.
+
+A few protocols are runtime-checkable so the registry can give better error
+messages, but most are duck-typed.
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"RunContext"} href={"/docs/evsys_sdk/protocols/RunContext"} />
+<Card title={"RunResult"} href={"/docs/evsys_sdk/protocols/RunResult"} />
+<Card title={"Algorithm"} href={"/docs/evsys_sdk/protocols/Algorithm"} />
+<Card title={"VerificationResult"} href={"/docs/evsys_sdk/protocols/VerificationResult"} />
+<Card title={"Verifier"} href={"/docs/evsys_sdk/protocols/Verifier"} />
+<Card title={"Metric"} href={"/docs/evsys_sdk/protocols/Metric"} />
+<Card title={"DataStore"} href={"/docs/evsys_sdk/protocols/DataStore"} />
+<Card title={"LogStore"} href={"/docs/evsys_sdk/protocols/LogStore"} />
+<Card title={"Backend"} href={"/docs/evsys_sdk/protocols/Backend"} />
+<Card title={"InferenceClient"} href={"/docs/evsys_sdk/protocols/InferenceClient"} />
+<Card title={"Transform"} href={"/docs/evsys_sdk/protocols/Transform"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

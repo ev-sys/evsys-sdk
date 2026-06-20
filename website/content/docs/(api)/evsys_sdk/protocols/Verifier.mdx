@@ -1,0 +1,40 @@
+---
+title: Verifier
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"Config"} type={"type"} value={null} />
+
+## Functions
+
+<PyFunction name={"verify"} type={"(self, *, prompt, completion, target) -> VerificationResult"}>
+
+<PySourceCode >
+
+```python
+def verify(
+    self,
+    *,
+    prompt: str,
+    completion: str,
+    target: dict[str, Any],
+) -> VerificationResult: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"completion"} type={"str"} value={null} />
+<PyParameter name={"target"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.VerificationResult"} />
+
+</PyFunction>

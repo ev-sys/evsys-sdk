@@ -1,0 +1,31 @@
+---
+title: trajectory
+---
+
+The rollout data model — one shape for all (multi-turn) rollouts.
+
+Every rollout in the SDK — single- or multi-turn, RL or SDFT — is a
+:class:`Trajectory`: an ordered list of :class:`Turn`\s (each a prompt + a
+sampled completion with per-token logprobs) plus a scalar reward. Harbor's
+``RolloutDetail`` (ATIF) is converted into this at the engine boundary
+(:func:`evsys_sdk.training.harbor_engine.run_harbor_rollouts`), so the rest of
+the SDK only ever sees ``Trajectory``. The IS-loss data prep
+(:mod:`evsys_sdk.training.data_processing`) emits one ``Datum`` per turn.
+
+<PyAttribute name={"__all__"} type={null} value={"['Turn', 'Trajectory', 'TrajectoryGroup']"} />
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"Turn"} href={"/docs/evsys_sdk/training/trajectory/Turn"} />
+<Card title={"Trajectory"} href={"/docs/evsys_sdk/training/trajectory/Trajectory"} />
+<Card title={"TrajectoryGroup"} href={"/docs/evsys_sdk/training/trajectory/TrajectoryGroup"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

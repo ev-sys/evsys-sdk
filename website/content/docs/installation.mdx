@@ -1,0 +1,49 @@
+---
+title: Installation
+description: Get evsys-sdk installed and run your first experiment without a GPU.
+---
+
+## Requirements
+
+- Python 3.10+
+- [`uv`](https://docs.astral.sh/uv/) (recommended) for environment management
+
+## Install
+
+```bash
+cd evsys-sdk
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e ".[tinker,local,tensorboard]"
+```
+
+The extras are optional:
+
+| Extra | Pulls in | Use it for |
+| --- | --- | --- |
+| `tinker` | Tinker client | Hosted SFT / RL training |
+| `local` | TRL + peft | Training on your own GPU |
+| `tensorboard` | TensorBoard log store | Local metric dashboards |
+
+For real Tinker training, also export your key:
+
+```bash
+export TINKER_API_KEY=...
+```
+
+## Verify
+
+Run the test suite:
+
+```bash
+pytest tests/
+```
+
+Then run the no-GPU, no-network hello world:
+
+```bash
+python examples/01_local_mock_sft.py
+```
+
+You should see a `final_checkpoint` artifact and a `metrics.jsonl` under
+`examples/outputs/01/.../logs/`. Continue with the [Cookbook](/docs/cookbook).

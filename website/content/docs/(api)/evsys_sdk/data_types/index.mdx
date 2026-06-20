@@ -1,0 +1,515 @@
+---
+title: data_types
+---
+
+Harbor-compatible data shapes.
+
+The schemas runners consume and dashboards render. Mirrors the production
+internal types so JSONL files round-trip between this SDK and the internal
+serving / dashboard stack without conversion.
+
+Two row formats:
+  * ``ChatMessagesRow``  — SFT example  (messages prefix + supervised target)
+  * ``HarborTask``       — RL task      (instruction + verifier spec)
+
+Verifier specs (the data the runner serializes for HarborTask):
+  * ``InProcessVerifier`` — cheap Python fn lookup
+  * ``E2BVerifier``       — sandboxed code execution
+  * ``LLMJudgeVerifier``  — judge model + rubric
+  * ``VerifierPayload``   — discriminated union of the three (use this in type hints).
+
+These are *data shapes* (Pydantic / dataclasses) describing the verification
+plan; the runtime ``Verifier`` Protocol in ``protocols.py`` is what actually
+EXECUTES verification. They are deliberately separate concepts.
+
+Multimodal content: messages can carry text + image blocks in OpenAI or
+Anthropic style. Use ``image_url_block(url)`` or
+``image_base64_block(media_type, b64)`` for convenience.
+
+<PyAttribute name={"VerifierPayload"} type={null} value={"Union[InProcessVerifier, E2BVerifier, LLMJudgeVerifier]"}>
+
+Discriminated by ``.kind`` ∈ \{'in_process', 'e2b', 'llm_judge'\}.
+
+</PyAttribute>
+
+<PyAttribute name={"__all__"} type={null} value={"['TargetFormat', 'ChatMessagesRow', 'HarborTask', 'PromptExample', 'InProcessVerifier', 'E2BVerifier', 'LLMJudgeVerifier', 'VerifierPayload', 'text_block', 'image_url_block', 'image_base64_block', 'block_to_image_src', 'has_images', 'detect_format', 'harbor_task_from_dict', 'chat_messages_row_from_dict', 'prompt_example_from_dict', 'from_dict', 'parse_rows', 'to_dict', 'iter_jsonl']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"TargetFormat"} href={"/docs/evsys_sdk/data_types/TargetFormat"} />
+<Card title={"ChatMessagesRow"} href={"/docs/evsys_sdk/data_types/ChatMessagesRow"} />
+<Card title={"InProcessVerifier"} href={"/docs/evsys_sdk/data_types/InProcessVerifier"} />
+<Card title={"E2BVerifier"} href={"/docs/evsys_sdk/data_types/E2BVerifier"} />
+<Card title={"LLMJudgeVerifier"} href={"/docs/evsys_sdk/data_types/LLMJudgeVerifier"} />
+<Card title={"HarborTask"} href={"/docs/evsys_sdk/data_types/HarborTask"} />
+<Card title={"PromptExample"} href={"/docs/evsys_sdk/data_types/PromptExample"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"text_block"} type={"(text) -> dict"}>
+
+Standard text block. Works in either OpenAI or Anthropic shape.
+
+<PySourceCode >
+
+```python
+def text_block(text: str) -> dict:
+    """Standard text block. Works in either OpenAI or Anthropic shape."""
+    return {"type": "text", "text": text}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"text"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict"} />
+
+</PyFunction>
+<PyFunction name={"image_url_block"} type={"(url, *, detail=None) -> dict"}>
+
+OpenAI-style image block. Works for any vision model that follows the
+OpenAI multimodal content schema (most do).
+
+<PySourceCode >
+
+```python
+def image_url_block(url: str, *, detail: str | None = None) -> dict:
+    """OpenAI-style image block. Works for any vision model that follows the
+    OpenAI multimodal content schema (most do)."""
+    iu: dict = {"url": url}
+    if detail:
+        iu["detail"] = detail
+    return {"type": "image_url", "image_url": iu}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"url"} type={"str"} value={null} />
+<PyParameter name={"detail"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"dict"} />
+
+</PyFunction>
+<PyFunction name={"image_base64_block"} type={"(media_type, b64_data) -> dict"}>
+
+Anthropic-style base64 image block.
+
+``media_type`` is the MIME type, e.g. ``"image/png"``.
+
+<PySourceCode >
+
+```python
+def image_base64_block(media_type: str, b64_data: str) -> dict:
+    """Anthropic-style base64 image block.
+
+    ``media_type`` is the MIME type, e.g. ``"image/png"``.
+    """
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"media_type"} type={"str"} value={null} />
+<PyParameter name={"b64_data"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict"} />
+
+</PyFunction>
+<PyFunction name={"block_to_image_src"} type={"(block) -> str | None"}>
+
+Return a renderable image src URL/data-URL for a content block, or None.
+
+Handles OpenAI ``image_url`` blocks AND Anthropic ``image`` blocks (both
+URL and base64 variants). Used by dashboard renderers.
+
+<PySourceCode >
+
+```python
+def block_to_image_src(block: Any) -> str | None:
+    """Return a renderable image src URL/data-URL for a content block, or None.
+
+    Handles OpenAI ``image_url`` blocks AND Anthropic ``image`` blocks (both
+    URL and base64 variants). Used by dashboard renderers.
+    """
+    if not isinstance(block, dict):
+        return None
+    if block.get("type") == "image_url":
+        iu = block.get("image_url") or {}
+        url = iu.get("url")
+        if isinstance(url, str):
+            return url
+    if block.get("type") == "image" and isinstance(block.get("source"), dict):
+        src = block["source"]
+        if src.get("type") == "url" and isinstance(src.get("url"), str):
+            return src["url"]
+        if (
+            src.get("type") == "base64"
+            and isinstance(src.get("data"), str)
+            and isinstance(src.get("media_type"), str)
+        ):
+            return f"data:{src['media_type']};base64,{src['data']}"
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"block"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+<PyFunction name={"has_images"} type={"(row) -> bool"}>
+
+True iff any message in the row carries at least one image block.
+
+<PySourceCode >
+
+```python
+def has_images(row: ChatMessagesRow) -> bool:
+    """True iff any message in the row carries at least one image block."""
+    for m in row.messages:
+        c = m.get("content") if isinstance(m, dict) else None
+        if isinstance(c, list):
+            for b in c:
+                if block_to_image_src(b) is not None:
+                    return True
+    return False
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"row"} type={"ChatMessagesRow"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+<PyFunction name={"detect_format"} type={"(row) -> str"}>
+
+Returns 'chat_messages' | 'harbor_task' | 'prompt_dataset' | 'unknown'.
+
+Checked most-specific first: ``harbor_task`` and ``prompt_dataset`` have
+distinctive key pairs; ``chat_messages`` is any row carrying ``messages``
+(the conversation — supervision is decided by the algorithm, not the row).
+
+<PySourceCode >
+
+```python
+def detect_format(row: Any) -> str:
+    """Returns 'chat_messages' | 'harbor_task' | 'prompt_dataset' | 'unknown'.
+
+    Checked most-specific first: ``harbor_task`` and ``prompt_dataset`` have
+    distinctive key pairs; ``chat_messages`` is any row carrying ``messages``
+    (the conversation — supervision is decided by the algorithm, not the row).
+    """
+    if not isinstance(row, dict):
+        return "unknown"
+    if "task_id" in row and "verifier" in row:
+        return "harbor_task"
+    if "inputs" in row and "expected" in row:
+        return "prompt_dataset"
+    if "messages" in row:
+        return "chat_messages"
+    return "unknown"
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"row"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+<PyFunction name={"_verifier_from_dict"} type={"(d) -> VerifierPayload"}>
+
+<PySourceCode >
+
+```python
+def _verifier_from_dict(d: dict) -> VerifierPayload:
+    kind = d.get("kind")
+    if kind == "in_process":
+        return InProcessVerifier(
+            fn_name=d["fn_name"],
+            expected=d.get("expected"),
+            params=dict(d.get("params") or {}),
+        )
+    if kind == "e2b":
+        return E2BVerifier(
+            dockerfile=d.get("dockerfile", ""),
+            test_sh=d.get("test_sh", ""),
+            test_state_py=d.get("test_state_py", ""),
+        )
+    if kind == "llm_judge":
+        return LLMJudgeVerifier(
+            judge_model=d.get("judge_model", ""),
+            rubric=d.get("rubric", ""),
+        )
+    raise ValueError(f"unknown verifier kind: {kind!r}")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"d"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_types.VerifierPayload"} />
+
+</PyFunction>
+<PyFunction name={"harbor_task_from_dict"} type={"(d) -> HarborTask"}>
+
+<PySourceCode >
+
+```python
+def harbor_task_from_dict(d: dict) -> HarborTask:
+    return HarborTask(
+        task_id=d["task_id"],
+        instruction=d["instruction"],
+        verifier=_verifier_from_dict(d["verifier"]),
+        metadata=dict(d.get("metadata") or {}),
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"d"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_types.HarborTask"} />
+
+</PyFunction>
+<PyFunction name={"chat_messages_row_from_dict"} type={"(d) -> ChatMessagesRow"}>
+
+<PySourceCode >
+
+```python
+def chat_messages_row_from_dict(d: dict) -> ChatMessagesRow:
+    msgs = d.get("messages")
+    if not isinstance(msgs, list) or not msgs:
+        raise ValueError("chat_messages row requires a non-empty `messages` list")
+    return ChatMessagesRow(
+        messages=list(msgs),
+        metadata=dict(d.get("metadata") or {}),
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"d"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_types.ChatMessagesRow"} />
+
+</PyFunction>
+<PyFunction name={"prompt_example_from_dict"} type={"(d) -> PromptExample"}>
+
+<PySourceCode >
+
+```python
+def prompt_example_from_dict(d: dict) -> PromptExample:
+    return PromptExample(
+        inputs=dict(d.get("inputs") or {}),
+        expected=d.get("expected"),
+        metadata=dict(d.get("metadata") or {}),
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"d"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_types.PromptExample"} />
+
+</PyFunction>
+<PyFunction name={"from_dict"} type={"(row) -> Union[ChatMessagesRow, HarborTask, PromptExample]"}>
+
+Dispatch on row shape — round-trips the JSONL coming off a runner.
+
+<PySourceCode >
+
+```python
+def from_dict(row: dict) -> Union[ChatMessagesRow, HarborTask, PromptExample]:
+    """Dispatch on row shape — round-trips the JSONL coming off a runner."""
+    fmt = detect_format(row)
+    if fmt == "chat_messages":  return chat_messages_row_from_dict(row)
+    if fmt == "harbor_task":    return harbor_task_from_dict(row)
+    if fmt == "prompt_dataset": return prompt_example_from_dict(row)
+    raise ValueError(f"can't dispatch row — unknown format: keys={sorted(row.keys())[:6]}")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"row"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Union[evsys_sdk.data_types.ChatMessagesRow, evsys_sdk.data_types.HarborTask, evsys_sdk.data_types.PromptExample]"} />
+
+</PyFunction>
+<PyFunction name={"parse_rows"} type={"(rows, fmt) -> list[Union[ChatMessagesRow, HarborTask, PromptExample]]"}>
+
+Strictly parse raw dicts into typed rows for the given ``fmt``.
+
+This is the standardized boundary between the transform stage and a
+StepBuilder/algorithm: ``raw rows -> transforms -> parse_rows(fmt) -> typed
+rows``. ``fmt`` is a :class:`TargetFormat` (or its string value). Every row
+must match ``fmt`` per :func:`detect_format`; a mismatch raises
+``ValueError`` naming the offending row — no silent coercion, mirroring the
+SDK's ``extra='forbid'`` philosophy. Tokenization/rollout stays downstream,
+owned by the algorithm.
+
+<PySourceCode >
+
+```python
+def parse_rows(
+    rows: Iterable[dict],
+    fmt: Union["TargetFormat", str],
+) -> list[Union[ChatMessagesRow, HarborTask, PromptExample]]:
+    """Strictly parse raw dicts into typed rows for the given ``fmt``.
+
+    This is the standardized boundary between the transform stage and a
+    StepBuilder/algorithm: ``raw rows -> transforms -> parse_rows(fmt) -> typed
+    rows``. ``fmt`` is a :class:`TargetFormat` (or its string value). Every row
+    must match ``fmt`` per :func:`detect_format`; a mismatch raises
+    ``ValueError`` naming the offending row — no silent coercion, mirroring the
+    SDK's ``extra='forbid'`` philosophy. Tokenization/rollout stays downstream,
+    owned by the algorithm.
+    """
+    want = fmt.value if isinstance(fmt, TargetFormat) else str(fmt)
+    parser = _ROW_PARSERS.get(want)
+    if parser is None:
+        raise ValueError(
+            f"parse_rows: unsupported target format {want!r} "
+            f"(expected one of {sorted(_ROW_PARSERS)})"
+        )
+    out: list[Union[ChatMessagesRow, HarborTask, PromptExample]] = []
+    for i, r in enumerate(rows):
+        got = detect_format(r)
+        if got != want:
+            keys = sorted(r)[:6] if isinstance(r, dict) else type(r).__name__
+            raise ValueError(
+                f"parse_rows: row {i} has format {got!r}, expected {want!r} "
+                f"(keys={keys})"
+            )
+        out.append(parser(r))
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"rows"} type={"Iterable[dict]"} value={null} />
+<PyParameter name={"fmt"} type={"Union['TargetFormat', str]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[typing.Union[evsys_sdk.data_types.ChatMessagesRow, evsys_sdk.data_types.HarborTask, evsys_sdk.data_types.PromptExample]]"} />
+
+</PyFunction>
+<PyFunction name={"to_dict"} type={"(obj) -> dict"}>
+
+Dataclass → plain dict (JSON-serializable).
+
+<PySourceCode >
+
+```python
+def to_dict(
+    obj: Union[ChatMessagesRow, HarborTask, PromptExample, VerifierPayload],
+) -> dict:
+    """Dataclass → plain dict (JSON-serializable)."""
+    import dataclasses as _dc
+    return _dc.asdict(obj)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"obj"} type={"Union[ChatMessagesRow, HarborTask, PromptExample, VerifierPayload]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict"} />
+
+</PyFunction>
+<PyFunction name={"iter_jsonl"} type={"(path) -> Iterable[Union[ChatMessagesRow, HarborTask, PromptExample]]"}>
+
+Iterate a mixed-format JSONL and yield typed rows.
+
+<PySourceCode >
+
+```python
+def iter_jsonl(path: str) -> Iterable[Union[ChatMessagesRow, HarborTask, PromptExample]]:
+    """Iterate a mixed-format JSONL and yield typed rows."""
+    import json
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            yield from_dict(json.loads(line))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Iterable[typing.Union[evsys_sdk.data_types.ChatMessagesRow, evsys_sdk.data_types.HarborTask, evsys_sdk.data_types.PromptExample]]"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

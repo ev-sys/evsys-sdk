@@ -1,0 +1,52 @@
+---
+title: BaseAlgorithmConfig
+---
+
+Fields common to every training algorithm.
+
+Concrete algorithms subclass this and add their own knobs (SDFT: ``topk``;
+RL: ``num_samples`` / ``verifier_name`` / …). ``extra="forbid"`` so a YAML
+typo fails loudly. A subclass may re-declare a field to change its default
+(e.g. RL drops ``learning_rate`` to ``1e-5``).
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"learning_rate"} type={"float"} value={"0.0001"} />
+
+<PyAttribute name={"num_epochs"} type={"int"} value={"1"} />
+
+<PyAttribute name={"batch_size"} type={"int"} value={"Field(default=4, gt=0)"} />
+
+<PyAttribute name={"max_steps"} type={"int | None"} value={"None"}>
+
+Hard step cap. When set, wins over ``num_epochs * steps_per_epoch``.
+
+</PyAttribute>
+
+<PyAttribute name={"lora_rank"} type={"int"} value={"8"} />
+
+<PyAttribute name={"renderer_name"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"enable_thinking"} type={"bool | None"} value={"None"} />
+
+<PyAttribute name={"save_every"} type={"int"} value={"0"}>
+
+If 0, computed from ``save_at_fractions`` (GCD-of-marks heuristic).
+
+</PyAttribute>
+
+<PyAttribute name={"save_at_fractions"} type={"list[float]"} value={"Field(default_factory=(lambda: [1.0]))"} />
+
+<PyAttribute name={"callbacks"} type={"list[CallbackSpec]"} value={"Field(default_factory=list)"} />
+
+<PyAttribute name={"adam_beta1"} type={"float"} value={"0.9"} />
+
+<PyAttribute name={"adam_beta2"} type={"float"} value={"0.95"} />
+
+<PyAttribute name={"adam_eps"} type={"float"} value={"1e-08"} />
+
+<PyAttribute name={"wandb_project"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"wandb_name"} type={"str | None"} value={"None"} />

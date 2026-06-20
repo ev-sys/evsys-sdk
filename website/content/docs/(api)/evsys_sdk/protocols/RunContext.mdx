@@ -1,0 +1,73 @@
+---
+title: RunContext
+---
+
+Everything an algorithm needs to execute one training run.
+
+Held loosely on purpose: an algorithm only consumes the fields it needs.
+Backends construct this from the parsed ExperimentConfig.
+
+## Attributes
+
+<PyAttribute name={"run_id"} type={"str"} value={null}>
+
+Stable id for this run; used for output paths and log keys.
+
+</PyAttribute>
+
+<PyAttribute name={"output_dir"} type={"str"} value={null}>
+
+Local filesystem dir where the run can write checkpoints, logs, etc.
+
+</PyAttribute>
+
+<PyAttribute name={"config"} type={"Any"} value={null}>
+
+The full parsed ExperimentConfig (kept generic to avoid circular import).
+
+</PyAttribute>
+
+<PyAttribute name={"data_store"} type={"DataStore"} value={null}>
+
+Datastore handle (read inputs, write outputs).
+
+</PyAttribute>
+
+<PyAttribute name={"log_store"} type={"LogStore"} value={null}>
+
+Log store (metrics, scalars, artifacts).
+
+</PyAttribute>
+
+<PyAttribute name={"backend"} type={"Backend"} value={null}>
+
+Backend handle (Tinker / Local / Mock).
+
+</PyAttribute>
+
+<PyAttribute name={"extras"} type={"dict[str, Any]"} value={"field(default_factory=dict)"}>
+
+Free-form bag for backend-specific bits (e.g. tinker training_client).
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, run_id, output_dir, config, data_store, log_store, backend, extras=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str"} value={null} />
+<PyParameter name={"output_dir"} type={"str"} value={null} />
+<PyParameter name={"config"} type={"Any"} value={null} />
+<PyParameter name={"data_store"} type={"DataStore"} value={null} />
+<PyParameter name={"log_store"} type={"LogStore"} value={null} />
+<PyParameter name={"backend"} type={"Backend"} value={null} />
+<PyParameter name={"extras"} type={"dict[str, Any]"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

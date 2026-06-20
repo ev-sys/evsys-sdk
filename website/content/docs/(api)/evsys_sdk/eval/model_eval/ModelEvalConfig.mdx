@@ -1,0 +1,44 @@
+---
+title: ModelEvalConfig
+---
+
+## Attributes
+
+<PyAttribute name={"max_tokens"} type={"int"} value={"256"} />
+
+<PyAttribute name={"temperature"} type={"float"} value={"0.0"} />
+
+<PyAttribute name={"max_attempts"} type={"int"} value={"5"}>
+
+Retries per generation call (transient inference errors).
+
+</PyAttribute>
+
+<PyAttribute name={"batch_size"} type={"int"} value={"1"}>
+
+When >1 and the client exposes ``generate_batch``, submit prompts in
+chunks of this size and collect them concurrently. Falls back to
+sequential ``generate`` calls if the client doesn't support batching.
+
+</PyAttribute>
+
+<PyAttribute name={"prompt_builder"} type={"PromptBuilder"} value={"qwen_chat_prompt"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, max_tokens=256, temperature=0.0, max_attempts=5, batch_size=1, prompt_builder=qwen_chat_prompt) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"max_attempts"} type={"int"} value={"5"} />
+<PyParameter name={"batch_size"} type={"int"} value={"1"} />
+<PyParameter name={"prompt_builder"} type={"PromptBuilder"} value={"qwen_chat_prompt"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

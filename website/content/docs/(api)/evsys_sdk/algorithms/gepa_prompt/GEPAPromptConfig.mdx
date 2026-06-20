@@ -1,0 +1,48 @@
+---
+title: GEPAPromptConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"seed_prompt"} type={"str"} value={"'You are a helpful assistant. Answer concisely.'"}>
+
+Initial system prompt.
+
+</PyAttribute>
+
+<PyAttribute name={"task_lm"} type={"str"} value={"'mock'"}>
+
+Registry name of the inference client used to evaluate each candidate.
+
+</PyAttribute>
+
+<PyAttribute name={"task_lm_config"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"} />
+
+<PyAttribute name={"reflection_lm"} type={"str | None"} value={"None"}>
+
+Optional inference client used to propose mutated prompts; required for
+the real gepa path. Without it we fall back to the built-in mutator.
+
+</PyAttribute>
+
+<PyAttribute name={"reflection_lm_config"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"} />
+
+<PyAttribute name={"max_iterations"} type={"int"} value={"20"} />
+
+<PyAttribute name={"population_size"} type={"int"} value={"4"} />
+
+<PyAttribute name={"examples_per_eval"} type={"int"} value={"8"}>
+
+How many PromptExamples to evaluate each candidate on (per iteration).
+
+</PyAttribute>
+
+<PyAttribute name={"use_gepa_lib"} type={"bool"} value={"True"}>
+
+If True and the `gepa` package is importable, delegate to it.
+
+</PyAttribute>
+
+<PyAttribute name={"seed"} type={"int"} value={"1729"} />

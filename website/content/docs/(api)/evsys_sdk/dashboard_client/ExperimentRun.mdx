@@ -1,0 +1,386 @@
+---
+title: ExperimentRun
+---
+
+One generation in one experiment, lifecycle-managed.
+
+Use as a context manager. On clean exit, the generation + experiment are
+marked completed (with the best score / generation_id). On raised
+exception, both are marked failed with the exception message. All writes
+are mirrored locally and degrade gracefully if the backend is down.
+
+## Attributes
+
+<PyAttribute name={"client"} type={null} value={"client"} />
+
+<PyAttribute name={"experiment_id"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"run_id"} type={"str | None"} value={"None"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, client, *, experiment_name, hypothesis=None, hypothesis_reasoning=None, plan=None, tags=None, project_goal_id=None, group_id=None, dataset_id=None, seed=None, recipe_kind=None, run_config=None, wandb_run_url=None, tensorboard_path=None, experiment_id=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    client: DashboardClient,
+    *,
+    experiment_name: str,
+    hypothesis: str | None = None,
+    hypothesis_reasoning: str | None = None,
+    plan: str | None = None,
+    tags: list[str] | None = None,
+    project_goal_id: str | None = None,
+    # run-level
+    group_id: str | None = None,
+    dataset_id: str | None = None,
+    seed: int | None = None,
+    recipe_kind: str | None = None,
+    run_config: dict | None = None,
+    wandb_run_url: str | None = None,
+    tensorboard_path: str | None = None,
+    # threading an existing experiment for multi-run campaigns
+    experiment_id: str | None = None,
+) -> None:
+    self.client = client
+    self._exp_kwargs = {
+        "experiment_name": experiment_name,
+        "hypothesis": hypothesis,
+        "hypothesis_reasoning": hypothesis_reasoning,
+        "plan": plan,
+        "tags": tags,
+        "project_goal_id": project_goal_id,
+    }
+    self._run_kwargs = {
+        "group_id": group_id,
+        "dataset_id": dataset_id,
+        "seed": seed,
+        "recipe_kind": recipe_kind,
+        "run_config": run_config,
+        "wandb_run_url": wandb_run_url,
+        "tensorboard_path": tensorboard_path,
+    }
+    self._given_experiment_id = experiment_id
+    self.experiment_id: str | None = None
+    self.run_id: str | None = None
+    self._best_score: float | None = None
+    self._conclusion: str | None = None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"client"} type={"DashboardClient"} value={null} />
+<PyParameter name={"experiment_name"} type={"str"} value={null} />
+<PyParameter name={"hypothesis"} type={"str | None"} value={"None"} />
+<PyParameter name={"hypothesis_reasoning"} type={"str | None"} value={"None"} />
+<PyParameter name={"plan"} type={"str | None"} value={"None"} />
+<PyParameter name={"tags"} type={"list[str] | None"} value={"None"} />
+<PyParameter name={"project_goal_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"group_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"dataset_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"seed"} type={"int | None"} value={"None"} />
+<PyParameter name={"recipe_kind"} type={"str | None"} value={"None"} />
+<PyParameter name={"run_config"} type={"dict | None"} value={"None"} />
+<PyParameter name={"wandb_run_url"} type={"str | None"} value={"None"} />
+<PyParameter name={"tensorboard_path"} type={"str | None"} value={"None"} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"__enter__"} type={"(self) -> 'ExperimentRun'"}>
+
+<PySourceCode >
+
+```python
+def __enter__(self) -> "ExperimentRun":
+    if self._given_experiment_id:
+        self.experiment_id = self._given_experiment_id
+    else:
+        exp = self.client.create_experiment(**{k: v for k, v in self._exp_kwargs.items() if v is not None})  # type: ignore[arg-type]
+        self.experiment_id = exp["id"]
+    assert self.experiment_id is not None
+    run = self.client.create_run(
+        experiment_id=self.experiment_id,
+        status=STATUS_RUNNING,
+        **{k: v for k, v in self._run_kwargs.items() if v is not None},  # type: ignore[arg-type]
+    )
+    self.run_id = run["id"]
+    return self
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"'ExperimentRun'"} />
+
+</PyFunction>
+
+<PyFunction name={"__exit__"} type={"(self, exc_type, exc_val, exc_tb) -> None"}>
+
+<PySourceCode >
+
+```python
+def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    if exc_type is not None:
+        msg = f"{exc_type.__name__}: {exc_val}" if exc_val else exc_type.__name__
+        if self.run_id:
+            try:
+                self.client.update_run(self.run_id, status=STATUS_FAILED, **{FIELD_ERROR_MESSAGE: msg})
+            except Exception:
+                pass
+        if self.experiment_id:
+            try:
+                self.client.update_experiment(self.experiment_id, status=STATUS_FAILED, **{FIELD_ERROR_MESSAGE: msg})
+            except Exception:
+                pass
+        return None
+    # Clean exit. best_score lives on the experiment; the run's headline
+    # number (if any) goes in runs.summary.
+    if self.run_id:
+        run_patch: dict = {"status": STATUS_COMPLETED}
+        if self._best_score is not None:
+            run_patch["summary"] = {"best_score": self._best_score}
+        self.client.update_run(self.run_id, **run_patch)
+    if self.experiment_id:
+        exp_patch: dict = {"status": STATUS_COMPLETED}
+        if self._best_score is not None:
+            exp_patch[FIELD_BEST_SCORE] = self._best_score
+        if self._conclusion is not None:
+            exp_patch[FIELD_CONCLUSION] = self._conclusion
+        self.client.update_experiment(self.experiment_id, **exp_patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"exc_type"} type={null} value={null} />
+<PyParameter name={"exc_val"} type={null} value={null} />
+<PyParameter name={"exc_tb"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_step"} type={"(self, step, **metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_step(self, step: int, **metrics: Any) -> None:
+    assert self.run_id
+    self.client.log_step_metric(self.run_id, step=step, **metrics)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+<PyParameter name={"metrics"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_eval"} type={"(self, *, metrics, benchmark_id=None, checkpoint_id=None, model_ref=None, step=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_eval(
+    self,
+    *,
+    metrics: dict[str, float],
+    benchmark_id: str | None = None,
+    checkpoint_id: str | None = None,
+    model_ref: str | None = None,
+    step: int | None = None,
+) -> None:
+    assert self.run_id
+    self.client.create_eval(self.run_id, metrics=metrics, benchmark_id=benchmark_id,
+                            checkpoint_id=checkpoint_id, model_ref=model_ref, step=step)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={null} />
+<PyParameter name={"benchmark_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"checkpoint_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"model_ref"} type={"str | None"} value={"None"} />
+<PyParameter name={"step"} type={"int | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"add_checkpoint"} type={"(self, *, uri, label=None, step=None, base_model=None, is_final=False) -> None"}>
+
+<PySourceCode >
+
+```python
+def add_checkpoint(self, *, uri: str, label: str | None = None, step: int | None = None,
+                   base_model: str | None = None, is_final: bool = False) -> None:
+    assert self.run_id
+    self.client.add_checkpoint(self.run_id, uri=uri, label=label, step=step,
+                               base_model=base_model, is_final=is_final)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"uri"} type={"str"} value={null} />
+<PyParameter name={"label"} type={"str | None"} value={"None"} />
+<PyParameter name={"step"} type={"int | None"} value={"None"} />
+<PyParameter name={"base_model"} type={"str | None"} value={"None"} />
+<PyParameter name={"is_final"} type={"bool"} value={"False"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_predictions"} type={"(self, predictions) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_predictions(self, predictions: list[dict]) -> None:
+    assert self.run_id
+    self.client.log_predictions(self.run_id, predictions)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"predictions"} type={"list[dict]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"set_best_score"} type={"(self, score) -> None"}>
+
+<PySourceCode >
+
+```python
+def set_best_score(self, score: float) -> None:
+    self._best_score = float(score)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"score"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"set_conclusion"} type={"(self, text) -> None"}>
+
+One- or two-line takeaway from the run. Flushed on clean __exit__.
+
+<PySourceCode >
+
+```python
+def set_conclusion(self, text: str) -> None:
+    """One- or two-line takeaway from the run. Flushed on clean __exit__."""
+    self._conclusion = str(text)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"text"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"update_run"} type={"(self, **patch) -> None"}>
+
+<PySourceCode >
+
+```python
+def update_run(self, **patch: Any) -> None:
+    assert self.run_id
+    self.client.update_run(self.run_id, **patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"patch"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"update_experiment"} type={"(self, **patch) -> None"}>
+
+<PySourceCode >
+
+```python
+def update_experiment(self, **patch: Any) -> None:
+    assert self.experiment_id
+    self.client.update_experiment(self.experiment_id, **patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"patch"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

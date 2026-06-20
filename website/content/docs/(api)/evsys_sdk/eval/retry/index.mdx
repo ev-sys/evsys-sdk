@@ -1,0 +1,121 @@
+---
+title: retry
+---
+
+Retry decorator + report for connection-style transient errors.
+
+Wraps a callable; retries on a configurable set of exceptions with exponential
+backoff. Exhausted failures are pushed onto a RetryReport so the eval harness
+can surface them in the final report rather than aborting.
+
+<PyAttribute name={"T"} type={null} value={"TypeVar('T')"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"RetryFailure"} href={"/docs/evsys_sdk/eval/retry/RetryFailure"} />
+<Card title={"RetryReport"} href={"/docs/evsys_sdk/eval/retry/RetryReport"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_default_retriable_exceptions"} type={"() -> tuple[type[BaseException], ...]"}>
+
+<PySourceCode >
+
+```python
+def _default_retriable_exceptions() -> tuple[type[BaseException], ...]:
+    types: list[type[BaseException]] = [ConnectionError, TimeoutError]
+    try:
+        import httpx
+
+        types += [
+            httpx.ConnectError,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+            httpx.LocalProtocolError,
+        ]
+    except ImportError:
+        pass
+    return tuple(types)
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"tuple[type[BaseException], ...]"} />
+
+</PyFunction>
+<PyFunction name={"call_with_retry"} type={"(fn, *args, *, max_attempts=5, backoff_base=1.0, backoff_cap=16.0, retriable=None, report=None, context='', **kwargs) -> T | None"}>
+
+Call ``fn(*args, **kwargs)`` retrying on transient errors.
+
+On exhaustion: records to ``report`` (if supplied) and returns ``None``.
+Non-transient exceptions propagate immediately — eval bugs shouldn't be
+silently retried.
+
+<PySourceCode >
+
+```python
+def call_with_retry(
+    fn: Callable[..., T],
+    *args: Any,
+    max_attempts: int = 5,
+    backoff_base: float = 1.0,
+    backoff_cap: float = 16.0,
+    retriable: tuple[type[BaseException], ...] | None = None,
+    report: RetryReport | None = None,
+    context: str = "",
+    **kwargs: Any,
+) -> T | None:
+    """Call ``fn(*args, **kwargs)`` retrying on transient errors.
+
+    On exhaustion: records to ``report`` (if supplied) and returns ``None``.
+    Non-transient exceptions propagate immediately — eval bugs shouldn't be
+    silently retried.
+    """
+    if retriable is None:
+        retriable = _default_retriable_exceptions()
+
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except retriable as exc:
+            last_exc = exc
+            if attempt == max_attempts:
+                break
+            delay = min(backoff_cap, backoff_base * (2 ** (attempt - 1)))
+            time.sleep(delay)
+    if report is not None and last_exc is not None:
+        report.record(context, last_exc, max_attempts)
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"fn"} type={"Callable[..., T]"} value={null} />
+<PyParameter name={"args"} type={"Any"} value={"()"} />
+<PyParameter name={"max_attempts"} type={"int"} value={"5"} />
+<PyParameter name={"backoff_base"} type={"float"} value={"1.0"} />
+<PyParameter name={"backoff_cap"} type={"float"} value={"16.0"} />
+<PyParameter name={"retriable"} type={"tuple[type[BaseException], ...] | None"} value={"None"} />
+<PyParameter name={"report"} type={"RetryReport | None"} value={"None"} />
+<PyParameter name={"context"} type={"str"} value={"''"} />
+<PyParameter name={"kwargs"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.eval.retry.T | None"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

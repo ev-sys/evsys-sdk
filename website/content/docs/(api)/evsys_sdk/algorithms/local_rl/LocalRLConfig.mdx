@@ -1,0 +1,53 @@
+---
+title: LocalRLConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"learning_rate"} type={"float"} value={"5e-05"} />
+
+<PyAttribute name={"num_epochs"} type={"int"} value={"3"} />
+
+<PyAttribute name={"per_device_train_batch_size"} type={"int"} value={"4"} />
+
+<PyAttribute name={"gradient_accumulation_steps"} type={"int"} value={"8"} />
+
+<PyAttribute name={"max_completion_length"} type={"int"} value={"128"} />
+
+<PyAttribute name={"num_generations"} type={"int"} value={"4"} />
+
+<PyAttribute name={"warmup_steps"} type={"int"} value={"30"} />
+
+<PyAttribute name={"logging_steps"} type={"int"} value={"10"} />
+
+<PyAttribute name={"save_steps"} type={"int"} value={"50"} />
+
+<PyAttribute name={"save_total_limit"} type={"int"} value={"5"} />
+
+<PyAttribute name={"bf16"} type={"bool"} value={"False"}>
+
+Enable only on CUDA GPUs that support bfloat16 (Ampere+). Crashes on CPU/MPS.
+
+</PyAttribute>
+
+<PyAttribute name={"fp16"} type={"bool"} value={"False"}>
+
+Enable only on CUDA GPUs. Crashes on CPU/MPS.
+
+</PyAttribute>
+
+<PyAttribute name={"beta"} type={"float"} value={"0.04"} />
+
+<PyAttribute name={"seed"} type={"int"} value={"42"} />
+
+<PyAttribute name={"lora_rank"} type={"int"} value={"4"} />
+
+<PyAttribute name={"lora_alpha"} type={"int"} value={"8"} />
+
+<PyAttribute name={"lora_target_modules"} type={"list[str]"} value={"Field(default_factory=(lambda: ['q_proj', 'v_proj']))"} />
+
+<PyAttribute name={"verifier_kind"} type={"str"} value={"'format_only'"} />
+
+<PyAttribute name={"verifier_params"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"} />

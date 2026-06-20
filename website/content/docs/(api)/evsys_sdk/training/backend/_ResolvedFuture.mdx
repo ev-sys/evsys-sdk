@@ -1,0 +1,71 @@
+---
+title: _ResolvedFuture
+---
+
+Tinker-style future with ``.result_async()`` resolving to a value.
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, value) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, value: Any) -> None:
+    self._value = value
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"value"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"result_async"} type={"(self) -> Any"}>
+
+<PySourceCode >
+
+```python
+async def result_async(self) -> Any:
+    return self._value
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"result"} type={"(self) -> Any"}>
+
+<PySourceCode >
+
+```python
+def result(self) -> Any:
+    return self._value
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>

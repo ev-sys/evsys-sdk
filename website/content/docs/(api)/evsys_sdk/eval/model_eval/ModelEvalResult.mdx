@@ -1,0 +1,30 @@
+---
+title: ModelEvalResult
+---
+
+## Attributes
+
+<PyAttribute name={"rows"} type={"list[dict[str, Any]]"} value={"field(default_factory=list)"}>
+
+Per-row results: \{tool_slug, toolkit, queries: [\{query, completion,
+predicted, error\}]\}.
+
+</PyAttribute>
+
+<PyAttribute name={"retry_report"} type={"RetryReport"} value={"field(default_factory=RetryReport)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, rows=list(), retry_report=RetryReport()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"rows"} type={"list[dict[str, Any]]"} value={"list()"} />
+<PyParameter name={"retry_report"} type={"RetryReport"} value={"RetryReport()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

@@ -1,0 +1,189 @@
+---
+title: Registry
+---
+
+Generic name->class registry.
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, kind) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, kind: str) -> None:
+    self._kind = kind
+    self._items: dict[str, type] = {}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"kind"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"register"} type={"(self, name=None) -> Callable[[type[T]], type[T]]"}>
+
+<PySourceCode >
+
+```python
+def register(self, name: str | None = None) -> Callable[[type[T]], type[T]]:
+    def decorator(cls: type[T]) -> type[T]:
+        key = name or getattr(cls, "name", None)
+        if not key:
+            raise ValueError(
+                f"{self._kind} class {cls.__name__} has no `name` and "
+                f"register_{self._kind} was called without a name."
+            )
+        if key in self._items and self._items[key] is not cls:
+            raise ValueError(
+                f"{self._kind} '{key}' already registered "
+                f"(existing={self._items[key].__module__}.{self._items[key].__name__}, "
+                f"new={cls.__module__}.{cls.__name__})"
+            )
+        # Best-effort: ensure the class declares its name attribute
+        try:
+            setattr(cls, "name", key)
+        except (TypeError, AttributeError):
+            pass
+        self._items[key] = cls
+        return cls
+
+    return decorator
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Callable[[type[evsys_sdk.registry.T]], type[evsys_sdk.registry.T]]"} />
+
+</PyFunction>
+
+<PyFunction name={"get"} type={"(self, name) -> type"}>
+
+<PySourceCode >
+
+```python
+def get(self, name: str) -> type:
+    if name not in self._items:
+        available = ", ".join(sorted(self._items)) or "(none)"
+        raise KeyError(
+            f"No {self._kind} registered under '{name}'. Available: {available}"
+        )
+    return self._items[name]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"type"} />
+
+</PyFunction>
+
+<PyFunction name={"list"} type={"(self) -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list(self) -> list[str]:
+    return sorted(self._items)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.registry.Registry.list[str]"} />
+
+</PyFunction>
+
+<PyFunction name={"has"} type={"(self, name) -> bool"}>
+
+<PySourceCode >
+
+```python
+def has(self, name: str) -> bool:
+    return name in self._items
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+<PyFunction name={"items"} type={"(self) -> list[tuple[str, type]]"}>
+
+<PySourceCode >
+
+```python
+def items(self) -> list[tuple[str, type]]:
+    return sorted(self._items.items())
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.registry.Registry.list[tuple[str, type]]"} />
+
+</PyFunction>
+
+<PyFunction name={"unregister"} type={"(self, name) -> None"}>
+
+Remove an entry. Mostly for tests.
+
+<PySourceCode >
+
+```python
+def unregister(self, name: str) -> None:
+    """Remove an entry. Mostly for tests."""
+    self._items.pop(name, None)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

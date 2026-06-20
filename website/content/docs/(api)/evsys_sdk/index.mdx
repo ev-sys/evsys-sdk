@@ -1,0 +1,85 @@
+---
+title: evsys_sdk
+---
+
+evsys_sdk — declarative, modular LLM experiment framework.
+
+Most researcher code only needs the OOP orchestration surface:
+
+    from evsys_sdk import Experiment
+    Experiment.from_yaml("config.yaml").run()
+
+For everything else:
+
+    from evsys_sdk import (
+        # OOP orchestration
+        Experiment, ExperimentResult, ArmResult, Sweep,
+        Benchmark, BenchmarkScore, Checkpoint,
+        # Config models
+        ExperimentConfig, RunConfig, AlgorithmConfig, DataConfig, ModelConfig,
+        BackendConfig, VerifierSpec,
+        # YAML
+        load_yaml, dump_yaml, validate_yaml,
+        # Registries (decorators for extensions)
+        register_algorithm, register_verifier, register_metric,
+        register_backend, register_data_store, register_log_store,
+        register_inference, register_transform,
+        get_algorithm, get_verifier, get_metric,
+        # Imperative runner (kept for advanced use; Experiment is the default)
+        run_experiment,
+    )
+
+Built-in extensions live in subpackages and self-register on import.
+External packages can extend any registry via Python entry points
+(group: ``evsys_sdk.\<plural>`` — see docs/cookbook.md).
+
+<PyAttribute name={"__version__"} type={null} value={"'0.1.0'"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['__version__', 'AlgorithmConfig', 'BackendConfig', 'DataConfig', 'DataStoreSpec', 'CallbackSpec', 'ExperimentConfig', 'LogStoreSpec', 'ModelConfig', 'RunConfig', 'TransformSpec', 'VerifierSpec', 'Algorithm', 'Backend', 'DataStore', 'InferenceClient', 'LogStore', 'Metric', 'RunContext', 'RunResult', 'Transform', 'Verifier', 'get_algorithm', 'get_backend', 'get_callback', 'get_data_store', 'get_inference', 'get_log_store', 'get_metric', 'get_transform', 'get_verifier', 'list_algorithms', 'list_backends', 'list_callbacks', 'list_data_stores', 'list_inferences', 'list_log_stores', 'list_metrics', 'list_transforms', 'list_verifiers', 'register_algorithm', 'register_backend', 'register_callback', 'register_data_store', 'register_inference', 'register_log_store', 'register_metric', 'register_transform', 'register_verifier', 'run_experiment', 'dump_yaml', 'load_yaml', 'validate_yaml', 'TargetFormat', 'ChatMessagesRow', 'HarborTask', 'PromptExample', 'InProcessVerifier', 'E2BVerifier', 'LLMJudgeVerifier', 'VerifierPayload', 'text_block', 'image_url_block', 'image_base64_block', 'block_to_image_src', 'has_images', 'detect_format', 'harbor_task_from_dict', 'chat_messages_row_from_dict', 'prompt_example_from_dict', 'from_dict', 'parse_rows', 'to_dict', 'iter_jsonl', 'DashboardClient', 'DashboardClientError', 'EvsysAuthError', 'ExperimentRun', 'configure_logger', 'get_logger', 'set_level', 'EvsysStore', 'EvsysStoreError', 'Workspace', 'MaterializedDataset', 'ArmResult', 'Benchmark', 'run_benchmark', 'BenchmarkScore', 'BenchmarkTaskResult', 'Checkpoint', 'EvalResult', 'Experiment', 'ExperimentResult', 'Sweep', 'expand_runs', 'find_manifest', 'forward_step_metrics', 'read_manifest']"} />
+
+<Tabs items={["Modules"]}>
+
+<Tab value={"Modules"}>
+
+<Cards >
+
+<Card href={"/docs/evsys_sdk/store"} title={"store"} />
+<Card href={"/docs/evsys_sdk/runner"} title={"runner"} />
+<Card href={"/docs/evsys_sdk/step_metrics"} title={"step_metrics"} />
+<Card href={"/docs/evsys_sdk/config"} title={"config"} />
+<Card href={"/docs/evsys_sdk/benchmark"} title={"benchmark"} />
+<Card href={"/docs/evsys_sdk/checkpoint"} title={"checkpoint"} />
+<Card href={"/docs/evsys_sdk/protocols"} title={"protocols"} />
+<Card href={"/docs/evsys_sdk/registry"} title={"registry"} />
+<Card href={"/docs/evsys_sdk/constants"} title={"constants"} />
+<Card href={"/docs/evsys_sdk/local_store"} title={"local_store"} />
+<Card href={"/docs/evsys_sdk/benchmark_run"} title={"benchmark_run"} />
+<Card href={"/docs/evsys_sdk/logger"} title={"logger"} />
+<Card href={"/docs/evsys_sdk/data_types"} title={"data_types"} />
+<Card href={"/docs/evsys_sdk/project_init"} title={"project_init"} />
+<Card href={"/docs/evsys_sdk/new_experiment"} title={"new_experiment"} />
+<Card href={"/docs/evsys_sdk/experiment"} title={"experiment"} />
+<Card href={"/docs/evsys_sdk/cli"} title={"cli"} />
+<Card href={"/docs/evsys_sdk/dashboard_client"} title={"dashboard_client"} />
+<Card href={"/docs/evsys_sdk/sweep"} title={"sweep"} />
+<Card href={"/docs/evsys_sdk/yaml_loader"} title={"yaml_loader"} />
+<Card href={"/docs/evsys_sdk/workspace"} title={"workspace"} />
+<Card href={"/docs/evsys_sdk/_entry_points"} title={"_entry_points"} />
+<Card href={"/docs/evsys_sdk/benchmark_upload"} title={"benchmark_upload"} />
+<Card href={"/docs/evsys_sdk/_harbor_upload"} title={"_harbor_upload"} />
+<Card href={"/docs/evsys_sdk/metrics"} title={"metrics"} />
+<Card href={"/docs/evsys_sdk/data_stores"} title={"data_stores"} />
+<Card href={"/docs/evsys_sdk/training"} title={"training"} />
+<Card href={"/docs/evsys_sdk/backends"} title={"backends"} />
+<Card href={"/docs/evsys_sdk/algorithms"} title={"algorithms"} />
+<Card href={"/docs/evsys_sdk/verifiers"} title={"verifiers"} />
+<Card href={"/docs/evsys_sdk/transforms"} title={"transforms"} />
+<Card href={"/docs/evsys_sdk/log_stores"} title={"log_stores"} />
+<Card href={"/docs/evsys_sdk/inference"} title={"inference"} />
+<Card href={"/docs/evsys_sdk/eval"} title={"eval"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

@@ -1,0 +1,26 @@
+---
+title: verifiers
+---
+
+Built-in verifiers.
+
+Two layers:
+  * ``@register_verifier`` *classes* (runtime ``Verifier`` Protocol).
+  * in-process verifier *functions* in ``fns`` — the SDK-local registry that
+    ``InProcessVerifier(fn_name=…)`` resolves against (D10: SDK is the single
+    source of truth; the remote stores only ``fn_name`` + ``expected``/``params``).
+
+<Tabs items={["Modules"]}>
+
+<Tab value={"Modules"}>
+
+<Cards >
+
+<Card href={"/docs/evsys_sdk/verifiers/format_only"} title={"format_only"} />
+<Card href={"/docs/evsys_sdk/verifiers/fns"} title={"fns"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

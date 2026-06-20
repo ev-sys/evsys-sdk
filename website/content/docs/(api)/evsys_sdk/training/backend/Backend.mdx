@@ -1,0 +1,234 @@
+---
+title: Backend
+---
+
+Wraps a training client + factory for sampling clients.
+
+A `Backend` is constructed once per run (typically by the Algorithm
+composer, see :mod:`evsys_sdk.algorithms.sft`). It owns the
+live training client; everything else in the package operates against
+this Protocol.
+
+## Functions
+
+<PyFunction name={"forward_backward_async"} type={"(self, data, *, loss_fn, loss_fn_config=None) -> Any"}>
+
+Submit a forward + backward pass with a named server-side loss.
+
+Returns an awaitable that resolves to a :class:`ForwardBackwardResult`.
+Tinker's loss names are ``"cross_entropy"`` (with per-position weights
+on Datum.loss_fn_inputs["weights"]) and ``"importance_sampling"``
+(with advantages on Datum.loss_fn_inputs["advantages"]).
+
+<PySourceCode >
+
+```python
+def forward_backward_async(
+    self,
+    data: list[tinker.Datum],
+    *,
+    loss_fn: tinker.types.LossFnType,
+    loss_fn_config: dict[str, Any] | None = None,
+) -> Any:
+    """Submit a forward + backward pass with a named server-side loss.
+
+    Returns an awaitable that resolves to a :class:`ForwardBackwardResult`.
+    Tinker's loss names are ``"cross_entropy"`` (with per-position weights
+    on Datum.loss_fn_inputs["weights"]) and ``"importance_sampling"``
+    (with advantages on Datum.loss_fn_inputs["advantages"]).
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"data"} type={"list[tinker.Datum]"} value={null} />
+<PyParameter name={"loss_fn"} type={"tinker.types.LossFnType"} value={null} />
+<PyParameter name={"loss_fn_config"} type={"dict[str, Any] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"forward_backward_custom_async"} type={"(self, data, loss_fn) -> Any"}>
+
+Same as :meth:`forward_backward_async`, but the loss is a
+client-side Python callable.
+
+Tinker streams logits/logprobs back, the callable runs locally on
+each Datum, and the returned scalar gets sent back for the backward
+pass. This is the same hook SDFT uses for analytical reverse-KL,
+exposed here as a first-class extension point.
+
+<PySourceCode >
+
+```python
+def forward_backward_custom_async(
+    self,
+    data: list[tinker.Datum],
+    loss_fn: LossCallable,
+) -> Any:
+    """Same as :meth:`forward_backward_async`, but the loss is a
+    client-side Python callable.
+
+    Tinker streams logits/logprobs back, the callable runs locally on
+    each Datum, and the returned scalar gets sent back for the backward
+    pass. This is the same hook SDFT uses for analytical reverse-KL,
+    exposed here as a first-class extension point.
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"data"} type={"list[tinker.Datum]"} value={null} />
+<PyParameter name={"loss_fn"} type={"LossCallable"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"optim_step_async"} type={"(self, adam) -> Any"}>
+
+Optimizer step. Returns an awaitable resolving to :class:`OptimStepResult`.
+
+<PySourceCode >
+
+```python
+def optim_step_async(self, adam: tinker.AdamParams) -> Any:
+    """Optimizer step. Returns an awaitable resolving to :class:`OptimStepResult`."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"adam"} type={"tinker.AdamParams"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"save_for_sampler"} type={"(self, name) -> str"}>
+
+Snapshot the current weights for inference. Returns the sampler URI.
+
+<PySourceCode >
+
+```python
+async def save_for_sampler(self, name: str) -> str:
+    """Snapshot the current weights for inference. Returns the sampler URI."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"save_full_state"} type={"(self, name) -> str"}>
+
+Snapshot weights + optimizer state for resume. Returns the URI.
+
+<PySourceCode >
+
+```python
+async def save_full_state(self, name: str) -> str:
+    """Snapshot weights + optimizer state for resume. Returns the URI."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"snapshot_sampling_client"} type={"(self, name=None) -> SamplingClient"}>
+
+Save_weights_for_sampler + construct an inference client at that URI.
+
+Convenience for the in-loop eval slot, which needs both: save the
+latest weights AND get a client that can sample from them. The
+manager records the URI; the eval slot uses the client.
+
+<PySourceCode >
+
+```python
+async def snapshot_sampling_client(self, name: str | None = None) -> SamplingClient:
+    """Save_weights_for_sampler + construct an inference client at that URI.
+
+    Convenience for the in-loop eval slot, which needs both: save the
+    latest weights AND get a client that can sample from them. The
+    manager records the URI; the eval slot uses the client.
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.training.backend.SamplingClient"} />
+
+</PyFunction>
+
+<PyFunction name={"get_tokenizer"} type={"(self) -> Any"}>
+
+HF tokenizer the backend is using. Used by StepBuilders that need
+to tokenize text (SFT) or apply chat templates (SDFT).
+
+<PySourceCode >
+
+```python
+def get_tokenizer(self) -> Any:
+    """HF tokenizer the backend is using. Used by StepBuilders that need
+    to tokenize text (SFT) or apply chat templates (SDFT)."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>

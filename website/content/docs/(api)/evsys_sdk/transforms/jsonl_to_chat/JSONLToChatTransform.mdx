@@ -1,0 +1,82 @@
+---
+title: JSONLToChatTransform
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'jsonl_to_chat'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"JSONLToChatConfig"} />
+
+<PyAttribute name={"system_prompt"} type={null} value={"system_prompt"} />
+
+<PyAttribute name={"user_template"} type={null} value={"user_template"} />
+
+<PyAttribute name={"assistant_template"} type={null} value={"assistant_template"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, system_prompt='', user_template='{query}', assistant_template=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    *,
+    system_prompt: str = "",
+    user_template: str = "{query}",
+    assistant_template: str | None = None,
+) -> None:
+    self.system_prompt = system_prompt
+    self.user_template = user_template
+    self.assistant_template = assistant_template
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"system_prompt"} type={"str"} value={"''"} />
+<PyParameter name={"user_template"} type={"str"} value={"'{query}'"} />
+<PyParameter name={"assistant_template"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"__call__"} type={"(self, rows) -> Iterable[dict[str, Any]]"}>
+
+<PySourceCode >
+
+```python
+def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    for row in rows:
+        messages: list[dict[str, str]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append(
+            {"role": "user", "content": self.user_template.format(**row)}
+        )
+        if self.assistant_template is not None:
+            messages.append(
+                {"role": "assistant", "content": self.assistant_template.format(**row)}
+            )
+        yield {**row, "messages": messages}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"rows"} type={"Iterable[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Iterable[dict[str, typing.Any]]"} />
+
+</PyFunction>

@@ -1,0 +1,48 @@
+---
+title: backend
+---
+
+Backend — the only surface that talks to tinker.
+
+The `Backend` Protocol is the seam the rest of the training stack is built
+against. A concrete backend (:class:`~evsys_sdk.training.backend.MockBackend`
+for tests; the future ``TinkerBackend`` for real runs) implements the
+six-method contract and the rest of the package (loop, step builders,
+checkpoint manager) stays backend-agnostic. That's how we drop the
+tinker_cookbook dependency without locking ourselves to tinker either.
+
+Method shape mirrors tinker's own client so a TinkerBackend implementation
+is one-to-one plumbing — see the docstrings on each method for the
+contract.
+
+<PyAttribute name={"LossCallable"} type={null} value={"Callable[[Any, dict[str, Any]], Any]"}>
+
+Custom client-side loss. Receives ``(model_output, batch_metadata)`` and
+returns a scalar (typically a ``torch.Tensor``) the backend uses for the
+backward pass. The exact shape of ``model_output`` is backend-defined —
+TinkerBackend passes ``tinker.ForwardOutput`` here.
+
+</PyAttribute>
+
+<PyAttribute name={"__all__"} type={null} value={"['Backend', 'ForwardBackwardResult', 'LossCallable', 'MockBackend', 'MockSamplingClient', 'OptimStepResult', 'SamplingClient']"} />
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"ForwardBackwardResult"} href={"/docs/evsys_sdk/training/backend/ForwardBackwardResult"} />
+<Card title={"OptimStepResult"} href={"/docs/evsys_sdk/training/backend/OptimStepResult"} />
+<Card title={"SamplingClient"} href={"/docs/evsys_sdk/training/backend/SamplingClient"} />
+<Card title={"Backend"} href={"/docs/evsys_sdk/training/backend/Backend"} />
+<Card title={"_ResolvedFuture"} href={"/docs/evsys_sdk/training/backend/_ResolvedFuture"} />
+<Card title={"_MockResult"} href={"/docs/evsys_sdk/training/backend/_MockResult"} />
+<Card title={"MockSamplingClient"} href={"/docs/evsys_sdk/training/backend/MockSamplingClient"} />
+<Card title={"MockBackend"} href={"/docs/evsys_sdk/training/backend/MockBackend"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

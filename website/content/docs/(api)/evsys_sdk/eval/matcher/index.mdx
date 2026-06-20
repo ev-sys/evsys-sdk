@@ -1,0 +1,28 @@
+---
+title: matcher
+---
+
+Alias-aware slug matching for tool-detection evals.
+
+Wraps verified_aliases.json and an optional secondary-aliases file so a
+predicted slug counts as correct if it equals the expected slug OR any
+of the expected slug's verified aliases.
+
+Bidirectional by default: an alias map ``\{old: new\}`` is treated as a
+symmetric equivalence. This matters when the eval set has been renamed
+to canonical/new slugs but the model under test was trained on the
+old slugs (or vice versa) — both names should count as the same answer.
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"AliasMatcher"} href={"/docs/evsys_sdk/eval/matcher/AliasMatcher"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

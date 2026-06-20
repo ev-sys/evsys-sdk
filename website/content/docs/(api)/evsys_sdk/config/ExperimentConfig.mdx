@@ -1,0 +1,102 @@
+---
+title: ExperimentConfig
+---
+
+Top-level experiment.
+
+Either ``run`` (one run) or ``runs`` (multiple — a campaign) must be set.
+
+The ``matrix`` shorthand expands into ``runs`` automatically: each axis
+maps to a list of values, and the cartesian product is taken. Each cell
+inherits everything from ``base_run`` and overrides the matrixed fields.
+
+## Attributes
+
+<PyAttribute name={"version"} type={"int"} value={"1"}>
+
+Schema version. Bumped when breaking changes are made.
+
+</PyAttribute>
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"description"} type={"str"} value={"''"} />
+
+<PyAttribute name={"output_dir"} type={"str"} value={"'./outputs'"}>
+
+Where local artifacts (checkpoints, logs) are written.
+
+</PyAttribute>
+
+<PyAttribute name={"data_store"} type={"DataStoreSpec"} value={"Field(default_factory=DataStoreSpec)"} />
+
+<PyAttribute name={"log_store"} type={"LogStoreSpec"} value={"Field(default_factory=LogStoreSpec)"} />
+
+<PyAttribute name={"callbacks"} type={"list[CallbackSpec]"} value={"Field(default_factory=list)"} />
+
+<PyAttribute name={"run"} type={"RunConfig | None"} value={"None"} />
+
+<PyAttribute name={"runs"} type={"list[RunConfig] | None"} value={"None"} />
+
+<PyAttribute name={"matrix"} type={"MatrixSpec | None"} value={"None"} />
+
+<PyAttribute name={"continual"} type={"ContinualConfig | None"} value={"None"} />
+
+<PyAttribute name={"n_repeats"} type={"int"} value={"1"}>
+
+How many seeded replicates per primary RunConfig. 1 = no grouping.
+
+</PyAttribute>
+
+<PyAttribute name={"base_seed"} type={"int | None"} value={"None"}>
+
+Starting seed for auto-generated replicates. None → use each primary's own ``seed``.
+
+</PyAttribute>
+
+<PyAttribute name={"parent_experiment_id"} type={"str | None"} value={"None"}>
+
+For evolutionary lineage.
+
+</PyAttribute>
+
+<PyAttribute name={"metadata"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"}>
+
+Free-form (e.g. budget, hypothesis, client tag).
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"model_post_init"} type={"(self, __context) -> None"}>
+
+<PySourceCode >
+
+```python
+def model_post_init(self, __context: Any) -> None:
+    n = sum(x is not None for x in (self.run, self.runs, self.matrix))
+    if n != 1:
+        raise ValueError(
+            "ExperimentConfig must have exactly one of: run, runs, matrix "
+            f"(found {n})."
+        )
+    if self.n_repeats < 1:
+        raise ValueError(f"n_repeats must be >= 1 (got {self.n_repeats}).")
+    if self.continual is not None and self.run is None:
+        raise ValueError(
+            "continual requires a single `run` as the base (not runs/matrix)."
+        )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"__context"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

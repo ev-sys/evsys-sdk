@@ -1,0 +1,46 @@
+---
+title: tinker
+---
+
+TinkerInference — generate via tinker SamplingClient.
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"TinkerInferenceConfig"} href={"/docs/evsys_sdk/inference/tinker/TinkerInferenceConfig"} />
+<Card title={"TinkerInference"} href={"/docs/evsys_sdk/inference/tinker/TinkerInference"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_default_tinker_factory"} type={"(run_result, run_cfg) -> TinkerInference"}>
+
+<PySourceCode >
+
+```python
+@register_default_inference_factory("tinker")
+def _default_tinker_factory(run_result: Any, run_cfg: Any) -> TinkerInference:
+    return TinkerInference.from_run_result(run_result, run_cfg)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"run_result"} type={"Any"} value={null} />
+<PyParameter name={"run_cfg"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.inference.tinker.TinkerInference"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

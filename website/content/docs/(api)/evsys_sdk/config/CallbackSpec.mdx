@@ -1,0 +1,12 @@
+---
+title: CallbackSpec
+---
+
+A training-loop callback to attach, by registry name + params. e.g.
+``\{kind: early_stopping, params: \{metric: pass_rate, patience: 3\}\}``.
+
+## Attributes
+
+<PyAttribute name={"kind"} type={"str"} value={null} />
+
+<PyAttribute name={"params"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"} />

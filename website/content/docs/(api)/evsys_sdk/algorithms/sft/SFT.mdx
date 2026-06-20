@@ -1,0 +1,193 @@
+---
+title: SFT
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'sft'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"SFTConfig"} />
+
+## Functions
+
+<PyFunction name={"_check_inputs"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def _check_inputs(self, ctx: RunContext) -> None:
+    if not ctx.extras.get("train_rows"):
+        raise RuntimeError("SFT.train: ctx.extras['train_rows'] missing/empty")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"setup"} type={"(self, ctx, backend) -> None"}>
+
+<PySourceCode >
+
+```python
+async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
+    rows = ctx.extras["train_rows"]
+
+    # Standardize raw rows → typed ChatMessagesRow (strict), then tokenize
+    # → Datum with assistant-span loss masks. The supervise decision is
+    # the algorithm's, not the dataset's.
+    chat_rows = cast("list[ChatMessagesRow]", parse_rows(rows, TargetFormat.CHAT_MESSAGES))
+    self._datums = sft_tokenize(
+        chat_rows, backend.get_tokenizer(),
+        max_seq_len=self.cfg.max_seq_len,
+        enable_thinking=self.cfg.enable_thinking,
+        supervise=self.cfg.supervise,
+    )
+    if not self._datums:
+        raise RuntimeError("SFT.setup: tokenization produced no datums")
+    self._n_rows = len(rows)
+    self._steps_per_epoch = max(1, self._n_rows // self.cfg.batch_size)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+<PyParameter name={"backend"} type={"TinkerBackend"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"build_batch"} type={"(self, step_idx) -> TrainingBatch"}>
+
+Slice ``batch_size`` Datums for ``step_idx``, wrapping the dataset
+when the slice straddles the end.
+
+<PySourceCode >
+
+```python
+async def build_batch(self, step_idx: int) -> TrainingBatch:
+    """Slice ``batch_size`` Datums for ``step_idx``, wrapping the dataset
+    when the slice straddles the end."""
+    n = len(self._datums)
+    start = (step_idx * self.cfg.batch_size) % n
+    end = start + self.cfg.batch_size
+    if end <= n:
+        data = self._datums[start:end]
+    else:
+        data = self._datums[start:] + self._datums[: end - n]
+    return TrainingBatch(data=data, loss_fn="cross_entropy")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.training.loop.TrainingBatch"} />
+
+</PyFunction>
+
+<PyFunction name={"step_metrics"} type={"(self, step_idx, batch, fb_result) -> dict[str, float]"}>
+
+``train_mean_nll`` from the per-position logprobs of each Datum,
+weighted by the loss mask.
+
+Tinker's cross_entropy loss returns ``loss_fn_outputs[i]["logprobs"]``:
+a per-position vector of log-probabilities of the target token (a
+"perfect" prediction has logprob 0; otherwise negative). The mean NLL
+is ``-sum(logprob * weight) / sum(weight)`` over the loss-mask
+positions, averaged across the batch.
+
+<PySourceCode >
+
+```python
+def step_metrics(
+    self, step_idx: int, batch: TrainingBatch, fb_result: Any,
+) -> dict[str, float]:
+    """``train_mean_nll`` from the per-position logprobs of each Datum,
+    weighted by the loss mask.
+
+    Tinker's cross_entropy loss returns ``loss_fn_outputs[i]["logprobs"]``:
+    a per-position vector of log-probabilities of the target token (a
+    "perfect" prediction has logprob 0; otherwise negative). The mean NLL
+    is ``-sum(logprob * weight) / sum(weight)`` over the loss-mask
+    positions, averaged across the batch."""
+    outputs = getattr(fb_result, "loss_fn_outputs", None)
+    if not outputs:
+        return {}
+
+    total_logprob = 0.0
+    total_weight = 0.0
+    for datum, out in zip(batch.data, outputs):
+        logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
+                                 else getattr(out, "logprobs", None))
+        if logprobs is None:
+            continue
+        weights = coerce_floats(extract_weights(datum))
+        if weights is None or len(weights) == 0:
+            continue
+        # Truncate to min length so a token-count mismatch between the
+        # per-position logprobs and the per-position mask doesn't blow up.
+        k = min(len(logprobs), len(weights))
+        for j in range(k):
+            total_logprob += logprobs[j] * weights[j]
+            total_weight += weights[j]
+
+    if total_weight <= 0:
+        return {}
+    return {"train_mean_nll": -float(total_logprob) / float(total_weight)}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+<PyParameter name={"batch"} type={"TrainingBatch"} value={null} />
+<PyParameter name={"fb_result"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, float]"} />
+
+</PyFunction>
+
+<PyFunction name={"_hyperparams_extra"} type={"(self) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def _hyperparams_extra(self) -> dict[str, Any]:
+    return {"n_train_rows": self._n_rows, "n_train_datums": len(self._datums)}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>

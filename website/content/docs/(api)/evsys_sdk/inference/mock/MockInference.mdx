@@ -1,0 +1,80 @@
+---
+title: MockInference
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'mock'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"MockInferenceConfig"} />
+
+<PyAttribute name={"template"} type={null} value={"template if template is not None else '<think>mock thinking</think>\\n<answer>MOCK_ANSWER</answer>'"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, template=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, template: str | None = None) -> None:
+    self.template = (
+        template
+        if template is not None
+        else "<think>mock thinking</think>\n<answer>MOCK_ANSWER</answer>"
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"template"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"generate"} type={"(self, *, prompt, max_tokens=256, temperature=0.0, stop=None) -> str"}>
+
+<PySourceCode >
+
+```python
+def generate(
+    self,
+    *,
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    stop: list[str] | None = None,
+) -> str:
+    try:
+        out = self.template.format(prompt=prompt)
+    except (KeyError, IndexError):
+        out = self.template
+    if stop:
+        for s in stop:
+            idx = out.find(s)
+            if idx >= 0:
+                out = out[:idx]
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"stop"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

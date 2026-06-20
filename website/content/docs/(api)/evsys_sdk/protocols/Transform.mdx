@@ -1,0 +1,37 @@
+---
+title: Transform
+---
+
+Convert raw input rows to algorithm-ready typed rows.
+
+e.g. a transform takes raw rows like \{query, answer, ...\} and emits
+\{messages: [...], ...\} ready for the algorithm.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"Config"} type={"type"} value={null} />
+
+## Functions
+
+<PyFunction name={"__call__"} type={"(self, rows) -> Iterable[dict[str, Any]]"}>
+
+<PySourceCode >
+
+```python
+def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"rows"} type={"Iterable[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Iterable[dict[str, typing.Any]]"} />
+
+</PyFunction>

@@ -1,0 +1,37 @@
+---
+title: CompletionSlice
+---
+
+## Attributes
+
+<PyAttribute name={"tokens"} type={"list[int]"} value={null}>
+
+The completion tokens themselves.
+
+</PyAttribute>
+
+<PyAttribute name={"teacher_prompt_len"} type={"int"} value={null}>
+
+Length of the teacher prompt in tokens (used to pull the right slice
+from teacher logprob arrays).
+
+</PyAttribute>
+
+<PyAttribute name={"truncated"} type={"bool"} value={null} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, tokens, teacher_prompt_len, truncated) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"tokens"} type={"list[int]"} value={null} />
+<PyParameter name={"teacher_prompt_len"} type={"int"} value={null} />
+<PyParameter name={"truncated"} type={"bool"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

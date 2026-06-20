@@ -1,0 +1,64 @@
+---
+title: ManifestRow
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"batch"} type={"int | None"} value={"None"} />
+
+<PyAttribute name={"epoch"} type={"int | None"} value={"None"} />
+
+<PyAttribute name={"state_path"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"sampler_path"} type={"str | None"} value={"None"} />
+
+## Functions
+
+<PyFunction name={"to_json"} type={"(self) -> str"}>
+
+<PySourceCode >
+
+```python
+def to_json(self) -> str:
+    d: dict[str, Any] = {"name": self.name}
+    if self.batch is not None:
+        d["batch"] = self.batch
+    if self.epoch is not None:
+        d["epoch"] = self.epoch
+    if self.state_path:
+        d["state_path"] = self.state_path
+    if self.sampler_path:
+        d["sampler_path"] = self.sampler_path
+    return json.dumps(d, ensure_ascii=False)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, name, batch=None, epoch=None, state_path=None, sampler_path=None) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"batch"} type={"int | None"} value={"None"} />
+<PyParameter name={"epoch"} type={"int | None"} value={"None"} />
+<PyParameter name={"state_path"} type={"str | None"} value={"None"} />
+<PyParameter name={"sampler_path"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

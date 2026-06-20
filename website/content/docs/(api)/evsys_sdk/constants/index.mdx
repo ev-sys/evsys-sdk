@@ -1,0 +1,151 @@
+---
+title: constants
+---
+
+Central constants for the evsys_sdk SDK.
+
+Single source of truth for env-var names, defaults, HTTP endpoint paths,
+status strings, and logging config. Change endpoints / defaults here — not
+scattered across the codebase.
+
+Distinct from ``config.py``, which holds the user-facing Pydantic *experiment*
+config models (ExperimentConfig, RunConfig, ...). This module is SDK app-level
+plumbing.
+
+<PyAttribute name={"EVSYS_API_URL_ENV"} type={null} value={"'EVSYS_API_URL'"} />
+
+<PyAttribute name={"EVSYS_API_KEY_ENV"} type={null} value={"'EVSYS_API_KEY'"} />
+
+<PyAttribute name={"EVSYS_PROJECT_ID_ENV"} type={null} value={"'EVSYS_PROJECT_ID'"} />
+
+<PyAttribute name={"EVSYS_LOG_DIR_ENV"} type={null} value={"'EVSYS_LOG_DIR'"} />
+
+<PyAttribute name={"EVSYS_OFFLINE_ENV"} type={null} value={"'EVSYS_OFFLINE'"} />
+
+<PyAttribute name={"EVSYS_LOGGING_LEVEL_ENV"} type={null} value={"'EVSYS_LOGGING_LEVEL'"} />
+
+<PyAttribute name={"DEFAULT_API_URL"} type={null} value={"'http://localhost:8000'"} />
+
+<PyAttribute name={"DEFAULT_LOG_DIR"} type={null} value={"'./evsys_sdk'"} />
+
+<PyAttribute name={"DEFAULT_TIMEOUT_S"} type={null} value={"30.0"} />
+
+<PyAttribute name={"API_PREFIX"} type={null} value={"'/api/dashboard/api'"} />
+
+<PyAttribute name={"EP_CREATE_EXPERIMENT"} type={null} value={"'/sdk/experiments/'"} />
+
+<PyAttribute name={"EP_UPDATE_EXPERIMENT"} type={null} value={"'/sdk/experiments/{experiment_id}/'"} />
+
+<PyAttribute name={"EP_CREATE_RUN"} type={null} value={"'/sdk/runs/'"} />
+
+<PyAttribute name={"EP_UPDATE_RUN"} type={null} value={"'/sdk/runs/{run_id}/'"} />
+
+<PyAttribute name={"EP_LOG_METRICS"} type={null} value={"'/sdk/runs/{run_id}/metrics/'"} />
+
+<PyAttribute name={"EP_LOG_EVAL"} type={null} value={"'/sdk/runs/{run_id}/evals/'"} />
+
+<PyAttribute name={"EP_ADD_CHECKPOINT"} type={null} value={"'/sdk/runs/{run_id}/checkpoints/'"} />
+
+<PyAttribute name={"EP_LOG_PREDICTIONS"} type={null} value={"'/sdk/runs/{run_id}/predictions/'"} />
+
+<PyAttribute name={"KEY_EXPERIMENT"} type={null} value={"'experiment'"} />
+
+<PyAttribute name={"KEY_RUN"} type={null} value={"'run'"} />
+
+<PyAttribute name={"KEY_RAW"} type={null} value={"'_raw'"} />
+
+<PyAttribute name={"FIELD_PROJECT_ID"} type={null} value={"'project_id'"} />
+
+<PyAttribute name={"FIELD_BEST_SCORE"} type={null} value={"'best_score'"} />
+
+<PyAttribute name={"FIELD_ERROR_MESSAGE"} type={null} value={"'error_message'"} />
+
+<PyAttribute name={"FIELD_CONCLUSION"} type={null} value={"'conclusion'"} />
+
+<PyAttribute name={"STATUS_PENDING"} type={null} value={"'pending'"} />
+
+<PyAttribute name={"STATUS_RUNNING"} type={null} value={"'running'"} />
+
+<PyAttribute name={"STATUS_COMPLETED"} type={null} value={"'completed'"} />
+
+<PyAttribute name={"STATUS_FAILED"} type={null} value={"'failed'"} />
+
+<PyAttribute name={"STATUS_CANCELLED"} type={null} value={"'cancelled'"} />
+
+<PyAttribute name={"HEADER_AUTHORIZATION"} type={null} value={"'Authorization'"} />
+
+<PyAttribute name={"HEADER_CONTENT_TYPE"} type={null} value={"'Content-Type'"} />
+
+<PyAttribute name={"CONTENT_TYPE_JSON"} type={null} value={"'application/json'"} />
+
+<PyAttribute name={"DEFAULT_LOGGING_LEVEL"} type={null} value={"'INFO'"} />
+
+<PyAttribute name={"SUPPORTED_LOGGING_LEVELS"} type={null} value={"['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']"} />
+
+<PyAttribute name={"DEFAULT_LOG_FORMAT"} type={null} value={"'%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'"} />
+
+<PyAttribute name={"DEFAULT_LOG_DATE_FORMAT"} type={null} value={"'%Y-%m-%d %H:%M:%S'"} />
+
+<PyAttribute name={"LOGGER_NAME"} type={null} value={"'evsys_sdk'"} />
+
+<PyAttribute name={"LOCAL_EXPERIMENT_FILE"} type={null} value={"'experiment.json'"} />
+
+<PyAttribute name={"LOCAL_GENERATION_FILE"} type={null} value={"'generation.json'"} />
+
+<PyAttribute name={"LOCAL_METRICS_FILE"} type={null} value={"'metrics.jsonl'"} />
+
+<PyAttribute name={"LOCAL_EVALS_FILE"} type={null} value={"'evals.jsonl'"} />
+
+<PyAttribute name={"LOCAL_PREDICTIONS_FILE"} type={null} value={"'predictions.jsonl'"} />
+
+<Tabs items={["Functions"]}>
+
+<Tab value={"Functions"}>
+
+<PyFunction name={"bearer"} type={"(api_key) -> str"}>
+
+<PySourceCode >
+
+```python
+def bearer(api_key: str) -> str:
+    return f"Bearer {api_key}"
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"api_key"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+<PyFunction name={"truthy_env"} type={"(value) -> bool"}>
+
+Interpret an env var string as a boolean.
+
+<PySourceCode >
+
+```python
+def truthy_env(value: str | None) -> bool:
+    """Interpret an env var string as a boolean."""
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"value"} type={"str | None"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

@@ -1,0 +1,13 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "installation",
+    "cookbook",
+    "extension-points",
+    "design",
+    "reference",
+    "---API Reference---",
+    "(api)"
+  ]
+}

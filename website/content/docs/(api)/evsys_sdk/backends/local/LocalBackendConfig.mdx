@@ -1,0 +1,21 @@
+---
+title: LocalBackendConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"dtype"} type={"str"} value={"'float32'"}>
+
+One of: 'bfloat16', 'float16', 'float32'. Defaults to float32 for CPU/MPS compatibility.
+
+</PyAttribute>
+
+<PyAttribute name={"device"} type={"str"} value={"'auto'"}>
+
+'auto' (detect CUDA→MPS→CPU), 'cpu', 'cuda', or 'mps'.
+
+</PyAttribute>
+
+<PyAttribute name={"trust_remote_code"} type={"bool"} value={"True"} />

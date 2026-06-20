@@ -1,0 +1,29 @@
+---
+title: EvsysStoreError
+---
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, status, body) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, status: int, body: str) -> None:
+    super().__init__(f"sdk gateway → HTTP {status}: {body[:300]}")
+    self.status, self.body = status, body
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"status"} type={"int"} value={null} />
+<PyParameter name={"body"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

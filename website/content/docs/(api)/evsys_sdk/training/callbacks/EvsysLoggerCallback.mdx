@@ -1,0 +1,409 @@
+---
+title: EvsysLoggerCallback
+---
+
+Persist EVERYTHING to the evsys dashboard store via callbacks — the
+experiment/group/run records, per-step metrics, checkpoints, and benchmark
+evals + predictions. Keyed off the shared ``ctx.ids`` it populates
+(``experiment_id`` → ``group:\<name>`` → ``run_id``).
+
+This is the "callbacks own the store" mode: construct ``Experiment`` WITHOUT
+a ``store=`` (so the orchestrator makes no store calls) and add this
+callback instead. If ``Experiment`` already has a store (``ctx.store`` set),
+this callback disables itself to avoid double-writing. The store handle is
+built lazily from the environment (EvsysStore) unless one is injected
+(``cb._store = ...``) — the test seam.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'evsys_logger'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"EvsysLoggerConfig"} />
+
+<PyAttribute name={"project_id"} type={null} value={"project_id"} />
+
+<PyAttribute name={"flush_every"} type={null} value={"max(1, int(flush_every))"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, project_id=None, flush_every=1) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, project_id: str | None = None, flush_every: int = 1) -> None:
+    self.project_id = project_id
+    self.flush_every = max(1, int(flush_every))
+    self._store: Any = None
+    self._disabled = False
+    self._buf: list[tuple[int, dict, str]] = []
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"project_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"flush_every"} type={"int"} value={"1"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_ensure_store"} type={"(self, ctx) -> Any"}>
+
+<PySourceCode >
+
+```python
+def _ensure_store(self, ctx: LogContext) -> Any:
+    if self._disabled:
+        return None
+    if ctx.store is not None:
+        self._disabled = True
+        logger.warning(
+            "evsys_logger: Experiment already has a store; disabling to avoid "
+            "double-writes (drop store= from Experiment to use this callback)"
+        )
+        return None
+    if self._store is None:
+        try:
+            from ..store import EvsysStore  # noqa: PLC0415
+            self._store = EvsysStore(project_id=self.project_id)
+        except Exception:
+            self._disabled = True
+            logger.warning("evsys_logger: no usable store (missing EVSYS_API_KEY?); disabling")
+    return self._store
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"_id"} type={"(resp) -> str | None"}>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _id(resp: Any) -> str | None:
+    return resp.get("id") if isinstance(resp, dict) else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"resp"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_experiment_start"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_experiment_start(self, ctx: LogContext) -> None:
+    store = self._ensure_store(ctx)
+    if store is None:
+        return
+    meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+    resp = store.create_experiment(
+        experiment_name=getattr(ctx.config, "name", "experiment"),
+        hypothesis=meta.get("hypothesis"),
+        tags=list(meta.get("tags") or []) or None,
+    )
+    eid = self._id(resp)
+    if eid:
+        ctx.ids["experiment_id"] = eid
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_group_start"} type={"(self, ctx, group_name) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_group_start(self, ctx: LogContext, group_name: str) -> None:
+    if self._disabled or self._store is None:
+        return
+    resp = self._store.create_group(ctx.ids.get("experiment_id"), group_name)
+    gid = self._id(resp)
+    if gid:
+        ctx.ids[f"group:{group_name}"] = gid
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+<PyParameter name={"group_name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_start"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_start(self, ctx: LogContext) -> None:
+    if self._disabled or self._store is None:
+        return
+    rc = ctx.run_config
+    gid = ctx.ids.get(f"group:{ctx.group_name}") if ctx.group_name else None
+    resp = self._store.create_run(
+        experiment_id=ctx.ids.get("experiment_id"),
+        group_id=gid,
+        recipe_kind=getattr(getattr(rc, "algorithm", None), "kind", None),
+        run_config=rc.model_dump() if rc is not None else None,
+        seed=getattr(rc, "seed", None),
+        status="running",
+        wandb_run_url=ctx.extras.get("wandb_url"),
+    )
+    rid = self._id(resp)
+    if rid:
+        ctx.ids["run_id"] = rid
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_benchmark_eval"} type={"(self, ctx, eval_result, predictions, *, step=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+    if self._disabled or self._store is None:
+        return
+    run_id = ctx.ids.get("run_id")
+    if not run_id:
+        return
+    resp = self._store.create_eval(
+        run_id=run_id,
+        benchmark_id=getattr(eval_result, "benchmark_id", None),
+        metrics=dict(getattr(eval_result, "metrics", {}) or {}),
+        breakdowns=dict(getattr(eval_result, "breakdowns", {}) or {}) or None,
+        step=step,
+    )
+    eval_id = self._id(resp)
+    if predictions:
+        from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
+        rows = [{**p, "eval_id": eval_id} for p in predictions]
+        upload_eval_rollouts(self._store, run_id, rows)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"eval_result"} type={null} value={null} />
+<PyParameter name={"predictions"} type={null} value={null} />
+<PyParameter name={"step"} type={null} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_end"} type={"(self, ctx, run_result, arm) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_end(self, ctx, run_result, arm) -> None:
+    if self._disabled or self._store is None:
+        return
+    self._flush(ctx)
+    run_id = ctx.ids.get("run_id")
+    if run_id:
+        status = getattr(run_result, "status", None) or getattr(arm, "status", None)
+        patch = {"status": status}
+        err = getattr(run_result, "error", None) or getattr(arm, "error", None)
+        if err:
+            patch["error_message"] = err
+        self._store.update_run(run_id, **patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"run_result"} type={null} value={null} />
+<PyParameter name={"arm"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_step_end"} type={"(self, state, step_idx, batch, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+    if self._disabled or self._store is None:
+        return
+    self._buf.append((step_idx, {k: float(v) for k, v in metrics.items()}, "train"))
+    if len(self._buf) >= self.flush_every:
+        self._flush(state.ctx)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"batch"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_eval"} type={"(self, state, step_idx, eval_name, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+    if self._disabled or self._store is None:
+        return
+    self._buf.append(
+        (step_idx, {f"{eval_name}/{k}": float(v) for k, v in metrics.items()}, "val")
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"eval_name"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_checkpoint"} type={"(self, state, row) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_checkpoint(self, state: LoopState, row) -> None:
+    if self._disabled or self._store is None:
+        return
+    ctx = state.ctx
+    run_id = ctx.ids.get("run_id") if ctx else None
+    uri = getattr(row, "sampler_path", None) or getattr(row, "state_path", None)
+    if run_id and uri:
+        self._store.add_checkpoint(
+            run_id, uri=uri, label=getattr(row, "name", None), step=getattr(row, "batch", None),
+        )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"row"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_flush"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def _flush(self, ctx: LogContext | None) -> None:
+    if self._store is None or not self._buf or ctx is None:
+        return
+    run_id = ctx.ids.get("run_id")
+    if not run_id:
+        self._buf.clear()
+        return
+    for step, metrics, split in self._buf:
+        try:
+            self._store.log_metrics(run_id=run_id, step=int(step), metrics=metrics, split=split)
+        except Exception:
+            logger.warning("evsys_logger: log_metrics failed at step %s", step, exc_info=True)
+    self._buf.clear()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext | None"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

@@ -1,0 +1,56 @@
+---
+title: SDFTDataset
+---
+
+The data interface the SDFT algorithm consumes per step.
+
+Per the SDFT paper, each step needs ``batch_size`` ``(question, golden_answer)``
+pairs — the student rolls out on the question, the teacher scores
+teacher-forced through the question+golden_answer demo.
+
+## Functions
+
+<PyFunction name={"__len__"} type={"(self) -> int"}>
+
+<PySourceCode >
+
+```python
+def __len__(self) -> int: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"int"} />
+
+</PyFunction>
+
+<PyFunction name={"get_batch"} type={"(self, step_idx) -> tuple[list[str], list[str]]"}>
+
+Return ``(questions, golden_answers)`` of length ``batch_size``.
+
+<PySourceCode >
+
+```python
+def get_batch(self, step_idx: int) -> tuple[list[str], list[str]]:
+    """Return ``(questions, golden_answers)`` of length ``batch_size``."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"tuple[list[str], list[str]]"} />
+
+</PyFunction>

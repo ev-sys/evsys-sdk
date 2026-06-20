@@ -1,0 +1,187 @@
+---
+title: TensorBoardLoggerCallback
+---
+
+Log scalar metrics + eval scalars to TensorBoard, one event dir per arm.
+
+Opens a ``SummaryWriter`` in ``on_run_start`` (lazy import so the callback
+registers without torch installed) and closes it in ``on_run_end``.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'tensorboard_logger'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"TensorBoardLoggerConfig"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, log_dir=None, flush_secs=30) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, log_dir: str | None = None, flush_secs: int = 30) -> None:
+    self._log_dir = log_dir
+    self._flush_secs = int(flush_secs)
+    self._writer: Any = None
+    self._disabled = False
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"log_dir"} type={"str | None"} value={"None"} />
+<PyParameter name={"flush_secs"} type={"int"} value={"30"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_start"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_start(self, ctx: LogContext) -> None:
+    if self._disabled:
+        return
+    try:
+        from torch.utils.tensorboard import SummaryWriter  # noqa: PLC0415
+    except Exception:
+        self._disabled = True
+        logger.warning("tensorboard_logger: tensorboard/torch missing; disabling")
+        return
+    path = self._log_dir or str(Path(ctx.output_dir) / "tb" / (ctx.run_key or "run"))
+    self._writer = SummaryWriter(log_dir=path, flush_secs=self._flush_secs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_step_end"} type={"(self, state, step_idx, batch, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+    if self._writer is None:
+        return
+    for k, v in metrics.items():
+        self._writer.add_scalar(k, float(v), global_step=step_idx)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"batch"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_eval"} type={"(self, state, step_idx, eval_name, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+    if self._writer is None:
+        return
+    for k, v in metrics.items():
+        self._writer.add_scalar(f"val/{eval_name}/{k}", float(v), global_step=step_idx)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"eval_name"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_benchmark_eval"} type={"(self, ctx, eval_result, predictions, *, step=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+    if self._writer is None:
+        return
+    ename = getattr(eval_result, "name", "benchmark")
+    gs = step if step is not None else 0
+    for k, v in (getattr(eval_result, "metrics", {}) or {}).items():
+        self._writer.add_scalar(f"eval/{ename}/{k}", float(v), global_step=gs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"eval_result"} type={null} value={null} />
+<PyParameter name={"predictions"} type={null} value={null} />
+<PyParameter name={"step"} type={null} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_end"} type={"(self, ctx, run_result, arm) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_end(self, ctx, run_result, arm) -> None:
+    if self._writer is not None:
+        try:
+            self._writer.close()
+        finally:
+            self._writer = None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"run_result"} type={null} value={null} />
+<PyParameter name={"arm"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

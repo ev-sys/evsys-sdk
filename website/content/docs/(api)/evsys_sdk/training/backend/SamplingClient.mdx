@@ -1,0 +1,82 @@
+---
+title: SamplingClient
+---
+
+Inference-only client backed by a saved sampler checkpoint.
+
+Created by :meth:`Backend.snapshot_sampling_client`. Both the loop's
+in-loop eval slot and any rollout-based StepBuilder (SDFT, RL) consume
+this surface — never the underlying tinker client directly.
+
+## Functions
+
+<PyFunction name={"sample_async"} type={"(self, *, prompt, params, num_samples=1, include_prompt_logprobs=False, topk_prompt_logprobs=0) -> Any"}>
+
+Generate tokens for ``prompt``. Return shape is backend-defined.
+
+TinkerBackend returns tinker's native ``SamplingResponse`` with
+``.sequences`` (one per sample) and optional ``.topk_prompt_logprobs``.
+MockBackend returns canned strings for tests.
+
+<PySourceCode >
+
+```python
+async def sample_async(
+    self,
+    *,
+    prompt: tinker.ModelInput,
+    params: tinker.SamplingParams,
+    num_samples: int = 1,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+) -> Any:
+    """Generate tokens for ``prompt``. Return shape is backend-defined.
+
+    TinkerBackend returns tinker's native ``SamplingResponse`` with
+    ``.sequences`` (one per sample) and optional ``.topk_prompt_logprobs``.
+    MockBackend returns canned strings for tests.
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+<PyParameter name={"params"} type={"tinker.SamplingParams"} value={null} />
+<PyParameter name={"num_samples"} type={"int"} value={"1"} />
+<PyParameter name={"include_prompt_logprobs"} type={"bool"} value={"False"} />
+<PyParameter name={"topk_prompt_logprobs"} type={"int"} value={"0"} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"compute_logprobs_async"} type={"(self, prompt) -> list[float | None]"}>
+
+Per-position logprobs of the prompt under the current weights.
+
+<PySourceCode >
+
+```python
+async def compute_logprobs_async(self, prompt: tinker.ModelInput) -> list[float | None]:
+    """Per-position logprobs of the prompt under the current weights."""
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[float | None]"} />
+
+</PyFunction>

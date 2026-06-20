@@ -1,0 +1,48 @@
+---
+title: Introduction
+description: A declarative, modular experiment framework for LLM training — one YAML, pluggable everything.
+---
+
+`evsys-sdk` is a declarative, modular framework for LLM training experiments.
+You describe an experiment in a **single YAML** and the SDK runs it — locally
+on TRL or remotely on Tinker — with pluggable algorithms, verifiers, metrics,
+data stores, log stores, backends, and inference clients.
+
+```bash
+uv pip install -e ".[tinker,local,tensorboard]"
+evsys validate config.yaml --deep
+evsys run config.yaml
+```
+
+## Highlights
+
+<Cards>
+  <Card title="Single YAML drives everything" href="/docs/cookbook">
+    `evsys run experiments/sft.yaml` — one file expands into a whole campaign of runs.
+  </Card>
+  <Card title="Modular by design" href="/docs/extension-points">
+    Add a new algorithm with `@register_algorithm("dpo")` — no library fork required.
+  </Card>
+  <Card title="Backends" href="/docs/reference">
+    `mock` for tests, `local` for TRL+peft on your GPU, `tinker` for hosted training.
+  </Card>
+  <Card title="Auto-generated API reference" href="/docs/evsys_sdk">
+    263 pages introspected straight from the `evsys_sdk` package — always in sync with the code.
+  </Card>
+</Cards>
+
+## Where to go next
+
+<Cards>
+  <Card title="Installation" href="/docs/installation" />
+  <Card title="Cookbook" href="/docs/cookbook" />
+  <Card title="Extension points" href="/docs/extension-points" />
+  <Card title="Design & architecture" href="/docs/design" />
+  <Card title="API reference" href="/docs/evsys_sdk" />
+</Cards>
+
+## Status
+
+`v0.1.0` — first cut. Stable: protocols, registry, YAML loader, mock backend,
+Tinker SFT/RL adapters. See [Design & Architecture](/docs/design) for the full
+picture.

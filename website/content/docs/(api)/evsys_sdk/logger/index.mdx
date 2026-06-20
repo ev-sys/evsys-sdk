@@ -1,0 +1,182 @@
+---
+title: logger
+---
+
+Configurable logging for the evsys_sdk SDK.
+
+Mirrors the level-based, env-driven logger from the older `trajectory` SDK (pre-rebrand).
+Level is read from EVSYS_LOGGING_LEVEL (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+and can be overridden at runtime via ``configure_logger(level=...)``.
+
+Usage::
+
+    from evsys_sdk.logger import get_logger
+    log = get_logger(__name__)
+    log.info("hello")
+
+<PyAttribute name={"RESET"} type={null} value={"'\\x1b[0m'"} />
+
+<PyAttribute name={"RED"} type={null} value={"'\\x1b[31m'"} />
+
+<PyAttribute name={"YELLOW"} type={null} value={"'\\x1b[33m'"} />
+
+<PyAttribute name={"GRAY"} type={null} value={"'\\x1b[90m'"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['configure_logger', 'set_level', 'get_logger', 'ColorFormatter']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"ColorFormatter"} href={"/docs/evsys_sdk/logger/ColorFormatter"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_resolve_level"} type={"(level) -> str"}>
+
+<PySourceCode >
+
+```python
+def _resolve_level(level: str | None) -> str:
+    candidate = (level or os.getenv(EVSYS_LOGGING_LEVEL_ENV, DEFAULT_LOGGING_LEVEL)).upper()
+    if candidate in SUPPORTED_LOGGING_LEVELS:
+        return candidate
+    print(
+        f"Warning: invalid logging level '{candidate}' "
+        f"(set {EVSYS_LOGGING_LEVEL_ENV} to one of {SUPPORTED_LOGGING_LEVELS}). "
+        f"Using default {DEFAULT_LOGGING_LEVEL}."
+    )
+    return DEFAULT_LOGGING_LEVEL
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"level"} type={"str | None"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+<PyFunction name={"configure_logger"} type={"(level=None, *, format_string=None, date_format=None, use_color=None) -> logging.Logger"}>
+
+(Re)configure the root SDK logger. Returns the configured logger.
+
+The SDK root logger is named ``evsys_sdk``; per-module loggers
+obtained via :func:`get_logger` propagate to it.
+
+<PySourceCode >
+
+```python
+def configure_logger(
+    level: str | None = None,
+    *,
+    format_string: str | None = None,
+    date_format: str | None = None,
+    use_color: bool | None = None,
+) -> logging.Logger:
+    """(Re)configure the root SDK logger. Returns the configured logger.
+
+    The SDK root logger is named ``evsys_sdk``; per-module loggers
+    obtained via :func:`get_logger` propagate to it.
+    """
+    resolved = _resolve_level(level)
+    fmt = format_string or DEFAULT_LOG_FORMAT
+    datefmt = date_format or DEFAULT_LOG_DATE_FORMAT
+    color = (
+        use_color
+        if use_color is not None
+        else (sys.stdout.isatty() and os.getenv("NO_COLOR") is None)
+    )
+
+    logger = logging.getLogger(LOGGER_NAME)
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(getattr(logging, resolved))
+    handler.setFormatter(ColorFormatter(fmt=fmt, datefmt=datefmt, use_color=color))
+
+    logger.setLevel(getattr(logging, resolved))
+    logger.addHandler(handler)
+    # Don't double-emit through the root logger's handlers.
+    logger.propagate = False
+    logger.debug("evsys_sdk logger configured | level=%s color=%s", resolved, color)
+    return logger
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"level"} type={"str | None"} value={"None"} />
+<PyParameter name={"format_string"} type={"str | None"} value={"None"} />
+<PyParameter name={"date_format"} type={"str | None"} value={"None"} />
+<PyParameter name={"use_color"} type={"bool | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"logging.logging.Logger"} />
+
+</PyFunction>
+<PyFunction name={"set_level"} type={"(level) -> None"}>
+
+Convenience: change the SDK log level at runtime.
+
+<PySourceCode >
+
+```python
+def set_level(level: str) -> None:
+    """Convenience: change the SDK log level at runtime."""
+    configure_logger(level=level)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"level"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+<PyFunction name={"get_logger"} type={"(name=None) -> logging.Logger"}>
+
+Get a child logger under the SDK root (e.g. ``get_logger(__name__)``).
+
+<PySourceCode >
+
+```python
+def get_logger(name: str | None = None) -> logging.Logger:
+    """Get a child logger under the SDK root (e.g. ``get_logger(__name__)``)."""
+    if name is None or name == LOGGER_NAME:
+        return logging.getLogger(LOGGER_NAME)
+    # Normalise dotted module names to children of the SDK root logger.
+    short = name.split(".")[-1]
+    return logging.getLogger(f"{LOGGER_NAME}.{short}")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"name"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"logging.logging.Logger"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

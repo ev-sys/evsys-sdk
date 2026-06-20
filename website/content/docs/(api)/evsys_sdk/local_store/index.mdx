@@ -1,0 +1,64 @@
+---
+title: local_store
+---
+
+Always-on local mirror of experiment data (wandb-offline style).
+
+Every DashboardClient write is also persisted under ``EVSYS_LOG_DIR``
+(default ``./evsys_sdk``). This guarantees no data is lost even
+when the backend is unreachable, and is the *only* store used in offline mode.
+
+Layout (flat by id, so each call only needs its own id)::
+
+    \{log_dir\}/
+      experiments/\{experiment_id\}/experiment.json
+      generations/\{generation_id\}/generation.json
+                                  metrics.jsonl
+                                  evals.jsonl
+                                  predictions.jsonl
+
+<PyAttribute name={"log"} type={null} value={"get_logger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['LocalExperimentStore', 'resolve_log_dir']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"LocalExperimentStore"} href={"/docs/evsys_sdk/local_store/LocalExperimentStore"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"resolve_log_dir"} type={"(log_dir=None) -> Path"}>
+
+Resolve the local mirror directory from arg or EVSYS_LOG_DIR.
+
+<PySourceCode >
+
+```python
+def resolve_log_dir(log_dir: str | None = None) -> Path:
+    """Resolve the local mirror directory from arg or EVSYS_LOG_DIR."""
+    raw = log_dir or os.environ.get(EVSYS_LOG_DIR_ENV) or DEFAULT_LOG_DIR
+    return Path(raw).expanduser()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"log_dir"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"pathlib.Path"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

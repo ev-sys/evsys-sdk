@@ -1,0 +1,1292 @@
+---
+title: Experiment
+---
+
+Bundle ExperimentConfig + dashboard writes + per-arm orchestration.
+
+## Attributes
+
+<PyAttribute name={"config"} type={null} value={"config"} />
+
+<PyAttribute name={"store"} type={null} value={"store"} />
+
+<PyAttribute name={"train_fn"} type={null} value={"train_fn or _default_train_fn"} />
+
+<PyAttribute name={"inference_factory"} type={null} value={"inference_factory"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, config, *, store=None, train_fn=None, benchmark=None, inference_factory=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    config: ExperimentConfig,
+    *,
+    store: Any | None = None,
+    train_fn: TrainFn | None = None,
+    benchmark: Benchmark | None = None,
+    inference_factory: InferenceFactory | None = None,
+) -> None:
+    self.config = config
+    self.store = store
+    self.train_fn = train_fn or _default_train_fn
+    self._train_fn_is_default = train_fn is None
+    self._benchmark_override = benchmark
+    self.inference_factory = inference_factory
+    # Logger callbacks: built ONCE for the whole experiment so the
+    # dashboard ids (experiment_id → group_id → run_id) created in the
+    # experiment-scope hooks persist across arms. The SAME instances are
+    # threaded into each arm's training loop (via extras) so one logger
+    # sees the full lifecycle. The shared LogContext is mutated per arm.
+    self._callbacks = build_callbacks(config.callbacks)
+    self._logctx = LogContext(
+        output_dir=Path(config.output_dir), config=config, store=store,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"config"} type={"ExperimentConfig"} value={null} />
+<PyParameter name={"store"} type={"Any | None"} value={"None"} />
+<PyParameter name={"train_fn"} type={"TrainFn | None"} value={"None"} />
+<PyParameter name={"benchmark"} type={"Benchmark | None"} value={"None"} />
+<PyParameter name={"inference_factory"} type={"InferenceFactory | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"from_yaml"} type={"(cls, path, **kwargs) -> Experiment"}>
+
+<PySourceCode >
+
+```python
+@classmethod
+def from_yaml(cls, path: str | Path, **kwargs: Any) -> Experiment:
+    from .yaml_loader import load_yaml
+
+    return cls(load_yaml(path), **kwargs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"cls"} type={null} value={null} />
+<PyParameter name={"path"} type={"str | Path"} value={null} />
+<PyParameter name={"kwargs"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.Experiment"} />
+
+</PyFunction>
+
+<PyFunction name={"run"} type={"(self) -> ExperimentResult"}>
+
+<PySourceCode >
+
+```python
+def run(self) -> ExperimentResult:
+    meta = self.config.metadata or {}
+    hypothesis = meta.get("hypothesis")
+    tags = list(meta.get("tags") or [])
+    success_metric = meta.get("success_metric")
+    benchmarks = self._resolve_benchmarks(meta.get("benchmark"))
+
+    # In-loop entries (run_every > 0) are picked up by the algorithm
+    # composer via build_in_loop_evaluators (training/evaluators.py),
+    # which reads ctx.config.metadata directly. The list returned here
+    # still contains them so the test for "is there ANY benchmark?"
+    # works; _eval_arm skips them at post-training time.
+
+    experiment_id = self._create_experiment(hypothesis, tags, meta)
+    if experiment_id is not None:
+        self._logctx.ids["experiment_id"] = experiment_id
+    dispatch(self._callbacks, "on_experiment_start", self._logctx)
+
+    # When n_repeats > 1, register one dashboard group per primary
+    # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
+    # previous behavior — no groups, no group_id on runs.
+    # TODO : even when n_repeats == 1, we should create a group.
+    primaries = self._iter_runs()
+    n_repeats = self.config.n_repeats
+    group_id_by_name: dict[str, str | None] = {}
+    if n_repeats > 1:
+        for p in primaries:
+            gid = self._create_group(experiment_id, p.name)
+            group_id_by_name[p.name] = gid
+            if gid is not None:
+                self._logctx.ids[f"group:{p.name}"] = gid
+            dispatch(self._callbacks, "on_group_start", self._logctx, p.name)
+
+    if self.config.continual is not None:
+        arms = self._run_continual(experiment_id, benchmarks, meta)
+    else:
+        arms = []
+        for primary in primaries:
+            for arm_cfg, group_name in self._replicates_for(primary):
+                group_id = group_id_by_name.get(group_name) if group_name else None
+                arms.append(self._execute_arm(
+                    experiment_id, arm_cfg, benchmarks, meta,
+                    group_id=group_id, group_name=group_name,
+                ))
+
+    best_arm = self._pick_best(arms, success_metric) if success_metric else None
+    best_score = best_arm.score(success_metric) if (best_arm and success_metric) else None
+    conclusion = self._build_conclusion(arms, best_arm, success_metric)
+    status = "completed" if any(a.status == "completed" for a in arms) else "failed"
+
+    self._finalize_experiment(experiment_id, status, best_score, conclusion)
+
+    result = ExperimentResult(
+        name=self.config.name,
+        status=status,
+        arms=arms,
+        best_arm=best_arm,
+        best_score=best_score,
+        conclusion=conclusion,
+        experiment_id=experiment_id,
+        hypothesis=hypothesis,
+    )
+    dispatch(self._callbacks, "on_experiment_end", self._logctx, result)
+    return result
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.ExperimentResult"} />
+
+</PyFunction>
+
+<PyFunction name={"_iter_runs"} type={"(self) -> list[RunConfig]"}>
+
+Expand sweep matrix / single-run / multi-run to a flat list of primaries.
+
+Each entry is a "group" when ``n_repeats > 1``. See
+:meth:`_replicates_for` for the per-primary seeded replicates.
+
+<PySourceCode >
+
+```python
+def _iter_runs(self) -> list[RunConfig]:
+    """Expand sweep matrix / single-run / multi-run to a flat list of primaries.
+
+    Each entry is a "group" when ``n_repeats > 1``. See
+    :meth:`_replicates_for` for the per-primary seeded replicates.
+    """
+    cfg = self.config
+    if cfg.run is not None:
+        return [cfg.run]
+    if cfg.runs is not None:
+        return list(cfg.runs)
+    if cfg.matrix is not None:
+        return expand_runs(cfg.matrix.base_run, cfg.matrix.axes, cfg.matrix.name_template)
+    raise RuntimeError(f"experiment {cfg.name!r} has no runs")  # pragma: no cover
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.config.RunConfig]"} />
+
+</PyFunction>
+
+<PyFunction name={"_replicates_for"} type={"(self, primary) -> list[tuple[RunConfig, str | None]]"}>
+
+Per-primary seed replicates.
+
+For ``n_repeats == 1``: returns ``[(primary, None)]`` — no group.
+For ``n_repeats > 1``: returns N tuples of
+``(\<RunConfig with name=primary.name__s\<seed> and seed=\<seed>>, primary.name)``.
+Seeds run ``[base_seed, base_seed+1, ...]`` when ``base_seed`` is set,
+else ``[primary.seed, primary.seed+1, ...]``.
+
+<PySourceCode >
+
+```python
+def _replicates_for(self, primary: RunConfig) -> list[tuple[RunConfig, str | None]]:
+    """Per-primary seed replicates.
+
+    For ``n_repeats == 1``: returns ``[(primary, None)]`` — no group.
+    For ``n_repeats > 1``: returns N tuples of
+    ``(<RunConfig with name=primary.name__s<seed> and seed=<seed>>, primary.name)``.
+    Seeds run ``[base_seed, base_seed+1, ...]`` when ``base_seed`` is set,
+    else ``[primary.seed, primary.seed+1, ...]``.
+    """
+    n = self.config.n_repeats
+    if n <= 1:
+        return [(primary, None)]
+    base = self.config.base_seed if self.config.base_seed is not None else primary.seed
+    return [
+        (
+            primary.model_copy(update={"name": f"{primary.name}__s{base + i}", "seed": base + i}),
+            primary.name,
+        )
+        for i in range(n)
+    ]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"primary"} type={"RunConfig"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[tuple[evsys_sdk.config.RunConfig, str | None]]"} />
+
+</PyFunction>
+
+<PyFunction name={"_resolve_benchmarks"} type={"(self, raw) -> list[tuple[Benchmark, dict]]"}>
+
+Normalize ``metadata.benchmark`` to a list of ``(Benchmark, spec)``.
+
+Accepts three shapes:
+
+* ``None`` / empty → ``[]`` (no eval).
+* single ``dict`` (legacy single-benchmark form) → wrapped into a
+  one-element list with ``name`` defaulting to ``"benchmark"`` (or
+  the spec's own ``name`` if present).
+* ``list[dict]`` (new multi-benchmark form) → each entry must carry
+  a ``name`` and may carry ``tags`` and ``run_every``.
+
+``self._benchmark_override`` (test seam) bypasses everything and
+returns a single-entry list.
+
+<PySourceCode >
+
+```python
+def _resolve_benchmarks(
+    self, raw: dict | list | None
+) -> list[tuple[Benchmark, dict]]:
+    """Normalize ``metadata.benchmark`` to a list of ``(Benchmark, spec)``.
+
+    Accepts three shapes:
+
+    * ``None`` / empty → ``[]`` (no eval).
+    * single ``dict`` (legacy single-benchmark form) → wrapped into a
+      one-element list with ``name`` defaulting to ``"benchmark"`` (or
+      the spec's own ``name`` if present).
+    * ``list[dict]`` (new multi-benchmark form) → each entry must carry
+      a ``name`` and may carry ``tags`` and ``run_every``.
+
+    ``self._benchmark_override`` (test seam) bypasses everything and
+    returns a single-entry list.
+    """
+    if self._benchmark_override is not None:
+        return [(self._benchmark_override, {"name": "benchmark"})]
+    if not raw:
+        return []
+    specs: list[dict] = [raw] if isinstance(raw, dict) else list(raw)
+    out: list[tuple[Benchmark, dict]] = []
+    for i, spec in enumerate(specs):
+        if not isinstance(spec, dict):
+            raise ValueError(
+                f"metadata.benchmark[{i}] must be a dict (got {type(spec).__name__})"
+            )
+        bench = Benchmark.load(spec, store=self.store)
+        if bench is None:
+            continue
+        # Default a name when missing — required for list form, harmless for single.
+        spec = dict(spec)
+        spec.setdefault("name", str(spec.get("id") or spec.get("path") or f"benchmark_{i}"))
+        out.append((bench, spec))
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"raw"} type={"dict | list | None"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[tuple[evsys_sdk.benchmark.Benchmark, dict]]"} />
+
+</PyFunction>
+
+<PyFunction name={"_create_experiment"} type={"(self, hypothesis, tags, meta) -> str | None"}>
+
+<PySourceCode >
+
+```python
+def _create_experiment(
+    self, hypothesis: str | None, tags: list[str], meta: dict
+) -> str | None:
+    if self.store is None:
+        return None
+    exp = self.store.create_experiment(
+        experiment_name=self.config.name,
+        hypothesis=hypothesis,
+        tags=tags or None,
+        project_goal_id=meta.get("project_goal_id"),
+    )
+    return exp.get("id") if isinstance(exp, dict) else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"hypothesis"} type={"str | None"} value={null} />
+<PyParameter name={"tags"} type={"list[str]"} value={null} />
+<PyParameter name={"meta"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_execute_arm"} type={"(self, experiment_id, run_cfg, benchmarks, meta, *, group_id=None, group_name=None, score_api_models=True) -> ArmResult"}>
+
+<PySourceCode >
+
+```python
+def _execute_arm(
+    self,
+    experiment_id: str | None,
+    run_cfg: RunConfig,
+    benchmarks: list[tuple[Benchmark, dict]],
+    meta: dict,
+    *,
+    group_id: str | None = None,
+    group_name: str | None = None,
+    score_api_models: bool = True,
+) -> ArmResult:
+    run_id = self._create_run(experiment_id, run_cfg, group_id=group_id)
+    arm = ArmResult(
+        name=run_cfg.name,
+        run_config=run_cfg,
+        status="failed",
+        run_id=run_id,
+        group_id=group_id,
+        group_name=group_name,
+    )
+    # Point the shared LogContext at this arm (sequential, so reused).
+    self._logctx.run_config = run_cfg
+    self._logctx.group_name = group_name
+    self._logctx.run_key = run_id or run_cfg.name
+    if run_id is not None:
+        self._logctx.ids["run_id"] = run_id
+    else:
+        self._logctx.ids.pop("run_id", None)
+    dispatch(self._callbacks, "on_run_start", self._logctx)
+    try:
+        arm = self._train_arm(arm, run_cfg)
+        if arm.status == "completed" and benchmarks:
+            arm = self._eval_arm(arm, run_cfg, benchmarks, meta, score_api_models=score_api_models)
+        self._mark_run_completed(run_id, arm)
+    except Exception as e:
+        logger.exception("arm %r failed", run_cfg.name)
+        arm.status = "failed"
+        arm.error = f"{type(e).__name__}: {e}"
+        self._mark_run_failed(run_id, arm.error)
+    dispatch(self._callbacks, "on_run_end", self._logctx, arm.run_result, arm)
+    return arm
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+<PyParameter name={"benchmarks"} type={"list[tuple[Benchmark, dict]]"} value={null} />
+<PyParameter name={"meta"} type={"dict"} value={null} />
+<PyParameter name={"group_id"} type={"str | None"} value={"None"} />
+<PyParameter name={"group_name"} type={"str | None"} value={"None"} />
+<PyParameter name={"score_api_models"} type={"bool"} value={"True"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.ArmResult"} />
+
+</PyFunction>
+
+<PyFunction name={"_train_arm"} type={"(self, arm, run_cfg) -> ArmResult"}>
+
+<PySourceCode >
+
+```python
+def _train_arm(self, arm: ArmResult, run_cfg: RunConfig) -> ArmResult:
+    single_cfg = self.config.model_copy(
+        update={"run": run_cfg, "runs": None, "matrix": None}
+    )
+    t0 = time.time()
+    from .runner import run_experiment
+    if self._train_fn_is_default:
+        # Hand the dashboard store + run_id down to the runner so in-loop
+        # validation (harbor engine) can upload its eval rollouts tagged
+        # with this run. Custom train_fns get the plain (cfg) contract.
+        results = run_experiment(
+            single_cfg,
+            extra_context={
+                "store": self.store,
+                "dashboard_run_id": arm.run_id,
+                # Thread the SAME logger instances + shared context into the
+                # loop so on_step_end/on_eval/on_checkpoint fire on them.
+                "callbacks": self._callbacks,
+                "log_context": self._logctx,
+            },
+        )
+    else:
+        results = self.train_fn(single_cfg)
+    arm.train_seconds = time.time() - t0
+    if not results:
+        raise RuntimeError(f"train_fn returned no results for arm {run_cfg.name!r}")
+    result = results[0]
+    arm.run_result = result
+    arm.metrics = dict(result.metrics)
+    self._forward_step_metrics(arm)
+    if result.status != "completed":
+        raise RuntimeError(result.error or f"train_fn status={result.status}")
+    arm.status = "completed"
+    return arm
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.ArmResult"} />
+
+</PyFunction>
+
+<PyFunction name={"_forward_step_metrics"} type={"(self, arm) -> None"}>
+
+Push the arm's local metrics.jsonl rows to the store.
+
+Runner-time logging writes locally; this batch-forwards to the
+dashboard so the script doesn't have to call backfill_step_metrics
+manually after training.
+
+<PySourceCode >
+
+```python
+def _forward_step_metrics(self, arm: ArmResult) -> None:
+    """Push the arm's local metrics.jsonl rows to the store.
+
+    Runner-time logging writes locally; this batch-forwards to the
+    dashboard so the script doesn't have to call backfill_step_metrics
+    manually after training.
+    """
+    run_dir = self._resolve_run_dir(arm)
+    forward_step_metrics(self.store, arm.run_id, run_dir)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_resolve_run_dir"} type={"(self, arm) -> Path | None"}>
+
+Reconstruct the run output dir the runner wrote into.
+
+<PySourceCode >
+
+```python
+def _resolve_run_dir(self, arm: ArmResult) -> Path | None:
+    """Reconstruct the run output dir the runner wrote into."""
+    if arm.run_result is not None:
+        from_artifact = arm.run_result.artifacts.get("run_dir")
+        if from_artifact:
+            return Path(from_artifact)
+    safe_name = arm.run_config.name.replace("/", "_").replace(" ", "_")
+    return Path(self.config.output_dir).expanduser() / safe_name
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"pathlib.Path | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_resolve_inference_factory"} type={"(self, run_cfg) -> InferenceFactory | None"}>
+
+User-supplied factory wins; otherwise pick a default by backend kind.
+
+Falls back to the registry's ``get_default_inference_factory`` so we
+don't have to import backend-specific inference modules here — e.g.
+``tinker`` registers its own default at module load.
+
+<PySourceCode >
+
+```python
+def _resolve_inference_factory(self, run_cfg: RunConfig) -> InferenceFactory | None:
+    """User-supplied factory wins; otherwise pick a default by backend kind.
+
+    Falls back to the registry's ``get_default_inference_factory`` so we
+    don't have to import backend-specific inference modules here — e.g.
+    ``tinker`` registers its own default at module load.
+    """
+    if self.inference_factory is not None:
+        return self.inference_factory
+    return get_default_inference_factory(run_cfg.backend.kind)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.InferenceFactory | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_eval_arm"} type={"(self, arm, run_cfg, benchmarks, meta, *, score_api_models=True) -> ArmResult"}>
+
+Score each post-training benchmark and attach an EvalResult per entry.
+
+``score_api_models=False`` skips the closed/API-model (``benchmark.models``)
+evals — used for continual stages after the first, since a closed model's
+weights are fixed across stages so one scoring suffices (only the trained
+checkpoint, which changes per stage, is re-scored).
+
+Entries flagged with ``run_every`` are in-loop and skipped here (their
+scoring happens during training in the algorithm wrapper — task
+commit 2). Entries without ``run_every`` get a single post-training
+``EvalResult`` appended to ``arm.evals``.
+
+After all benchmarks score, the flat back-compat fields
+(``arm.eval_metrics`` / ``eval_breakdowns`` / ``eval_seconds``)
+mirror the **primary** eval — the first ``test``-tagged
+post-training row, else the first post-training row, else nothing.
+
+<PySourceCode >
+
+```python
+def _eval_arm(
+    self,
+    arm: ArmResult,
+    run_cfg: RunConfig,
+    benchmarks: list[tuple[Benchmark, dict]],
+    meta: dict,
+    *,
+    score_api_models: bool = True,
+) -> ArmResult:
+    """Score each post-training benchmark and attach an EvalResult per entry.
+
+    ``score_api_models=False`` skips the closed/API-model (``benchmark.models``)
+    evals — used for continual stages after the first, since a closed model's
+    weights are fixed across stages so one scoring suffices (only the trained
+    checkpoint, which changes per stage, is re-scored).
+
+    Entries flagged with ``run_every`` are in-loop and skipped here (their
+    scoring happens during training in the algorithm wrapper — task
+    commit 2). Entries without ``run_every`` get a single post-training
+    ``EvalResult`` appended to ``arm.evals``.
+
+    After all benchmarks score, the flat back-compat fields
+    (``arm.eval_metrics`` / ``eval_breakdowns`` / ``eval_seconds``)
+    mirror the **primary** eval — the first ``test``-tagged
+    post-training row, else the first post-training row, else nothing.
+    """
+    assert arm.run_result is not None
+    for bench, bench_meta in benchmarks:
+        # Closed-source / API models (``benchmark.models: [...]``) have static
+        # weights, so they're scored exactly ONCE post-training — never on the
+        # in-loop ``run_every`` cadence (that's for the changing checkpoint),
+        # and in continual runs only on the first stage (``score_api_models``).
+        # Run them up-front, regardless of run_every; one eval per model via
+        # harbor's litellm path.
+        if score_api_models:
+            for model in _benchmark_models(bench_meta):
+                self._eval_arm_harbor(arm, run_cfg, bench, bench_meta, api_model=model)
+
+        if bench_meta.get("run_every"):
+            continue  # checkpoint is scored in-loop by the algorithm wrapper
+        # Score the trained checkpoint: harbor rollout engine (opt-in via
+        # engine: harbor) or the default inference-client path.
+        if str(bench_meta.get("engine", "")).lower() == "harbor":
+            self._eval_arm_harbor(arm, run_cfg, bench, bench_meta)
+        else:
+            # Legacy in-process path — the ONLY path needing an inference
+            # client. Resolve it lazily here so harbor / api-model benchmarks
+            # above never depend on a factory they don't use.
+            factory = self._resolve_inference_factory(run_cfg)
+            if factory is None:
+                logger.warning(
+                    "benchmark %r has no engine: harbor and backend %r provides no "
+                    "inference factory — skipping (set engine: harbor or supply one)",
+                    bench_meta.get("name"), run_cfg.backend.kind,
+                )
+                continue
+            client = factory(arm.run_result, run_cfg)
+            # Auto-wrap with chat templating when configured. Lets researchers
+            # declare a system_prompt + user_template in YAML instead of
+            # writing a per-project ChatTemplatedTinker shim in run.py.
+            ct = bench_meta.get("chat_template") or {}
+            if ct:
+                client = ChatTemplatedInference(client, **ct)
+            t0 = time.time()
+            score = bench.score(
+                client,
+                max_tokens=int(bench_meta.get("max_tokens", 512)),
+                temperature=float(bench_meta.get("temperature", 0.0)),
+                breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+                limit=int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None,
+                metrics=bench_meta.get("metrics"),
+                num_samples=int(bench_meta.get("num_samples", 1)),
+            )
+            seconds = time.time() - t0
+            arm.evals.append(EvalResult(
+                name=str(bench_meta.get("name", "benchmark")),
+                benchmark_id=bench_meta.get("id"),
+                metrics=dict(score.metrics),
+                breakdowns=dict(score.breakdowns),
+                eval_seconds=seconds,
+                step=None,
+                tags=list(bench_meta.get("tags") or []),
+            ))
+            self._record_eval(arm, bench, bench_meta, score)
+            dispatch(
+                self._callbacks, "on_benchmark_eval", self._logctx,
+                arm.evals[-1], _predictions_from_score(score), step=None,
+            )
+
+    # Pick the primary post-training eval to mirror into the flat fields.
+    post = [e for e in arm.evals if e.step is None]
+    primary = next((e for e in post if "test" in e.tags), None) or (post[0] if post else None)
+    if primary is not None:
+        arm.eval_metrics = dict(primary.metrics)
+        arm.eval_breakdowns = dict(primary.breakdowns)
+        arm.eval_seconds = primary.eval_seconds
+    return arm
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+<PyParameter name={"benchmarks"} type={"list[tuple[Benchmark, dict]]"} value={null} />
+<PyParameter name={"meta"} type={"dict"} value={null} />
+<PyParameter name={"score_api_models"} type={"bool"} value={"True"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.ArmResult"} />
+
+</PyFunction>
+
+<PyFunction name={"_eval_arm_harbor"} type={"(self, arm, run_cfg, bench, bench_meta, *, api_model=None) -> None"}>
+
+Score one benchmark through harbor's rollout engine and upload the
+eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``.
+
+``api_model`` (a litellm string) scores a closed / API model instead of
+the trained checkpoint — same rollout path, ``model_client='litellm'``,
+recorded as its own per-model eval. ``None`` → the trained checkpoint.
+
+<PySourceCode >
+
+```python
+def _eval_arm_harbor(
+    self, arm: ArmResult, run_cfg: RunConfig, bench: Benchmark, bench_meta: dict,
+    *, api_model: str | None = None,
+) -> None:
+    """Score one benchmark through harbor's rollout engine and upload the
+    eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``.
+
+    ``api_model`` (a litellm string) scores a closed / API model instead of
+    the trained checkpoint — same rollout path, ``model_client='litellm'``,
+    recorded as its own per-model eval. ``None`` → the trained checkpoint.
+    """
+    import asyncio
+    import tempfile
+
+    from .training.harbor_eval import eval_predictions, upload_eval_rollouts
+
+    model_path = self._final_checkpoint(arm)
+    limit = int(bench_meta["limit"]) if bench_meta.get("limit") is not None else None
+    tasks = bench.tasks if limit is None else bench.tasks[: max(0, limit)]
+    ct = bench_meta.get("chat_template") or {}
+    bench_name = str(bench_meta.get("name", "benchmark"))
+    # One eval per (benchmark, model): the checkpoint and each API model are
+    # distinct results, named/tagged by model so they don't collide.
+    eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
+    # Persist eval rollouts under the run's output dir — alongside training's
+    # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
+    # trial dirs survive the run instead of vanishing with a tempdir.
+    run_dir = self._resolve_run_dir(arm)
+    if run_dir is not None:
+        safe = eval_name.replace("/", "_").replace(" ", "_")
+        workspace = run_dir / "harbor_eval" / safe
+        workspace.mkdir(parents=True, exist_ok=True)
+    else:  # no resolvable run dir → fall back to an ephemeral workspace
+        workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
+
+    t0 = time.time()
+    score = asyncio.run(bench.score_via_harbor(
+        model_name=api_model or run_cfg.model.name,
+        model_path=None if api_model else model_path,
+        model_client="litellm" if api_model else "tinker",
+        workspace_dir=workspace,
+        renderer_name=run_cfg.model.renderer_name,
+        num_samples=int(bench_meta.get("num_samples", 1)),
+        max_tokens=int(bench_meta.get("max_tokens", 512)),
+        temperature=float(bench_meta.get("temperature", 0.0)),
+        system_prompt=ct.get("system_prompt"),
+        limit=limit,
+        breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
+        metrics=bench_meta.get("metrics"),
+        n_concurrent=int(bench_meta.get("n_concurrent", 8)),
+    ))
+    seconds = time.time() - t0
+
+    model_tags = [api_model] if api_model else []
+    arm.evals.append(EvalResult(
+        name=eval_name,
+        benchmark_id=bench_meta.get("id"),
+        metrics=score.metrics,
+        breakdowns=score.breakdowns,
+        eval_seconds=seconds,
+        step=None,
+        tags=list(bench_meta.get("tags") or []) + model_tags,
+    ))
+    eval_id = self._record_eval(arm, bench, bench_meta, score)
+    # Build prediction rows once (harbor-free), hand them to the logger
+    # callbacks, then upload (store path) below.
+    preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
+    dispatch(
+        self._callbacks, "on_benchmark_eval", self._logctx,
+        arm.evals[-1], preds, step=None,
+    )
+    # Upload eval rollouts only (training rollouts are never uploaded), and
+    # only once they have an eval_id to hang off of — orphan predictions
+    # can't be told apart from other evals on the same run.
+    if self.store is not None and arm.run_id:
+        if eval_id is None:
+            logger.warning(
+                "skipping eval rollout upload for arm %r: create_eval gave no id",
+                arm.name,
+            )
+        else:
+            upload_eval_rollouts(self.store, arm.run_id, preds)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+<PyParameter name={"bench"} type={"Benchmark"} value={null} />
+<PyParameter name={"bench_meta"} type={"dict"} value={null} />
+<PyParameter name={"api_model"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_final_checkpoint"} type={"(arm) -> str | None"}>
+
+The trained sampler checkpoint URI from the arm's artifacts.
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _final_checkpoint(arm: ArmResult) -> str | None:
+    """The trained sampler checkpoint URI from the arm's artifacts."""
+    arts = (arm.run_result.artifacts if arm.run_result else {}) or {}
+    return (
+        arts.get("checkpoint-final")
+        or arts.get("sampler_path")
+        or next((v for k, v in arts.items()
+                 if "sampler" in str(k) or "checkpoint" in str(k)), None)
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_run_continual"} type={"(self, experiment_id, benchmarks, meta) -> list[ArmResult]"}>
+
+Train the base ``run`` once per dataset in ``continual.datasets``, in
+order, chaining each stage's final weights (fresh optimizer) into the
+next. Each completed stage is scored on every benchmark via
+:meth:`_execute_arm`; a chain stops at the first stage that does not
+complete.
+
+With ``n_repeats > 1`` the *whole chain* is replicated once per seed
+(``[base_seed, base_seed+1, ...]`` or ``[run.seed, ...]``). Stage *i*
+across all repeats shares one dashboard group, so variance is aggregated
+per stage. Within a chain, weights are chained only between that chain's
+own stages.
+
+<PySourceCode >
+
+```python
+def _run_continual(
+    self,
+    experiment_id: str | None,
+    benchmarks: list[tuple[Benchmark, dict]],
+    meta: dict,
+) -> list[ArmResult]:
+    """Train the base ``run`` once per dataset in ``continual.datasets``, in
+    order, chaining each stage's final weights (fresh optimizer) into the
+    next. Each completed stage is scored on every benchmark via
+    :meth:`_execute_arm`; a chain stops at the first stage that does not
+    complete.
+
+    With ``n_repeats > 1`` the *whole chain* is replicated once per seed
+    (``[base_seed, base_seed+1, ...]`` or ``[run.seed, ...]``). Stage *i*
+    across all repeats shares one dashboard group, so variance is aggregated
+    per stage. Within a chain, weights are chained only between that chain's
+    own stages.
+    """
+    cont = self.config.continual
+    base = self.config.run
+    assert cont is not None and base is not None  # guaranteed by config validator
+    template = cont.name_template or "{base}_stage{i}"
+    n = self.config.n_repeats
+    base_seed = self.config.base_seed if self.config.base_seed is not None else base.seed
+    seeds = [base_seed + r for r in range(n)]
+
+    # When repeating, group the seed-replicates of each stage together so
+    # mean/stddev is computed per stage across repeats. n == 1 → no groups.
+    stage_group_ids: list[str | None] = [None] * len(cont.datasets)
+    if n > 1:
+        stage_group_ids = [
+            self._create_group(experiment_id, template.format(base=base.name, i=i))
+            for i in range(len(cont.datasets))
+        ]
+
+    arms: list[ArmResult] = []
+    for seed in seeds:
+        prev_ckpt: str | None = None
+        for i, dataset in enumerate(cont.datasets):
+            model = base.model
+            if prev_ckpt is not None:
+                model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
+            stage_label = template.format(base=base.name, i=i)
+            name = f"{stage_label}__s{seed}" if n > 1 else stage_label
+            tags = [*base.tags, "continual", f"stage:{i}"]
+            if n > 1:
+                tags.append(f"seed:{seed}")
+            stage = base.model_copy(update={
+                "name": name,
+                "data": dataset,
+                "model": model,
+                "seed": seed,
+                "tags": tags,
+            })
+            arm = self._execute_arm(
+                experiment_id, stage, benchmarks, meta,
+                group_id=stage_group_ids[i],
+                group_name=(stage_label if n > 1 else None),
+                # Closed/API-model benchmarks have fixed weights → score once,
+                # on the first stage only (the checkpoint is re-scored each stage).
+                score_api_models=(i == 0),
+            )
+            arms.append(arm)
+            if arm.status != "completed":
+                logger.warning(
+                    "continual: chain (seed=%s) stopped at stage %d (status=%s)",
+                    seed, i, arm.status,
+                )
+                break
+            prev_ckpt = self._final_state_checkpoint(arm)
+            if prev_ckpt is None and i + 1 < len(cont.datasets):
+                logger.warning(
+                    "continual: stage %d (seed=%s) produced no resumable state "
+                    "checkpoint; stage %d will start from the base model",
+                    i, seed, i + 1,
+                )
+    return arms
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={null} />
+<PyParameter name={"benchmarks"} type={"list[tuple[Benchmark, dict]]"} value={null} />
+<PyParameter name={"meta"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.experiment.ArmResult]"} />
+
+</PyFunction>
+
+<PyFunction name={"_final_state_checkpoint"} type={"(arm) -> str | None"}>
+
+The full training-state path (weights + optimizer) of an arm's final
+checkpoint. Continual learning loads *weights only* from this into the
+next stage. Distinct from :meth:`_final_checkpoint`, which returns the
+inference-only sampler path.
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _final_state_checkpoint(arm: ArmResult) -> str | None:
+    """The full training-state path (weights + optimizer) of an arm's final
+    checkpoint. Continual learning loads *weights only* from this into the
+    next stage. Distinct from :meth:`_final_checkpoint`, which returns the
+    inference-only sampler path."""
+    arts = (arm.run_result.artifacts if arm.run_result else {}) or {}
+    return (
+        arts.get("state-final")
+        or next((v for k, v in arts.items() if str(k).startswith("state-")), None)
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_create_group"} type={"(self, experiment_id, name) -> str | None"}>
+
+Register a run group for variance studies; returns its id (or None).
+
+<PySourceCode >
+
+```python
+def _create_group(self, experiment_id: str | None, name: str) -> str | None:
+    """Register a run group for variance studies; returns its id (or None)."""
+    if self.store is None or experiment_id is None:
+        return None
+    try:
+        grp = self.store.create_group(experiment_id, name)
+    except Exception:
+        logger.exception("failed to create group %r", name)
+        return None
+    return grp.get("id") if isinstance(grp, dict) else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_create_run"} type={"(self, experiment_id, run_cfg, *, group_id=None) -> str | None"}>
+
+<PySourceCode >
+
+```python
+def _create_run(
+    self,
+    experiment_id: str | None,
+    run_cfg: RunConfig,
+    *,
+    group_id: str | None = None,
+) -> str | None:
+    if self.store is None or experiment_id is None:
+        return None
+    run = self.store.create_run(
+        experiment_id=experiment_id,
+        group_id=group_id,
+        recipe_kind=run_cfg.algorithm.kind,
+        run_config=run_cfg.model_dump(),
+        seed=run_cfg.seed,
+        status="running",
+    )
+    return run.get("id") if isinstance(run, dict) else None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={null} />
+<PyParameter name={"run_cfg"} type={"RunConfig"} value={null} />
+<PyParameter name={"group_id"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_mark_run_completed"} type={"(self, run_id, arm) -> None"}>
+
+<PySourceCode >
+
+```python
+def _mark_run_completed(self, run_id: str | None, arm: ArmResult) -> None:
+    if self.store is None or run_id is None:
+        return
+    self.store.update_run(run_id, status="completed")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str | None"} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_mark_run_failed"} type={"(self, run_id, error) -> None"}>
+
+<PySourceCode >
+
+```python
+def _mark_run_failed(self, run_id: str | None, error: str) -> None:
+    if self.store is None or run_id is None:
+        return
+    try:
+        self.store.update_run(run_id, status="failed", error_message=error)
+    except Exception:
+        logger.exception("failed to mark run %r failed", run_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str | None"} value={null} />
+<PyParameter name={"error"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_record_eval"} type={"(self, arm, benchmark, bench_meta, score) -> None"}>
+
+<PySourceCode >
+
+```python
+def _record_eval(
+    self,
+    arm: ArmResult,
+    benchmark: Benchmark,
+    bench_meta: dict,
+    score: BenchmarkScore,
+) -> None:
+    if self.store is None or arm.run_id is None:
+        return None
+    try:
+        ev = self.store.create_eval(
+            run_id=arm.run_id,
+            benchmark_id=bench_meta.get("id"),
+            metrics=dict(score.metrics),
+            breakdowns=dict(score.breakdowns) or None,
+        )
+        return ev.get("id") if isinstance(ev, dict) else None
+    except Exception:
+        logger.exception("failed to record eval for arm %r", arm.name)
+        return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arm"} type={"ArmResult"} value={null} />
+<PyParameter name={"benchmark"} type={"Benchmark"} value={null} />
+<PyParameter name={"bench_meta"} type={"dict"} value={null} />
+<PyParameter name={"score"} type={"BenchmarkScore"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_finalize_experiment"} type={"(self, experiment_id, status, best_score, conclusion) -> None"}>
+
+<PySourceCode >
+
+```python
+def _finalize_experiment(
+    self,
+    experiment_id: str | None,
+    status: str,
+    best_score: float | None,
+    conclusion: str,
+) -> None:
+    if self.store is None or experiment_id is None:
+        return
+    patch: dict[str, Any] = {"status": status, "conclusion": conclusion}
+    if best_score is not None:
+        patch["best_score"] = best_score
+    try:
+        self.store.update_experiment(experiment_id, **patch)
+    except Exception:
+        logger.exception("failed to finalize experiment %r", experiment_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str | None"} value={null} />
+<PyParameter name={"status"} type={"str"} value={null} />
+<PyParameter name={"best_score"} type={"float | None"} value={null} />
+<PyParameter name={"conclusion"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_pick_best"} type={"(self, arms, metric) -> ArmResult | None"}>
+
+<PySourceCode >
+
+```python
+def _pick_best(self, arms: list[ArmResult], metric: str) -> ArmResult | None:
+    scored = [(a, a.score(metric)) for a in arms if a.status == "completed"]
+    scored = [(a, s) for a, s in scored if s is not None]
+    if not scored:
+        return None
+    return max(scored, key=lambda pair: pair[1])[0]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arms"} type={"list[ArmResult]"} value={null} />
+<PyParameter name={"metric"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.experiment.ArmResult | None"} />
+
+</PyFunction>
+
+<PyFunction name={"_build_conclusion"} type={"(self, arms, best_arm, success_metric) -> str"}>
+
+<PySourceCode >
+
+```python
+def _build_conclusion(
+    self,
+    arms: list[ArmResult],
+    best_arm: ArmResult | None,
+    success_metric: str | None,
+) -> str:
+    completed = [a for a in arms if a.status == "completed"]
+    failed = [a for a in arms if a.status == "failed"]
+    if not completed:
+        return f"All {len(arms)} arms failed."
+    parts = []
+    if best_arm is not None and success_metric is not None:
+        best_score = best_arm.score(success_metric)
+        parts.append(
+            f"Best arm: {best_arm.name} at {success_metric}={best_score:.4f}."
+        )
+    parts.append(f"{len(completed)}/{len(arms)} arms completed.")
+    if failed:
+        parts.append(f"Failed: {', '.join(a.name for a in failed)}.")
+    return " ".join(parts)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"arms"} type={"list[ArmResult]"} value={null} />
+<PyParameter name={"best_arm"} type={"ArmResult | None"} value={null} />
+<PyParameter name={"success_metric"} type={"str | None"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

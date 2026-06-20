@@ -1,0 +1,21 @@
+---
+title: JSONLToChatConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"system_prompt"} type={"str"} value={"''"} />
+
+<PyAttribute name={"user_template"} type={"str"} value={"'{query}'"}>
+
+Format string with \{field\} placeholders pulled from each row.
+
+</PyAttribute>
+
+<PyAttribute name={"assistant_template"} type={"str | None"} value={"None"}>
+
+If set, builds an assistant message too (for SFT). e.g. '\{answer\}'.
+
+</PyAttribute>

@@ -1,0 +1,235 @@
+---
+title: RL
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'rl'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"RLConfig"} />
+
+## Functions
+
+<PyFunction name={"_check_inputs"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def _check_inputs(self, ctx: RunContext) -> None:
+    if not ctx.extras.get("train_rows"):
+        raise RuntimeError(
+            "RL.train: ctx.extras['train_rows'] missing/empty "
+            "(HarborTask rows: task_id + instruction + verifier)."
+        )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"setup"} type={"(self, ctx, backend) -> None"}>
+
+<PySourceCode >
+
+```python
+async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
+    rows = ctx.extras["train_rows"]
+    tasks = cast("list[HarborTask]", parse_rows(rows, TargetFormat.HARBOR_TASK))
+    self._tasks = [self._prep_task(t) for t in tasks]
+    self._backend = backend
+    self._snapshot_i = 0
+    # Rollouts are materialized + persisted under the run's workspace on
+    # disk; training rollouts are NOT uploaded to the dashboard (only eval
+    # rollouts are — see harbor_eval).
+    self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+    # Resolve the renderer like the backend (algorithm config first, then
+    # the model's renderer from backend handles) so the rollout doesn't
+    # fall back to harbor's thinking-enabled default when the renderer is
+    # set on ``model.renderer_name``.
+    self._renderer_name = self.cfg.renderer_name or ctx.extras.get(
+        "backend_handles", {}
+    ).get("renderer_name")
+    self._steps_per_epoch = max(1, len(self._tasks) // self.cfg.batch_size)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+<PyParameter name={"backend"} type={"TinkerBackend"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"build_batch"} type={"(self, step_idx) -> TrainingBatch"}>
+
+<PySourceCode >
+
+```python
+async def build_batch(self, step_idx: int) -> TrainingBatch:
+    from ..training.data_processing import (
+        assemble_training_data,
+        compute_advantages,
+        compute_trajectory_metrics,
+    )
+    from ..training.harbor_engine import run_harbor_rollouts
+
+    batch = self._slice(step_idx)
+    self._snapshot_i += 1
+    model_path = await self._backend.save_for_sampler(f"rl_snap_{self._snapshot_i}")
+
+    groups = await run_harbor_rollouts(
+        batch,                       # HarborTasks → outcome_reward=True (default), scored
+        model_name=self._model_name,
+        model_path=model_path,
+        workspace_dir=self._workspace,
+        renderer_name=self._renderer_name,
+        num_samples=self.cfg.num_samples,
+        max_turns=self.cfg.max_turns,
+        max_tokens=self.cfg.max_tokens,
+        temperature=self.cfg.temperature,
+        system_prompt=self.cfg.system_prompt,
+        agent_import_path=self.cfg.agent_import_path,
+        n_concurrent=self.cfg.n_concurrent,
+        max_retries=self.cfg.max_retries,
+    )
+    if self.cfg.drop_constant_reward:
+        groups = [g for g in groups if not _all_equal(g.rewards)]
+    if not groups:
+        return TrainingBatch(
+            data=[], loss_fn="importance_sampling",
+            metrics={"reward/n_trajectories": 0.0},
+        )
+
+    advantages = compute_advantages(groups)
+    datums, _meta = assemble_training_data(groups, advantages)
+    metrics = compute_trajectory_metrics(groups)
+    return TrainingBatch(data=datums, loss_fn="importance_sampling", metrics=metrics)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.training.loop.TrainingBatch"} />
+
+</PyFunction>
+
+<PyFunction name={"_hyperparams_extra"} type={"(self) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def _hyperparams_extra(self) -> dict[str, Any]:
+    return {"n_tasks": len(self._tasks)}
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"_prep_task"} type={"(self, t) -> HarborTask"}>
+
+Template the instruction + fill the verifier fn_name fallback, so the
+materialized harbor task is self-contained.
+
+<PySourceCode >
+
+```python
+def _prep_task(self, t: HarborTask) -> HarborTask:
+    """Template the instruction + fill the verifier fn_name fallback, so the
+    materialized harbor task is self-contained."""
+    v = t.verifier
+    if not isinstance(v, InProcessVerifier):
+        raise RuntimeError(
+            f"RL: task {t.task_id!r} uses a {v.kind!r} verifier; only "
+            "'in_process' is supported in the rollout path today."
+        )
+    fn_name = v.fn_name or self.cfg.verifier_name
+    if not fn_name:
+        raise RuntimeError(
+            f"RL: task {t.task_id!r} has no verifier fn_name and "
+            "cfg.verifier_name is unset."
+        )
+    # Fail fast on an unknown verifier fn (EvsysVerifier re-resolves it at
+    # harbor runtime, but surfacing it here avoids a costly rollout).
+    from ..verifiers import get_verifier_fn
+
+    try:
+        get_verifier_fn(fn_name)
+    except ValueError as e:
+        raise RuntimeError(f"RL: unknown verifier_name {fn_name!r}") from e
+    return HarborTask(
+        task_id=t.task_id,
+        instruction=self.cfg.user_template.format(prompt=t.instruction),
+        verifier=InProcessVerifier(fn_name=fn_name, expected=v.expected, params=v.params),
+        metadata=t.metadata,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"t"} type={"HarborTask"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_types.HarborTask"} />
+
+</PyFunction>
+
+<PyFunction name={"_slice"} type={"(self, step_idx) -> list[HarborTask]"}>
+
+<PySourceCode >
+
+```python
+def _slice(self, step_idx: int) -> list[HarborTask]:
+    n = len(self._tasks)
+    start = (step_idx * self.cfg.batch_size) % n
+    end = start + self.cfg.batch_size
+    if end <= n:
+        return self._tasks[start:end]
+    return self._tasks[start:] + self._tasks[: end - n]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.data_types.HarborTask]"} />
+
+</PyFunction>

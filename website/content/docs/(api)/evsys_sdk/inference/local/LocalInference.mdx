@@ -1,0 +1,114 @@
+---
+title: LocalInference
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'local'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"LocalInferenceConfig"} />
+
+<PyAttribute name={"tokenizer"} type={null} value={"AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)"} />
+
+<PyAttribute name={"model"} type={null} value={"AutoModelForCausalLM.from_pretrained(model_name, dtype=torch_dtype, trust_remote_code=True, device_map=(device if device != 'auto' else 'auto'))"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, model_name, adapter_path=None, dtype='bfloat16', device='auto') -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(
+    self,
+    *,
+    model_name: str,
+    adapter_path: str | None = None,
+    dtype: str = "bfloat16",
+    device: str = "auto",
+) -> None:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    if self.tokenizer.pad_token is None:
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+    torch_dtype = _DTYPE_MAP.get(dtype, torch.float32)
+    self.model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        dtype=torch_dtype,
+        trust_remote_code=True,
+        device_map=device if device != "auto" else "auto",
+    )
+    if adapter_path:
+        from peft import PeftModel
+
+        self.model = PeftModel.from_pretrained(self.model, adapter_path)
+    self.model.eval()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"model_name"} type={"str"} value={null} />
+<PyParameter name={"adapter_path"} type={"str | None"} value={"None"} />
+<PyParameter name={"dtype"} type={"str"} value={"'bfloat16'"} />
+<PyParameter name={"device"} type={"str"} value={"'auto'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"generate"} type={"(self, *, prompt, max_tokens=256, temperature=0.0, stop=None) -> str"}>
+
+<PySourceCode >
+
+```python
+def generate(
+    self,
+    *,
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    stop: list[str] | None = None,
+) -> str:
+    inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096)
+    inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+    do_sample = temperature > 0.0
+    with torch.no_grad():
+        out = self.model.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            temperature=temperature if do_sample else 1.0,
+            do_sample=do_sample,
+            pad_token_id=self.tokenizer.pad_token_id,
+        )
+    decoded = self.tokenizer.decode(
+        out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+    )
+    if stop:
+        for s in stop:
+            idx = decoded.find(s)
+            if idx >= 0:
+                decoded = decoded[:idx]
+    return decoded
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"stop"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

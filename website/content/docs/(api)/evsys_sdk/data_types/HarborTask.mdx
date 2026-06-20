@@ -1,0 +1,38 @@
+---
+title: HarborTask
+---
+
+One RL task — instruction + verifier spec.
+
+Same shape whether the task came from a hand-written eval set, an HF
+dataset, or a generated rollout corpus. Runners materialize the prompt by
+feeding ``instruction`` to the policy, generate a rollout, and score it
+using ``verifier`` (whichever variant — see ``VerifierPayload``).
+
+## Attributes
+
+<PyAttribute name={"task_id"} type={"str"} value={null} />
+
+<PyAttribute name={"instruction"} type={"str"} value={null} />
+
+<PyAttribute name={"verifier"} type={"VerifierPayload"} value={null} />
+
+<PyAttribute name={"metadata"} type={"dict"} value={"field(default_factory=dict)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, task_id, instruction, verifier, metadata=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"task_id"} type={"str"} value={null} />
+<PyParameter name={"instruction"} type={"str"} value={null} />
+<PyParameter name={"verifier"} type={"VerifierPayload"} value={null} />
+<PyParameter name={"metadata"} type={"dict"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

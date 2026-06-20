@@ -1,0 +1,35 @@
+---
+title: PassRate
+---
+
+Micro pass rate: passing samples / total samples across all tasks.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'pass_rate'"} />
+
+## Functions
+
+<PyFunction name={"compute"} type={"(self, task_rewards) -> float"}>
+
+<PySourceCode >
+
+```python
+def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+    passes = sum(1 for rs in task_rewards for r in rs if _passes(r))
+    total = sum(len(rs) for rs in task_rewards)
+    return passes / total if total else 0.0
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"task_rewards"} type={"Sequence[Sequence[float]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>

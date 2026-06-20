@@ -1,0 +1,113 @@
+---
+title: TinkerSamplingClient
+---
+
+Wrap a ``tinker.SamplingClient`` to satisfy the
+:class:`~evsys_sdk.training.backend.SamplingClient` Protocol shape.
+
+Same name + same async method signatures as the Protocol, plus a
+``raw`` attribute for callers that want the underlying tinker client.
+
+## Attributes
+
+<PyAttribute name={"raw"} type={null} value={"raw"} />
+
+<PyAttribute name={"name"} type={null} value={"name"} />
+
+<PyAttribute name={"model_path"} type={"str | None"} value={"None"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, raw, *, name='tinker') -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, raw: Any, *, name: str = "tinker") -> None:
+    self.raw = raw
+    self.name = name
+    self.model_path: str | None = None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"raw"} type={"Any"} value={null} />
+<PyParameter name={"name"} type={"str"} value={"'tinker'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"sample_async"} type={"(self, *, prompt, params, num_samples=1, include_prompt_logprobs=False, topk_prompt_logprobs=0) -> Any"}>
+
+<PySourceCode >
+
+```python
+async def sample_async(
+    self,
+    *,
+    prompt: tinker.ModelInput,
+    params: tinker.SamplingParams,
+    num_samples: int = 1,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+) -> Any:
+    kwargs: dict[str, Any] = {
+        "prompt": prompt,
+        "sampling_params": params,
+        "num_samples": num_samples,
+    }
+    # Tinker's sample_async forwards these only when set; the cookbook does
+    # the same conditional inclusion (see distillation/sdft.py:361-369).
+    if include_prompt_logprobs:
+        kwargs["include_prompt_logprobs"] = True
+    if topk_prompt_logprobs > 0:
+        kwargs["topk_prompt_logprobs"] = topk_prompt_logprobs
+    return await self.raw.sample_async(**kwargs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+<PyParameter name={"params"} type={"tinker.SamplingParams"} value={null} />
+<PyParameter name={"num_samples"} type={"int"} value={"1"} />
+<PyParameter name={"include_prompt_logprobs"} type={"bool"} value={"False"} />
+<PyParameter name={"topk_prompt_logprobs"} type={"int"} value={"0"} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"compute_logprobs_async"} type={"(self, prompt) -> list[float | None]"}>
+
+<PySourceCode >
+
+```python
+async def compute_logprobs_async(
+    self, prompt: tinker.ModelInput
+) -> list[float | None]:
+    return await self.raw.compute_logprobs_async(prompt)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[float | None]"} />
+
+</PyFunction>

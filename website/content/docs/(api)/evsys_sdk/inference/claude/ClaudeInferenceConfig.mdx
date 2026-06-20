@@ -1,0 +1,28 @@
+---
+title: ClaudeInferenceConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"model"} type={"str"} value={"'claude-sonnet-4-6'"} />
+
+<PyAttribute name={"api_key_env"} type={"str"} value={"'ANTHROPIC_API_KEY'"} />
+
+<PyAttribute name={"base_url"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"default_max_tokens"} type={"int"} value={"1024"} />
+
+<PyAttribute name={"default_temperature"} type={"float"} value={"0.0"} />
+
+<PyAttribute name={"system_prompt"} type={"str | None"} value={"None"}>
+
+Optional system prompt prepended to every call. Per-call `prompt` is
+sent as the single user message.
+
+</PyAttribute>
+
+<PyAttribute name={"timeout_s"} type={"float"} value={"60.0"} />
+
+<PyAttribute name={"extra_headers"} type={"dict[str, str]"} value={"Field(default_factory=dict)"} />

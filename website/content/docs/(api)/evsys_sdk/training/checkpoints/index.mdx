@@ -1,0 +1,45 @@
+---
+title: checkpoints
+---
+
+CheckpointManager — write the `checkpoints.jsonl` manifest that
+:mod:`evsys_sdk.checkpoint` already knows how to read.
+
+The reader half lives in ``evsys_sdk/checkpoint.py``
+(:func:`~evsys_sdk.checkpoint.read_manifest`,
+:meth:`~evsys_sdk.checkpoint.Checkpoint.pick_final`). This is the writer
+counterpart used by :class:`~evsys_sdk.training.loop.TrainingLoop`.
+
+The format is intentionally identical to the manifest tinker_cookbook used
+to emit, so downstream consumers (e.g.
+:meth:`~evsys_sdk.inference.tinker.TinkerInference.from_run_result`) keep
+working unchanged when an algorithm is ported to the native loop.
+
+Schema per row (one JSON object per line)::
+
+    \{"name": "step_500", "batch": 499, "epoch": 3,
+     "state_path": "tinker://.../weights/step_500",
+     "sampler_path": "tinker://.../sampler_weights/step_500"\}
+
+``state_path`` is the full training state (weights + optimizer) used for
+resume. ``sampler_path`` is the inference-ready weights snapshot used by
+the eval client.
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['CheckpointManager', 'ManifestRow']"} />
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"ManifestRow"} href={"/docs/evsys_sdk/training/checkpoints/ManifestRow"} />
+<Card title={"CheckpointManager"} href={"/docs/evsys_sdk/training/checkpoints/CheckpointManager"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

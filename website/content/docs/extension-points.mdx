@@ -1,0 +1,79 @@
+---
+title: Extension Points
+description: The registry + Config + kind/params pattern that lets you add your own algorithms, verifiers, and more — without forking the SDK.
+---
+
+Anything a researcher can define and select by name — algorithms, transforms,
+callbacks, verifiers, metrics, data stores, log stores, backends, inference
+clients — follows **one** convention. Register your own with the same decorator
+in your own project: no SDK edit, no subclassing the library.
+
+## The pattern
+
+<Steps>
+
+<Step>
+
+### A registry
+
+Each extension *kind* has a `Registry("<kind>")` in `registry.py` plus
+`register_<kind>` / `get_<kind>` / `list_<kind>s` helpers.
+
+</Step>
+
+<Step>
+
+### A class with two ClassVars
+
+Every implementation carries a `name` (the string used in YAML) and a `Config`
+(a Pydantic model, `extra="forbid"`) describing its params — and is decorated
+with `@register_<kind>("<name>")`.
+
+```python
+from evsys_sdk import register_algorithm
+
+@register_algorithm("dpo")
+class DPO:
+    name = "dpo"
+
+    class Config(BaseModel, extra="forbid"):
+        beta: float = 0.1
+```
+
+</Step>
+
+<Step>
+
+### A YAML surface
+
+A `<Kind>Spec` model in `config.py` shaped as `kind` + `params`, and a
+`list[<Kind>Spec]` field on whatever config owns it.
+
+</Step>
+
+<Step>
+
+### A factory
+
+Resolves specs into instances: look up the class via `get_<kind>(spec.kind)`,
+validate `spec.params` against the class's `Config`, then construct.
+
+</Step>
+
+</Steps>
+
+## The payoff
+
+A researcher enables a feature from `config.yaml`:
+
+```yaml
+algorithm:
+  kind: dpo
+  params:
+    beta: 0.1
+```
+
+…and registers their own with the same decorator in their project. The whole
+surface stays predictable. See the [SDK Reference](/docs/reference) for every
+built-in kind, and the [auto-generated API](/docs/evsys_sdk/registry) for the
+registry internals.

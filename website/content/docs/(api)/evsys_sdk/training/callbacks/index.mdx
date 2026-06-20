@@ -1,0 +1,187 @@
+---
+title: callbacks
+---
+
+Callbacks — hook points inside :class:`~evsys_sdk.training.loop.TrainingLoop`
+for logging, debugging, visualization, and early stopping.
+
+The :class:`Callback` base has no-op defaults for every hook. Override only
+the ones you need:
+
+    class MyDebug(Callback):
+        def on_step_end(self, state, step_idx, batch, metrics):
+            if step_idx % 100 == 0:
+                print(f"[\{step_idx\}] \{metrics\}")
+
+Then hand to the loop:
+
+    loop = TrainingLoop(..., callbacks=[MyDebug(), CsvMetricsCallback(...)])
+
+A failing callback never kills the loop — the exception is logged at
+WARNING and the loop continues. Same pattern as failing evaluators.
+
+For early stopping (e.g. on a plateau in val pass_rate), call
+``state.request_stop()`` from inside a hook and the loop breaks after the
+current step. Researchers writing a new "stop after N evals without
+improvement" policy subclass :class:`EarlyStoppingCallback`.
+
+Three built-ins ship today:
+
+* :class:`PrintProgressCallback` — tqdm-style stdout one-liner per step.
+* :class:`CsvMetricsCallback` — mirror metrics.jsonl to a per-step CSV for
+  pandas-friendly inspection.
+* :class:`EarlyStoppingCallback` — request_stop after N evals with no
+  improvement on a named metric.
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['Callback', 'CsvMetricsCallback', 'EarlyStoppingCallback', 'DebugLoggerCallback', 'EvsysLoggerCallback', 'LocalLoggerCallback', 'LogContext', 'LoopState', 'PrintProgressCallback', 'TensorBoardLoggerCallback', 'WandbLoggerCallback', 'build_callbacks', 'dispatch']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"LogContext"} href={"/docs/evsys_sdk/training/callbacks/LogContext"} />
+<Card title={"LoopState"} href={"/docs/evsys_sdk/training/callbacks/LoopState"} />
+<Card title={"Callback"} href={"/docs/evsys_sdk/training/callbacks/Callback"} />
+<Card title={"PrintProgressConfig"} href={"/docs/evsys_sdk/training/callbacks/PrintProgressConfig"} />
+<Card title={"PrintProgressCallback"} href={"/docs/evsys_sdk/training/callbacks/PrintProgressCallback"} />
+<Card title={"CsvMetricsConfig"} href={"/docs/evsys_sdk/training/callbacks/CsvMetricsConfig"} />
+<Card title={"CsvMetricsCallback"} href={"/docs/evsys_sdk/training/callbacks/CsvMetricsCallback"} />
+<Card title={"EarlyStoppingConfig"} href={"/docs/evsys_sdk/training/callbacks/EarlyStoppingConfig"} />
+<Card title={"EarlyStoppingCallback"} href={"/docs/evsys_sdk/training/callbacks/EarlyStoppingCallback"} />
+<Card title={"WandbLoggerConfig"} href={"/docs/evsys_sdk/training/callbacks/WandbLoggerConfig"} />
+<Card title={"WandbLoggerCallback"} href={"/docs/evsys_sdk/training/callbacks/WandbLoggerCallback"} />
+<Card title={"TensorBoardLoggerConfig"} href={"/docs/evsys_sdk/training/callbacks/TensorBoardLoggerConfig"} />
+<Card title={"TensorBoardLoggerCallback"} href={"/docs/evsys_sdk/training/callbacks/TensorBoardLoggerCallback"} />
+<Card title={"LocalLoggerConfig"} href={"/docs/evsys_sdk/training/callbacks/LocalLoggerConfig"} />
+<Card title={"LocalLoggerCallback"} href={"/docs/evsys_sdk/training/callbacks/LocalLoggerCallback"} />
+<Card title={"EvsysLoggerConfig"} href={"/docs/evsys_sdk/training/callbacks/EvsysLoggerConfig"} />
+<Card title={"EvsysLoggerCallback"} href={"/docs/evsys_sdk/training/callbacks/EvsysLoggerCallback"} />
+<Card title={"DebugLoggerConfig"} href={"/docs/evsys_sdk/training/callbacks/DebugLoggerConfig"} />
+<Card title={"DebugLoggerCallback"} href={"/docs/evsys_sdk/training/callbacks/DebugLoggerCallback"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"dispatch"} type={"(callbacks, hook, *args, **kwargs) -> None"}>
+
+Call ``hook`` on every callback. A raising callback NEVER propagates —
+the exception is logged at WARNING and the next callback runs. Used by both
+the TrainingLoop (loop-scope hooks) and the Experiment (experiment-scope
+hooks) so error isolation is identical everywhere.
+
+<PySourceCode >
+
+```python
+def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) -> None:
+    """Call ``hook`` on every callback. A raising callback NEVER propagates —
+    the exception is logged at WARNING and the next callback runs. Used by both
+    the TrainingLoop (loop-scope hooks) and the Experiment (experiment-scope
+    hooks) so error isolation is identical everywhere."""
+    for cb in callbacks or []:
+        fn = getattr(cb, hook, None)
+        if fn is None:
+            continue
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.exception(
+                "callback %s.%s raised; continuing", type(cb).__name__, hook,
+            )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"callbacks"} type={"list[Callback]"} value={null} />
+<PyParameter name={"hook"} type={"str"} value={null} />
+<PyParameter name={"args"} type={"Any"} value={"()"} />
+<PyParameter name={"kwargs"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+<PyFunction name={"build_callbacks"} type={"(specs) -> list[Callback]"}>
+
+Materialize callbacks from a list of ``\{kind, params\}`` specs.
+
+Each ``spec`` may be a :class:`~evsys_sdk.config.CallbackSpec` (or any
+object/dict with ``kind`` + ``params``). The ``kind`` is resolved through
+the callback registry; ``params`` are validated against the callback's
+``Config`` (so a YAML typo fails loudly) before construction. Users
+register their own callbacks with ``@register_callback("my_name")`` — see
+the built-ins above for the contract (``name`` + ``Config`` ClassVars).
+
+<PySourceCode >
+
+```python
+def build_callbacks(specs: Any) -> list[Callback]:
+    """Materialize callbacks from a list of ``{kind, params}`` specs.
+
+    Each ``spec`` may be a :class:`~evsys_sdk.config.CallbackSpec` (or any
+    object/dict with ``kind`` + ``params``). The ``kind`` is resolved through
+    the callback registry; ``params`` are validated against the callback's
+    ``Config`` (so a YAML typo fails loudly) before construction. Users
+    register their own callbacks with ``@register_callback("my_name")`` — see
+    the built-ins above for the contract (``name`` + ``Config`` ClassVars).
+    """
+    out: list[Callback] = []
+    for spec in specs or []:
+        kind = spec.kind if hasattr(spec, "kind") else spec["kind"]
+        raw = (spec.params if hasattr(spec, "params") else spec.get("params")) or {}
+        cls = get_callback(kind)
+        cfg = getattr(cls, "Config", None)
+        params = cfg(**raw).model_dump() if cfg is not None else dict(raw)
+        out.append(cls(**params))
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"specs"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.training.callbacks.Callback]"} />
+
+</PyFunction>
+<PyFunction name={"_fmt_value"} type={"(v) -> str"}>
+
+<PySourceCode >
+
+```python
+def _fmt_value(v: Any) -> str:
+    try:
+        f = float(v)
+        if abs(f) < 1e-3 or abs(f) >= 1e6:
+            return f"{f:.2e}"
+        return f"{f:.4f}"
+    except Exception:
+        return str(v)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"v"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

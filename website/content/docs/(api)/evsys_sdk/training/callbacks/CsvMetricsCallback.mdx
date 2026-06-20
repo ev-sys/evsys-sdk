@@ -1,0 +1,121 @@
+---
+title: CsvMetricsCallback
+---
+
+Mirror the loop's per-step metric writes into a CSV alongside
+``metrics.jsonl``. Friendly for pandas / spreadsheet inspection.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'csv_metrics'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"CsvMetricsConfig"} />
+
+<PyAttribute name={"out_path"} type={"Path"} value={null} />
+
+<PyAttribute name={"delimiter"} type={"str"} value={"','"} />
+
+## Functions
+
+<PyFunction name={"on_train_start"} type={"(self, state)"}>
+
+<PySourceCode >
+
+```python
+def on_train_start(self, state):
+    Path(self.out_path).parent.mkdir(parents=True, exist_ok=True)
+    self._fh = open(self.out_path, "w", newline="", encoding="utf-8")
+    self._writer = csv.writer(self._fh, delimiter=self.delimiter)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"on_step_end"} type={"(self, state, step_idx, batch, metrics)"}>
+
+<PySourceCode >
+
+```python
+def on_step_end(self, state, step_idx, batch, metrics):
+    if self._writer is None:
+        return
+    if not self._header_written:
+        self._keys = sorted(metrics.keys())
+        self._writer.writerow(["step", *self._keys])
+        self._header_written = True
+    # When new keys appear later, append columns at the end (no rewrite).
+    for k in metrics:
+        if k not in self._keys:
+            self._keys.append(k)
+    self._writer.writerow(
+        [step_idx, *[metrics.get(k, "") for k in self._keys]],
+    )
+    self._fh.flush()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"batch"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"on_train_end"} type={"(self, state, artifacts)"}>
+
+<PySourceCode >
+
+```python
+def on_train_end(self, state, artifacts):
+    if self._fh is not None:
+        try:
+            self._fh.close()
+        except Exception:
+            logger.exception("CsvMetricsCallback: close failed")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={null} value={null} />
+<PyParameter name={"artifacts"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, out_path, delimiter=',') -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"out_path"} type={"Path"} value={null} />
+<PyParameter name={"delimiter"} type={"str"} value={"','"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

@@ -1,0 +1,206 @@
+---
+title: LocalDataStore
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'local'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"LocalDataStoreConfig"} />
+
+<PyAttribute name={"root"} type={null} value={"Path(root).expanduser().resolve()"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, root='.') -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, root: str | os.PathLike[str] = ".") -> None:
+    self.root = Path(root).expanduser().resolve()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"root"} type={"str | os.PathLike[str]"} value={"'.'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_resolve"} type={"(self, path) -> Path"}>
+
+<PySourceCode >
+
+```python
+def _resolve(self, path: str) -> Path:
+    p = Path(path).expanduser()
+    if p.is_absolute():
+        return p
+    return self.root / p
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"pathlib.Path"} />
+
+</PyFunction>
+
+<PyFunction name={"read_jsonl"} type={"(self, path) -> list[dict[str, Any]]"}>
+
+<PySourceCode >
+
+```python
+def read_jsonl(self, path: str) -> list[dict[str, Any]]:
+    with self._resolve(path).open() as f:
+        return [json.loads(line) for line in f if line.strip()]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_stores.local.LocalDataStore.list[dict[str, typing.Any]]"} />
+
+</PyFunction>
+
+<PyFunction name={"write_jsonl"} type={"(self, path, rows) -> None"}>
+
+<PySourceCode >
+
+```python
+def write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None:
+    target = self._resolve(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"rows"} type={"Iterable[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"read_json"} type={"(self, path) -> Any"}>
+
+<PySourceCode >
+
+```python
+def read_json(self, path: str) -> Any:
+    with self._resolve(path).open() as f:
+        return json.load(f)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"write_json"} type={"(self, path, value) -> None"}>
+
+<PySourceCode >
+
+```python
+def write_json(self, path: str, value: Any) -> None:
+    target = self._resolve(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w") as f:
+        json.dump(value, f, indent=2, default=str)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"value"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"exists"} type={"(self, path) -> bool"}>
+
+<PySourceCode >
+
+```python
+def exists(self, path: str) -> bool:
+    return self._resolve(path).exists()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+
+<PyFunction name={"list"} type={"(self, prefix) -> list[str]"}>
+
+<PySourceCode >
+
+```python
+def list(self, prefix: str) -> list[str]:
+    base = self._resolve(prefix)
+    if base.is_dir():
+        return sorted(str(p.relative_to(self.root)) for p in base.rglob("*") if p.is_file())
+    return [str(p.relative_to(self.root)) for p in self.root.glob(prefix) if p.is_file()]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prefix"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.data_stores.local.LocalDataStore.list[str]"} />
+
+</PyFunction>

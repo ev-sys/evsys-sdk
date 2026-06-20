@@ -1,0 +1,54 @@
+---
+title: BenchmarkScore
+---
+
+Aggregate output of `Benchmark.score`.
+
+## Attributes
+
+<PyAttribute name={"metrics"} type={"dict[str, float]"} value={null}>
+
+Top-level aggregates: `mean_reward`, `pass_rate`, `n_tasks`.
+
+</PyAttribute>
+
+<PyAttribute name={"per_task"} type={"list[BenchmarkTaskResult]"} value={null}>
+
+One entry per task in the same order as `Benchmark.tasks`.
+
+</PyAttribute>
+
+<PyAttribute name={"breakdowns"} type={"dict[str, dict[str, dict[str, float]]]"} value={"field(default_factory=dict)"}>
+
+`\{bucket_field: \{bucket_value: \{n, mean_reward, pass_rate\}\}\}`.
+
+Populated when `score(..., breakdown_keys=[...])` is passed. Each bucket
+field is an attribute path into a task's `metadata` (e.g. `"toolkit"`).
+
+</PyAttribute>
+
+<PyAttribute name={"rollouts"} type={"list['TrajectoryGroup']"} value={"field(default_factory=list)"}>
+
+Raw per-(task, sample) harbor rollouts (token ids + reward + usage), in
+task order; populated by `score_via_harbor`, empty for in-process `score()`.
+Lets callers upload per-sample eval predictions without re-running.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, metrics, per_task, breakdowns=dict(), rollouts=list()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={null} />
+<PyParameter name={"per_task"} type={"list[BenchmarkTaskResult]"} value={null} />
+<PyParameter name={"breakdowns"} type={"dict[str, dict[str, dict[str, float]]]"} value={"dict()"} />
+<PyParameter name={"rollouts"} type={"list['TrajectoryGroup']"} value={"list()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
