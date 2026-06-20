@@ -29,7 +29,7 @@ export default function HomePage() {
           API reference
         </Link>
         <a
-          href="https://github.com/trajectory-ai/trajectory-labs-sdk"
+          href="https://github.com/trajectory-ai/evsys-sdk"
           className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
         >
           GitHub

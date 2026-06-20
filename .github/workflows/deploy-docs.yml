@@ -1,7 +1,7 @@
 name: Deploy docs to GitHub Pages
 
 # Builds the Fumadocs site in website/ and publishes it to GitHub Pages at
-# https://trajectory-ai.github.io/trajectory-labs-sdk/
+# https://trajectory-ai.github.io/evsys-sdk/
 on:
   push:
     # `dev` is the long-term trigger; the docs branch is included so the site
@@ -48,7 +48,7 @@ jobs:
         run: pnpm build
         env:
           # Serve assets under the project-pages sub-path
-          PAGES_BASE_PATH: /trajectory-labs-sdk
+          PAGES_BASE_PATH: /evsys-sdk
 
       - uses: actions/upload-pages-artifact@v3
         with:

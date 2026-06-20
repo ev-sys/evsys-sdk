@@ -2,7 +2,7 @@
 
 The public docs for `evsys-sdk`, built with [Fumadocs](https://fumadocs.dev)
 (Next.js, static export) and deployed to GitHub Pages at
-**https://trajectory-ai.github.io/trajectory-labs-sdk/**.
+**https://trajectory-ai.github.io/evsys-sdk/**.
 
 ## Local development
 
@@ -38,5 +38,5 @@ uv pip install --python ../.venv/bin/python ./node_modules/fumadocs-python
 ## Deployment
 
 `.github/workflows/deploy-docs.yml` builds and publishes on every push to
-`dev` that touches `website/`. The build sets `PAGES_BASE_PATH=/trajectory-labs-sdk`
+`dev` that touches `website/`. The build sets `PAGES_BASE_PATH=/evsys-sdk`
 so assets resolve under the project-pages sub-path; local builds leave it empty.
