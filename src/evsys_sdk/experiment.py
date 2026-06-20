@@ -53,6 +53,7 @@ from .protocols import InferenceClient, RunResult
 from .registry import get_default_inference_factory
 from .step_metrics import forward_step_metrics
 from .sweep import expand_runs
+from .training.callbacks import LogContext, build_callbacks, dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,24 @@ def _benchmark_models(bench_meta: dict) -> list[str]:
     if not raw:
         return []
     return [str(raw)] if isinstance(raw, str) else [str(m) for m in raw]
+
+
+def _predictions_from_score(score: BenchmarkScore) -> list[dict]:
+    """Prediction rows for the in-process (non-harbor) eval path, one per task,
+    in the same shape ``harbor_eval.eval_predictions`` produces — so logger
+    callbacks get the model output + reward regardless of engine."""
+    return [
+        {
+            "kind": "eval",
+            "task_id": r.task_id,
+            "instruction": r.instruction,
+            "expected": r.expected,
+            "reward": r.reward,
+            "output": r.model_output,
+            "metadata": dict(r.metadata or {}),
+        }
+        for r in (score.per_task or [])
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +227,15 @@ class Experiment:
         self._train_fn_is_default = train_fn is None
         self._benchmark_override = benchmark
         self.inference_factory = inference_factory
+        # Logger callbacks: built ONCE for the whole experiment so the
+        # dashboard ids (experiment_id → group_id → run_id) created in the
+        # experiment-scope hooks persist across arms. The SAME instances are
+        # threaded into each arm's training loop (via extras) so one logger
+        # sees the full lifecycle. The shared LogContext is mutated per arm.
+        self._callbacks = build_callbacks(config.callbacks)
+        self._logctx = LogContext(
+            output_dir=Path(config.output_dir), config=config, store=store,
+        )
 
     # -- entry points -----------------------------------------------------
 
@@ -231,17 +259,24 @@ class Experiment:
         # works; _eval_arm skips them at post-training time.
 
         experiment_id = self._create_experiment(hypothesis, tags, meta)
+        if experiment_id is not None:
+            self._logctx.ids["experiment_id"] = experiment_id
+        dispatch(self._callbacks, "on_experiment_start", self._logctx)
 
         # When n_repeats > 1, register one dashboard group per primary
         # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
-        # previous behavior — no groups, no group_id on runs. 
+        # previous behavior — no groups, no group_id on runs.
         # TODO : even when n_repeats == 1, we should create a group.
         primaries = self._iter_runs()
         n_repeats = self.config.n_repeats
         group_id_by_name: dict[str, str | None] = {}
         if n_repeats > 1:
             for p in primaries:
-                group_id_by_name[p.name] = self._create_group(experiment_id, p.name)
+                gid = self._create_group(experiment_id, p.name)
+                group_id_by_name[p.name] = gid
+                if gid is not None:
+                    self._logctx.ids[f"group:{p.name}"] = gid
+                dispatch(self._callbacks, "on_group_start", self._logctx, p.name)
 
         if self.config.continual is not None:
             arms = self._run_continual(experiment_id, benchmarks, meta)
@@ -262,7 +297,7 @@ class Experiment:
 
         self._finalize_experiment(experiment_id, status, best_score, conclusion)
 
-        return ExperimentResult(
+        result = ExperimentResult(
             name=self.config.name,
             status=status,
             arms=arms,
@@ -272,6 +307,8 @@ class Experiment:
             experiment_id=experiment_id,
             hypothesis=hypothesis,
         )
+        dispatch(self._callbacks, "on_experiment_end", self._logctx, result)
+        return result
 
     # -- internals: orchestration steps; safe to override in subclasses ---
 
@@ -381,6 +418,15 @@ class Experiment:
             group_id=group_id,
             group_name=group_name,
         )
+        # Point the shared LogContext at this arm (sequential, so reused).
+        self._logctx.run_config = run_cfg
+        self._logctx.group_name = group_name
+        self._logctx.run_key = run_id or run_cfg.name
+        if run_id is not None:
+            self._logctx.ids["run_id"] = run_id
+        else:
+            self._logctx.ids.pop("run_id", None)
+        dispatch(self._callbacks, "on_run_start", self._logctx)
         try:
             arm = self._train_arm(arm, run_cfg)
             if arm.status == "completed" and benchmarks:
@@ -391,6 +437,7 @@ class Experiment:
             arm.status = "failed"
             arm.error = f"{type(e).__name__}: {e}"
             self._mark_run_failed(run_id, arm.error)
+        dispatch(self._callbacks, "on_run_end", self._logctx, arm.run_result, arm)
         return arm
 
     def _train_arm(self, arm: ArmResult, run_cfg: RunConfig) -> ArmResult:
@@ -405,7 +452,14 @@ class Experiment:
             # with this run. Custom train_fns get the plain (cfg) contract.
             results = run_experiment(
                 single_cfg,
-                extra_context={"store": self.store, "dashboard_run_id": arm.run_id},
+                extra_context={
+                    "store": self.store,
+                    "dashboard_run_id": arm.run_id,
+                    # Thread the SAME logger instances + shared context into the
+                    # loop so on_step_end/on_eval/on_checkpoint fire on them.
+                    "callbacks": self._callbacks,
+                    "log_context": self._logctx,
+                },
             )
         else:
             results = self.train_fn(single_cfg)
@@ -535,6 +589,10 @@ class Experiment:
                     tags=list(bench_meta.get("tags") or []),
                 ))
                 self._record_eval(arm, bench, bench_meta, score)
+                dispatch(
+                    self._callbacks, "on_benchmark_eval", self._logctx,
+                    arm.evals[-1], _predictions_from_score(score), step=None,
+                )
 
         # Pick the primary post-training eval to mirror into the flat fields.
         post = [e for e in arm.evals if e.step is None]
@@ -609,6 +667,13 @@ class Experiment:
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
         eval_id = self._record_eval(arm, bench, bench_meta, score)
+        # Build prediction rows once (harbor-free), hand them to the logger
+        # callbacks, then upload (store path) below.
+        preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
+        dispatch(
+            self._callbacks, "on_benchmark_eval", self._logctx,
+            arm.evals[-1], preds, step=None,
+        )
         # Upload eval rollouts only (training rollouts are never uploaded), and
         # only once they have an eval_id to hang off of — orphan predictions
         # can't be told apart from other evals on the same run.
@@ -619,7 +684,6 @@ class Experiment:
                     arm.name,
                 )
             else:
-                preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
                 upload_eval_rollouts(self.store, arm.run_id, preds)
 
     @staticmethod

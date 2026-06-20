@@ -206,7 +206,12 @@ class BaseAlgorithm:
             ),
             save_every=save_every,
             evaluators=evaluators,
-            callbacks=build_callbacks(self.cfg.callbacks),
+            # Algorithm's own loop-only callbacks (e.g. early_stopping) PLUS the
+            # experiment's shared logger instances threaded down via extras, so
+            # one logger sees both the loop-scope and experiment-scope hooks.
+            callbacks=build_callbacks(self.cfg.callbacks)
+            + list(ctx.extras.get("callbacks") or []),
+            log_context=ctx.extras.get("log_context"),
         )
         artifacts = await loop.run(num_steps=total_steps)
 

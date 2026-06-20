@@ -169,6 +169,13 @@ class ExperimentConfig(_Strict):
     data_store: DataStoreSpec = Field(default_factory=DataStoreSpec)
     log_store: LogStoreSpec = Field(default_factory=LogStoreSpec)
 
+    # Logger callbacks ({kind, params}) built ONCE per experiment and shared
+    # across all arms + their training loops. Each subscribes to the full
+    # lifecycle (on_experiment_start → on_run_start → on_step_end /
+    # on_benchmark_eval → on_run_end) and persists to its backend. e.g.
+    #   callbacks: [{kind: wandb_logger}, {kind: tensorboard_logger}]
+    callbacks: list[CallbackSpec] = Field(default_factory=list)
+
     # Exactly one of these three.
     run: RunConfig | None = None
     runs: list[RunConfig] | None = None

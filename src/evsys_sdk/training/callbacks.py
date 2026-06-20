@@ -44,6 +44,9 @@ from pydantic import BaseModel, ConfigDict
 from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
+    from ..config import ExperimentConfig, RunConfig
+    from ..experiment import ArmResult, EvalResult, ExperimentResult
+    from ..protocols import RunResult
     from .backend import Backend, SamplingClient
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
@@ -52,7 +55,42 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# LoopState — what callbacks see
+# LogContext — experiment-wide context shared across ALL hooks (both scopes)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LogContext:
+    """Mutable context threaded to every callback hook, in BOTH the
+    Experiment scope (lifecycle / benchmark eval) and the TrainingLoop scope
+    (per-step / checkpoint). Logger callbacks *create* the dashboard ids and
+    write them onto :attr:`ids`; later hooks read them back.
+
+    The framework owns only :attr:`run_key` (the local output-dir name). All
+    dashboard ids (``experiment_id`` / ``group:<name>`` / ``run_id``) are
+    callback-owned and accumulate on :attr:`ids` as the ``create_*`` hooks
+    fire. Arms run sequentially, so ``ids["run_id"]`` is the current arm's.
+    """
+
+    output_dir: Path
+    config: "ExperimentConfig | None" = None
+    store: Any = None
+    """Resolved store handle (EvsysStore / LocalStore / DashboardClient) or
+    None when no store is configured."""
+    run_key: str | None = None
+    run_config: "RunConfig | None" = None
+    group_name: str | None = None
+    ids: dict[str, str] = field(default_factory=dict)
+    """Callback-populated dashboard ids: ``experiment_id``, ``group:<name>``,
+    ``run_id``. Read parents here to link children (e.g. create_run reads
+    ``ids['experiment_id']``)."""
+    extras: dict[str, Any] = field(default_factory=dict)
+    """Scratch for passing values between callbacks within a run (e.g.
+    ``wandb_url`` set by wandb_logger, read by evsys_logger's create_run)."""
+
+
+# ---------------------------------------------------------------------------
+# LoopState — what loop-scope callbacks see
 # ---------------------------------------------------------------------------
 
 
@@ -76,6 +114,10 @@ class LoopState:
     auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
     checkpoint_mgr: "CheckpointManager"
     stop_requested: bool = False
+    ctx: "LogContext | None" = None
+    """The experiment-wide :class:`LogContext` (shared with the Experiment-scope
+    hooks). ``None`` for a bare ``run_experiment`` with no Experiment driving it;
+    populated when the Experiment threads callbacks into the loop."""
 
     def request_stop(self) -> None:
         """Signal the loop to break after the current step completes.
@@ -143,7 +185,77 @@ class Callback:
     ) -> None:
         """Fires per evaluator after each in-loop eval completes. Useful
         for pushing to a dashboard, plotting val curves, driving
-        early-stopping decisions."""
+        early-stopping decisions. (Logger callbacks that also need the
+        rollout predictions should use :meth:`on_benchmark_eval`, which the
+        loop fires for benchmark evaluators with the full payload.)"""
+
+    # --- experiment scope (dispatched by Experiment, not the loop) ---------
+    # These let ONE logger callback instance own the full lifecycle: create
+    # the experiment/run records, persist benchmark predictions, close the run.
+    # The shared LogContext carries the dashboard ids between them.
+
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        """Fires once at the start of an experiment, before any arm. A logger
+        creates the experiment record here (``ctx.ids['experiment_id'] = ...``)."""
+
+    def on_group_start(self, ctx: LogContext, group_name: str) -> None:
+        """Fires when a new run-group is needed (n_repeats replicates or
+        continual stages). A logger creates the group
+        (``ctx.ids[f'group:{group_name}'] = ...``)."""
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        """Fires per arm, before training. ``ctx.run_config`` is set. A logger
+        opens its run-scoped sink (wandb.init / create_run →
+        ``ctx.ids['run_id']``), reading ``ctx.ids['experiment_id']`` /
+        ``ctx.ids[f'group:{ctx.group_name}']`` to parent it."""
+
+    def on_benchmark_eval(
+        self,
+        ctx: LogContext,
+        eval_result: "EvalResult",
+        predictions: list[dict],
+        *,
+        step: int | None = None,
+    ) -> None:
+        """Fires per benchmark scored — in-loop (``step`` = the train step) or
+        post-training (``step=None``). Carries metrics + breakdowns + tags
+        (on ``eval_result``) AND the per-task prediction rows. A logger
+        creates one eval row per ``(eval_result.name, step)`` and persists the
+        predictions."""
+
+    def on_run_end(
+        self, ctx: LogContext, run_result: "RunResult", arm: "ArmResult",
+    ) -> None:
+        """Fires per arm, after eval, before the run is marked completed. A
+        logger flushes/closes its run-scoped sink (wandb.finish) and records
+        the final status (update_run)."""
+
+    def on_experiment_end(
+        self, ctx: LogContext, result: "ExperimentResult",
+    ) -> None:
+        """Fires once at the end of the experiment. Final summary / flush."""
+
+
+# ---------------------------------------------------------------------------
+# dispatch — error-isolated fan-out, shared by the loop AND the Experiment
+# ---------------------------------------------------------------------------
+
+
+def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) -> None:
+    """Call ``hook`` on every callback. A raising callback NEVER propagates —
+    the exception is logged at WARNING and the next callback runs. Used by both
+    the TrainingLoop (loop-scope hooks) and the Experiment (experiment-scope
+    hooks) so error isolation is identical everywhere."""
+    for cb in callbacks or []:
+        fn = getattr(cb, hook, None)
+        if fn is None:
+            continue
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.exception(
+                "callback %s.%s raised; continuing", type(cb).__name__, hook,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +435,568 @@ class EarlyStoppingCallback(Callback):
 
 
 # ---------------------------------------------------------------------------
+# Logger callbacks — one per backend, each owning its sink across the full
+# lifecycle (on_run_start → on_step_end/on_eval/on_benchmark_eval → on_run_end).
+# ---------------------------------------------------------------------------
+
+
+class WandbLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project: str | None = None
+    entity: str | None = None
+    name: str | None = None
+    mode: str = "online"        # online | offline | disabled
+    log_every: int = 1          # log per-step metrics every N steps
+    max_pred_rows: int = 100    # cap rows in the predictions wandb.Table
+
+
+@register_callback("wandb_logger")
+class WandbLoggerCallback(Callback):
+    """Log metrics + benchmark predictions to Weights & Biases.
+
+    One W&B run per arm: opened in ``on_run_start`` (so it exists before the
+    first step) and closed in ``on_run_end``. wandb is imported lazily — if it
+    isn't installed the callback warns once and every hook no-ops (training is
+    never affected; :func:`dispatch` also isolates errors). The run URL is
+    surfaced on ``ctx.extras['wandb_url']`` so a downstream logger
+    (evsys_logger) can record it on the dashboard run.
+    """
+
+    name: ClassVar[str] = "wandb_logger"
+    Config: ClassVar[type] = WandbLoggerConfig
+
+    def __init__(
+        self,
+        *,
+        project: str | None = None,
+        entity: str | None = None,
+        name: str | None = None,
+        mode: str = "online",
+        log_every: int = 1,
+        max_pred_rows: int = 100,
+    ) -> None:
+        self.project = project
+        self.entity = entity
+        self.name = name
+        self.mode = mode
+        self.log_every = max(1, int(log_every))
+        self.max_pred_rows = max(0, int(max_pred_rows))
+        self._wandb: Any = None
+        self._run: Any = None
+        self._disabled = False
+
+    def _lazy_wandb(self) -> Any:
+        if self._wandb is None and not self._disabled:
+            try:
+                import wandb  # noqa: PLC0415
+                self._wandb = wandb
+            except Exception:
+                self._disabled = True
+                logger.warning("wandb_logger: wandb not installed; disabling W&B logging")
+        return self._wandb
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        wb = self._lazy_wandb()
+        if wb is None:
+            return
+        cfg = ctx.run_config.model_dump() if ctx.run_config is not None else {}
+        project = self.project or (getattr(ctx.config, "name", None) if ctx.config else None) or "evsys"
+        run_name = self.name or (getattr(ctx.run_config, "name", None) if ctx.run_config else None) or ctx.run_key
+        try:
+            self._run = wb.init(
+                project=project, entity=self.entity, name=run_name,
+                config=cfg, mode=self.mode, reinit=True,
+            )
+            url = getattr(self._run, "url", None)
+            if url:
+                ctx.extras["wandb_url"] = url
+        except Exception:
+            logger.exception("wandb_logger: wandb.init failed; disabling")
+            self._run = None
+            self._disabled = True
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._run is None or (self.log_every > 1 and (step_idx + 1) % self.log_every):
+            return
+        self._run.log({k: float(v) for k, v in metrics.items()}, step=step_idx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._run is None:
+            return
+        self._run.log(
+            {f"val/{eval_name}/{k}": float(v) for k, v in metrics.items()}, step=step_idx
+        )
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._run is None:
+            return
+        ename = getattr(eval_result, "name", "benchmark")
+        metrics = getattr(eval_result, "metrics", {}) or {}
+        payload: dict[str, Any] = {f"eval/{ename}/{k}": float(v) for k, v in metrics.items()}
+        if predictions and self.max_pred_rows:
+            tbl = self._wandb.Table(columns=["task_id", "expected", "reward"])
+            for p in predictions[: self.max_pred_rows]:
+                tbl.add_data(p.get("task_id"), str(p.get("expected")), p.get("reward"))
+            payload[f"eval/{ename}/predictions"] = tbl
+        self._run.log(payload, **({"step": step} if step is not None else {}))
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._run is not None:
+            try:
+                self._run.finish()
+            finally:
+                self._run = None
+
+
+class TensorBoardLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    log_dir: str | None = None   # default: <output_dir>/tb/<run_key>
+    flush_secs: int = 30
+
+
+@register_callback("tensorboard_logger")
+class TensorBoardLoggerCallback(Callback):
+    """Log scalar metrics + eval scalars to TensorBoard, one event dir per arm.
+
+    Opens a ``SummaryWriter`` in ``on_run_start`` (lazy import so the callback
+    registers without torch installed) and closes it in ``on_run_end``."""
+
+    name: ClassVar[str] = "tensorboard_logger"
+    Config: ClassVar[type] = TensorBoardLoggerConfig
+
+    def __init__(self, *, log_dir: str | None = None, flush_secs: int = 30) -> None:
+        self._log_dir = log_dir
+        self._flush_secs = int(flush_secs)
+        self._writer: Any = None
+        self._disabled = False
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        if self._disabled:
+            return
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # noqa: PLC0415
+        except Exception:
+            self._disabled = True
+            logger.warning("tensorboard_logger: tensorboard/torch missing; disabling")
+            return
+        path = self._log_dir or str(Path(ctx.output_dir) / "tb" / (ctx.run_key or "run"))
+        self._writer = SummaryWriter(log_dir=path, flush_secs=self._flush_secs)
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._writer is None:
+            return
+        for k, v in metrics.items():
+            self._writer.add_scalar(k, float(v), global_step=step_idx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._writer is None:
+            return
+        for k, v in metrics.items():
+            self._writer.add_scalar(f"val/{eval_name}/{k}", float(v), global_step=step_idx)
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._writer is None:
+            return
+        ename = getattr(eval_result, "name", "benchmark")
+        gs = step if step is not None else 0
+        for k, v in (getattr(eval_result, "metrics", {}) or {}).items():
+            self._writer.add_scalar(f"eval/{ename}/{k}", float(v), global_step=gs)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            finally:
+                self._writer = None
+
+
+class LocalLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    print_every: int = 1         # stdout one-liner cadence (0 = silent)
+    keys: list[str] | None = None  # restrict printed keys
+
+
+@register_callback("local_logger")
+class LocalLoggerCallback(Callback):
+    """Human-readable local logging: prints what's happening per step AND
+    persists metrics + benchmark predictions to files under the run dir.
+
+    Writes ``<output_dir>/<run_key>/`` : ``metrics.jsonl`` (train + val rows),
+    ``predictions/<name>.jsonl`` (per benchmark), and ``summary.md`` at
+    run end. The "print what's happening" requirement is the per-step one-liner
+    (cadence ``print_every``)."""
+
+    name: ClassVar[str] = "local_logger"
+    Config: ClassVar[type] = LocalLoggerConfig
+
+    def __init__(self, *, print_every: int = 1, keys: list[str] | None = None) -> None:
+        self.print_every = int(print_every)
+        self.keys = keys
+        self._dir: Path | None = None
+        self._metrics_fp: Any = None
+        self._evals: list[dict] = []
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        self._dir = Path(ctx.output_dir) / (ctx.run_key or "run")
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._metrics_fp = (self._dir / "metrics.jsonl").open("a")
+        self._evals = []
+        if self.print_every:
+            print(f"[local_logger] run {ctx.run_key} → {self._dir}", flush=True)
+
+    def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
+        if self._metrics_fp is None:
+            return
+        import json  # noqa: PLC0415
+        self._metrics_fp.write(
+            json.dumps({"step": step, "split": split,
+                        "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n"
+        )
+        self._metrics_fp.flush()
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        self._write_metrics(step_idx, metrics, "train")
+        if self.print_every and (step_idx + 1) % self.print_every == 0:
+            view = metrics if self.keys is None else {k: metrics[k] for k in self.keys if k in metrics}
+            line = f"[{step_idx + 1}/{state.num_steps}] " + " ".join(
+                f"{k}={_fmt_value(v)}" for k, v in view.items()
+            )
+            print(line, flush=True)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        self._write_metrics(step_idx, metrics, "val")
+        if self.print_every:
+            cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+            print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._dir is None:
+            return
+        import json  # noqa: PLC0415
+        ename = getattr(eval_result, "name", "benchmark")
+        metrics = dict(getattr(eval_result, "metrics", {}) or {})
+        self._evals.append({"name": ename, "step": step, "metrics": metrics})
+        if predictions:
+            pdir = self._dir / "predictions"
+            pdir.mkdir(exist_ok=True)
+            safe = ename.replace("/", "_").replace(" ", "_")
+            with (pdir / f"{safe}.jsonl").open("w") as f:
+                for p in predictions:
+                    f.write(json.dumps(p, default=str) + "\n")
+        if self.print_every:
+            cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+            print(f"  [benchmark {ename}] {cells}  n_pred={len(predictions)}", flush=True)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._dir is not None:
+            lines = [f"# {ctx.run_key}", ""]
+            status = getattr(run_result, "status", None)
+            lines.append(f"- status: {status}")
+            for ev in self._evals:
+                cells = ", ".join(f"{k}={v:.4f}" for k, v in ev["metrics"].items()
+                                  if isinstance(v, (int, float)))
+                lines.append(f"- eval **{ev['name']}** (step={ev['step']}): {cells}")
+            (self._dir / "summary.md").write_text("\n".join(lines) + "\n")
+        if self._metrics_fp is not None:
+            try:
+                self._metrics_fp.close()
+            finally:
+                self._metrics_fp = None
+
+
+class EvsysLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: str | None = None
+    flush_every: int = 1   # batch per-step metric uploads every N steps
+
+
+@register_callback("evsys_logger")
+class EvsysLoggerCallback(Callback):
+    """Persist EVERYTHING to the evsys dashboard store via callbacks — the
+    experiment/group/run records, per-step metrics, checkpoints, and benchmark
+    evals + predictions. Keyed off the shared ``ctx.ids`` it populates
+    (``experiment_id`` → ``group:<name>`` → ``run_id``).
+
+    This is the "callbacks own the store" mode: construct ``Experiment`` WITHOUT
+    a ``store=`` (so the orchestrator makes no store calls) and add this
+    callback instead. If ``Experiment`` already has a store (``ctx.store`` set),
+    this callback disables itself to avoid double-writing. The store handle is
+    built lazily from the environment (EvsysStore) unless one is injected
+    (``cb._store = ...``) — the test seam."""
+
+    name: ClassVar[str] = "evsys_logger"
+    Config: ClassVar[type] = EvsysLoggerConfig
+
+    def __init__(self, *, project_id: str | None = None, flush_every: int = 1) -> None:
+        self.project_id = project_id
+        self.flush_every = max(1, int(flush_every))
+        self._store: Any = None
+        self._disabled = False
+        self._buf: list[tuple[int, dict, str]] = []
+
+    # -- store lifecycle ----------------------------------------------------
+
+    def _ensure_store(self, ctx: LogContext) -> Any:
+        if self._disabled:
+            return None
+        if ctx.store is not None:
+            self._disabled = True
+            logger.warning(
+                "evsys_logger: Experiment already has a store; disabling to avoid "
+                "double-writes (drop store= from Experiment to use this callback)"
+            )
+            return None
+        if self._store is None:
+            try:
+                from ..store import EvsysStore  # noqa: PLC0415
+                self._store = EvsysStore(project_id=self.project_id)
+            except Exception:
+                self._disabled = True
+                logger.warning("evsys_logger: no usable store (missing EVSYS_API_KEY?); disabling")
+        return self._store
+
+    @staticmethod
+    def _id(resp: Any) -> str | None:
+        return resp.get("id") if isinstance(resp, dict) else None
+
+    # -- experiment scope ---------------------------------------------------
+
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        store = self._ensure_store(ctx)
+        if store is None:
+            return
+        meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        resp = store.create_experiment(
+            experiment_name=getattr(ctx.config, "name", "experiment"),
+            hypothesis=meta.get("hypothesis"),
+            tags=list(meta.get("tags") or []) or None,
+        )
+        eid = self._id(resp)
+        if eid:
+            ctx.ids["experiment_id"] = eid
+
+    def on_group_start(self, ctx: LogContext, group_name: str) -> None:
+        if self._disabled or self._store is None:
+            return
+        resp = self._store.create_group(ctx.ids.get("experiment_id"), group_name)
+        gid = self._id(resp)
+        if gid:
+            ctx.ids[f"group:{group_name}"] = gid
+
+    def on_run_start(self, ctx: LogContext) -> None:
+        if self._disabled or self._store is None:
+            return
+        rc = ctx.run_config
+        gid = ctx.ids.get(f"group:{ctx.group_name}") if ctx.group_name else None
+        resp = self._store.create_run(
+            experiment_id=ctx.ids.get("experiment_id"),
+            group_id=gid,
+            recipe_kind=getattr(getattr(rc, "algorithm", None), "kind", None),
+            run_config=rc.model_dump() if rc is not None else None,
+            seed=getattr(rc, "seed", None),
+            status="running",
+            wandb_run_url=ctx.extras.get("wandb_url"),
+        )
+        rid = self._id(resp)
+        if rid:
+            ctx.ids["run_id"] = rid
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+        if self._disabled or self._store is None:
+            return
+        run_id = ctx.ids.get("run_id")
+        if not run_id:
+            return
+        resp = self._store.create_eval(
+            run_id=run_id,
+            benchmark_id=getattr(eval_result, "benchmark_id", None),
+            metrics=dict(getattr(eval_result, "metrics", {}) or {}),
+            breakdowns=dict(getattr(eval_result, "breakdowns", {}) or {}) or None,
+            step=step,
+        )
+        eval_id = self._id(resp)
+        if predictions:
+            from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
+            rows = [{**p, "eval_id": eval_id} for p in predictions]
+            upload_eval_rollouts(self._store, run_id, rows)
+
+    def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._flush(ctx)
+        run_id = ctx.ids.get("run_id")
+        if run_id:
+            status = getattr(run_result, "status", None) or getattr(arm, "status", None)
+            patch = {"status": status}
+            err = getattr(run_result, "error", None) or getattr(arm, "error", None)
+            if err:
+                patch["error_message"] = err
+            self._store.update_run(run_id, **patch)
+
+    # -- loop scope ---------------------------------------------------------
+
+    def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._buf.append((step_idx, {k: float(v) for k, v in metrics.items()}, "train"))
+        if len(self._buf) >= self.flush_every:
+            self._flush(state.ctx)
+
+    def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+        if self._disabled or self._store is None:
+            return
+        self._buf.append(
+            (step_idx, {f"{eval_name}/{k}": float(v) for k, v in metrics.items()}, "val")
+        )
+
+    def on_checkpoint(self, state: LoopState, row) -> None:
+        if self._disabled or self._store is None:
+            return
+        ctx = state.ctx
+        run_id = ctx.ids.get("run_id") if ctx else None
+        uri = getattr(row, "sampler_path", None) or getattr(row, "state_path", None)
+        if run_id and uri:
+            self._store.add_checkpoint(
+                run_id, uri=uri, label=getattr(row, "name", None), step=getattr(row, "batch", None),
+            )
+
+    def _flush(self, ctx: LogContext | None) -> None:
+        if self._store is None or not self._buf or ctx is None:
+            return
+        run_id = ctx.ids.get("run_id")
+        if not run_id:
+            self._buf.clear()
+            return
+        for step, metrics, split in self._buf:
+            try:
+                self._store.log_metrics(run_id=run_id, step=int(step), metrics=metrics, split=split)
+            except Exception:
+                logger.warning("evsys_logger: log_metrics failed at step %s", step, exc_info=True)
+        self._buf.clear()
+
+
+class DebugLoggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    max_len: int = 400          # truncate each value's repr to this many chars
+    max_pred_rows: int = 3      # how many prediction rows to show
+
+
+@register_callback("debug_logger")
+class DebugLoggerCallback(Callback):
+    """Pretty-print EVERYTHING handed to each callback hook — every lifecycle
+    and loop event, with its arguments summarized. Pure introspection (no
+    persistence); drop it into ``callbacks:`` to see exactly what the logger
+    callbacks receive and in what order."""
+
+    name: ClassVar[str] = "debug_logger"
+    Config: ClassVar[type] = DebugLoggerConfig
+
+    def __init__(self, *, max_len: int = 400, max_pred_rows: int = 3) -> None:
+        self.max_len = int(max_len)
+        self.max_pred_rows = int(max_pred_rows)
+
+    def _short(self, v: Any) -> str:
+        s = repr(v)
+        return s if len(s) <= self.max_len else s[: self.max_len] + f"… (+{len(s) - self.max_len} chars)"
+
+    def _ctx(self, ctx: Any) -> dict:
+        rc = getattr(ctx, "run_config", None)
+        return {
+            "run_key": getattr(ctx, "run_key", None),
+            "group_name": getattr(ctx, "group_name", None),
+            "ids": dict(getattr(ctx, "ids", {}) or {}),
+            "store": type(getattr(ctx, "store", None)).__name__ if getattr(ctx, "store", None) else None,
+            "extras": dict(getattr(ctx, "extras", {}) or {}),
+            "run_config.name": getattr(rc, "name", None),
+            "output_dir": str(getattr(ctx, "output_dir", "")),
+        }
+
+    def _state(self, state: Any) -> dict:
+        return {
+            "step": getattr(state, "step", None),
+            "num_steps": getattr(state, "num_steps", None),
+            "has_ctx": getattr(state, "ctx", None) is not None,
+        }
+
+    def _emit(self, hook: str, fields: dict) -> None:
+        print(f"\n🔍 [debug_logger] {hook}", flush=True)
+        for k, v in fields.items():
+            print(f"      {k} = {self._short(v)}", flush=True)
+
+    # -- experiment scope ---------------------------------------------------
+    def on_experiment_start(self, ctx):
+        self._emit("on_experiment_start", {"ctx": self._ctx(ctx)})
+
+    def on_group_start(self, ctx, group_name):
+        self._emit("on_group_start", {"group_name": group_name, "ctx": self._ctx(ctx)})
+
+    def on_run_start(self, ctx):
+        self._emit("on_run_start", {"ctx": self._ctx(ctx)})
+
+    def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None):
+        self._emit("on_benchmark_eval", {
+            "step": step,
+            "eval_result.name": getattr(eval_result, "name", None),
+            "eval_result.metrics": getattr(eval_result, "metrics", None),
+            "eval_result.breakdowns": getattr(eval_result, "breakdowns", None),
+            "eval_result.tags": getattr(eval_result, "tags", None),
+            "n_predictions": len(predictions),
+            "predictions[:n]": predictions[: self.max_pred_rows],
+            "ctx.ids": dict(getattr(ctx, "ids", {}) or {}),
+        })
+
+    def on_run_end(self, ctx, run_result, arm):
+        self._emit("on_run_end", {
+            "run_result.status": getattr(run_result, "status", None),
+            "run_result.metrics": getattr(run_result, "metrics", None),
+            "arm.name": getattr(arm, "name", None),
+            "arm.status": getattr(arm, "status", None),
+            "ctx.ids": dict(getattr(ctx, "ids", {}) or {}),
+        })
+
+    def on_experiment_end(self, ctx, result):
+        self._emit("on_experiment_end", {
+            "result.status": getattr(result, "status", None),
+            "result.best_arm": getattr(getattr(result, "best_arm", None), "name", None),
+            "result.best_score": getattr(result, "best_score", None),
+            "result.conclusion": getattr(result, "conclusion", None),
+        })
+
+    # -- loop scope ---------------------------------------------------------
+    def on_train_start(self, state):
+        self._emit("on_train_start", {"state": self._state(state)})
+
+    def on_step_end(self, state, step_idx, batch, metrics):
+        self._emit("on_step_end", {
+            "step_idx": step_idx,
+            "metrics": metrics,
+            "batch.loss_fn": getattr(batch, "loss_fn", None),
+            "batch.n_data": len(getattr(batch, "data", []) or []),
+            "batch.metrics": getattr(batch, "metrics", None),
+            "state": self._state(state),
+        })
+
+    def on_eval(self, state, step_idx, eval_name, metrics):
+        self._emit("on_eval", {"step_idx": step_idx, "eval_name": eval_name, "metrics": metrics})
+
+    def on_checkpoint(self, state, row):
+        self._emit("on_checkpoint", {
+            "row.name": getattr(row, "name", None),
+            "row.batch": getattr(row, "batch", None),
+            "row.sampler_path": getattr(row, "sampler_path", None),
+            "row.state_path": getattr(row, "state_path", None),
+        })
+
+    def on_train_end(self, state, artifacts):
+        self._emit("on_train_end", {
+            "artifacts.total_requested_steps": getattr(artifacts, "total_requested_steps", None),
+            "artifacts.train_seconds": getattr(artifacts, "train_seconds", None),
+            "artifacts.run_dir": str(getattr(artifacts, "run_dir", "")),
+            "n_checkpoints": len(getattr(artifacts, "checkpoints", []) or []),
+        })
+
+
+# ---------------------------------------------------------------------------
 # Factory — build callbacks from {kind, params} specs (YAML surface)
 # ---------------------------------------------------------------------------
 
@@ -367,7 +1041,14 @@ __all__ = [
     "Callback",
     "CsvMetricsCallback",
     "EarlyStoppingCallback",
+    "DebugLoggerCallback",
+    "EvsysLoggerCallback",
+    "LocalLoggerCallback",
+    "LogContext",
     "LoopState",
     "PrintProgressCallback",
+    "TensorBoardLoggerCallback",
+    "WandbLoggerCallback",
     "build_callbacks",
+    "dispatch",
 ]
