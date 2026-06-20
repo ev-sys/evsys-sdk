@@ -1,0 +1,82 @@
+---
+title: Quickstart
+description: Train your first model in five minutes — no GPU, no network — then point it at a real backend.
+---
+
+This runs a deterministic **mock** training job end to end, so you can verify
+your setup with no GPU and no network. The shape is identical for real
+training — you only swap the `backend`.
+
+## 1. Install
+
+```bash
+uv pip install -e ".[tinker,local,tensorboard]"
+```
+
+See [Installation](/docs/installation) for the optional extras.
+
+## 2. Describe the experiment
+
+Everything about a run lives in one declarative spec. You can author it as YAML
+or build the same object in Python:
+
+<Tabs items={["YAML", "Python"]}>
+
+<Tab value="YAML">
+
+```yaml title="config.yaml"
+name: hello-evsys
+run:
+  data:
+    source: { kind: in_memory, params: { rows: [{ prompt: "2+2=", completion: "4" }] } }
+    transforms: [{ kind: jsonl_to_chat }]
+  model: { name: meta-llama/Llama-3.2-1B }
+  algorithm: { kind: sft, params: { epochs: 1, lr: 2.0e-5 } }
+  backend: { kind: mock }
+```
+
+</Tab>
+
+<Tab value="Python">
+
+```python title="run.py"
+from evsys_sdk import Experiment
+
+Experiment.from_yaml("config.yaml").run()
+```
+
+</Tab>
+
+</Tabs>
+
+## 3. Validate, then run
+
+```bash
+evsys validate config.yaml --deep   # parse + check every kind/params block
+evsys run config.yaml
+```
+
+You should see a `final_checkpoint` artifact and a `metrics.jsonl` under
+`outputs/<run>/logs/`:
+
+```text
+✓ experiment hello-evsys
+  arm 0  status=succeeded  loss=0.0123  → outputs/hello-evsys/.../final_checkpoint
+```
+
+## 4. Go further
+
+<Cards>
+  <Card title="📚 Learn the concepts" href="/docs/concepts/architecture">
+    How the Experiment, data, algorithm, and eval layers fit together.
+  </Card>
+  <Card title="🍳 Cookbook" href="/docs/cookbook">
+    End-to-end recipes: YAML-driven runs, sweeps, RL, distillation.
+  </Card>
+  <Card title="⚙️ Pick a real backend" href="/docs/reference">
+    Swap `mock` for `local` (TRL+peft) or `tinker` (hosted).
+  </Card>
+  <Card title="🧩 Register your own" href="/docs/concepts/extensibility">
+    Add an algorithm, verifier, or backend without forking.
+  </Card>
+</Cards>

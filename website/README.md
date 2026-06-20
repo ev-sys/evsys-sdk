@@ -37,6 +37,22 @@ uv pip install --python ../.venv/bin/python ./node_modules/fumadocs-python
 
 ## Deployment
 
-`.github/workflows/deploy-docs.yml` builds and publishes on every push to
-`dev` that touches `website/`. The build sets `PAGES_BASE_PATH=/evsys-sdk`
-so assets resolve under the project-pages sub-path; local builds leave it empty.
+The SDK repo is **private** (and GitHub Pages isn't available for private
+repos on the free plan), so the built site is published to a separate **public**
+repo — [`trajectory-ai/evsys-sdk-docs`](https://github.com/trajectory-ai/evsys-sdk-docs)
+— whose GitHub Pages serves **https://trajectory-ai.github.io/evsys-sdk-docs/**.
+
+To publish (refresh the API reference first if the SDK changed):
+
+```bash
+pnpm gen:api      # optional: re-introspect evsys_sdk
+pnpm deploy       # build with PAGES_BASE_PATH=/evsys-sdk-docs and force-push out/ to the public repo
+```
+
+`pnpm deploy` runs `scripts/deploy.sh`. The `PAGES_BASE_PATH` env var sets the
+project-pages sub-path; local `pnpm build` / `pnpm dev` leave it empty so the
+site works at `localhost`.
+
+> If the SDK repo is ever made public (or the org upgrades to a paid plan), you
+> can deploy this `website/` directly via a GitHub Actions Pages workflow
+> instead of the separate public repo.

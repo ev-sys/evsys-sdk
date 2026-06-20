@@ -1,0 +1,67 @@
+---
+title: Algorithms & Evaluation
+description: One contract — train(ctx) -> RunResult — plus an optional gradient toolkit and a test/validation firewall.
+---
+
+The algorithm surface is **one required contract** (`train(ctx) -> RunResult`)
+plus an optional gradient toolkit and pluggable evaluation. It runs over any
+tinker-compatible `Backend` — `mock` for tests, `local` for TRL+peft, `tinker`
+for hosted.
+
+```mermaid
+flowchart TD
+    BK["Backend.prepare/teardown<br/>mock · local · tinker"] --> CTX["RunContext<br/>train_rows · backend_handles · log_store · output_dir"]
+    CTX --> AL["Algorithm.train(ctx) -> RunResult<br/>@register_algorithm"]
+
+    subgraph L2["optional gradient toolkit (Layer 2)"]
+        SB["StepBuilder.build_batch(n) -> TrainingBatch"]
+        LP["TrainingLoop<br/>fwd_bwd → optim → log → ckpt → eval"]
+        LF["loss: named str OR LossCallable"]
+        SB --> LP
+        LF --> LP
+    end
+
+    AL -. "may use" .-> SB
+    AL --> RR["RunResult<br/>status · metrics · artifacts"]
+
+    subgraph EV["Evaluation"]
+        BMK["Benchmark (test — scored once)"]
+        VAL["Validation (in-loop — every N steps)"]
+        MET["Metric.compute()"]
+        VER["Verifier.verify() / reward"]
+    end
+    AL --> EV
+    BMK --> MET
+    VAL --> MET
+    EV --> VER
+```
+
+## Algorithm
+
+`Algorithm` (protocol): `name`, `Config`, `train(ctx) -> RunResult`. The only
+required contract — `train()` may do anything. The optional toolkit:
+`TrainingLoop` drives the gradient loop; a `StepBuilder` (`build_batch ->
+TrainingBatch`) is the unit of "a new gradient method"; losses are a **named
+string** or a **`LossCallable`** (client-side, via `forward_backward_custom`).
+
+## Evaluation — a test/validation firewall
+
+- **Benchmark** — the *test set*, scored **once after** training. Model
+  selection must never key off it.
+- **Validation** — scored **in-loop** every N steps to drive selection.
+- Both are harbor-format and scored via the **Metric** / **Verifier** registries.
+
+## Metrics & Verifiers
+
+- **`Metric`**: `compute(predictions, targets) -> float`.
+- **`Verifier`**: `verify(prompt, completion, target) -> reward` (RL reward or
+  per-task scoring).
+- **`InferenceClient`**: `generate(...)` — how eval/RL query a model.
+
+<Callout type="warn" title="Keep the firewall intact">
+A `Benchmark` is your held-out test. If you select the best arm using
+benchmark scores, you've leaked the test set — use `Validation` for selection.
+</Callout>
+
+Next: [Extensibility](/docs/concepts/extensibility) ·
+[algorithms API](/docs/evsys_sdk/algorithms).

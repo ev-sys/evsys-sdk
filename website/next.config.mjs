@@ -12,6 +12,9 @@ const config = {
   output: 'export',
   reactStrictMode: true,
   basePath,
+  // Export every route as a directory (docs/index.html) so GitHub Pages
+  // resolves both /docs and /docs/ — Pages does directory-style lookups.
+  trailingSlash: true,
   images: { unoptimized: true },
   env: { NEXT_PUBLIC_BASE_PATH: basePath },
 };

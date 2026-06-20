@@ -1,13 +1,17 @@
 {
   "title": "Documentation",
   "pages": [
+    "---Getting Started---",
     "index",
     "installation",
+    "quickstart",
+    "---Concepts---",
+    "concepts",
+    "---Guides---",
     "cookbook",
-    "extension-points",
-    "design",
+    "---Reference---",
     "reference",
-    "---API Reference---",
+    "design",
     "(api)"
   ]
 }
