@@ -3,68 +3,162 @@ title: Quickstart
 description: Train your first model in five minutes — no GPU, no network — then point it at a real backend.
 ---
 
-This runs a deterministic **mock** training job end to end, so you can verify
-your setup with no GPU and no network. The shape is identical for real
-training — you only swap the `backend`.
+This takes you from a zero-setup **mock** wiring test to **real** local
+training — no GPU required. The config shape is identical; you only swap the
+`backend`.
 
 ## 1. Install
 
 ```bash
-uv pip install -e ".[tinker,local,tensorboard]"
+uv sync
 ```
 
-See [Installation](/docs/installation) for the optional extras.
+Everything ships in the base install — see [Installation](/docs/installation).
 
 ## 2. Describe the experiment
 
-Everything about a run lives in one declarative spec. You can author it as YAML
-or build the same object in Python:
+Everything about a run lives in one declarative `config.yaml`. The repo ships
+this ready to run at **`examples/quickstart_experiment/`** — two configs (a
+`mock` wiring test and a real `local` train) plus a tiny `run.py` that loads
+either. **The only difference between the two configs is `backend`, `model`,
+and `algorithm` — the data is identical.**
 
-<Tabs items={["YAML", "Python"]}>
+<Tabs items={["config.yaml (mock)", "config_local.yaml (real)", "run.py"]}>
 
-<Tab value="YAML">
+<Tab value="config.yaml (mock)">
 
-```yaml title="config.yaml"
-name: hello-evsys
+```yaml title="examples/quickstart_experiment/config.yaml"
+name: quickstart_experiment
+output_dir: ./outputs
+log_store: { kind: jsonl }
+
 run:
+  name: mock_sft_run
   data:
-    source: { kind: in_memory, params: { rows: [{ prompt: "2+2=", completion: "4" }] } }
-    transforms: [{ kind: jsonl_to_chat }]
-  model: { name: meta-llama/Llama-3.2-1B }
-  algorithm: { kind: sft, params: { epochs: 1, lr: 2.0e-5 } }
+    source_kind: in_memory
+    rows:
+      - {query: "save a contact", tool_slug: OUTLOOK_CREATE_CONTACT, toolkit: OUTLOOK, description: "..."}
+      - {query: "edit a slack message", tool_slug: SLACK_UPDATES_A_SLACK_MESSAGE, toolkit: SLACK, description: "..."}
+    transforms:
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
+  model: { name: tiny/fake }
+  algorithm:
+    kind: mock_sft
+    params: {num_epochs: 1, batch_size: 1, save_at_fractions: [0.5, 1.0]}
   backend: { kind: mock }
 ```
 
 </Tab>
 
-<Tab value="Python">
+<Tab value="config_local.yaml (real)">
 
-```python title="run.py"
-from evsys_sdk import Experiment
+```yaml title="examples/quickstart_experiment/config_local.yaml"
+name: quickstart_local
+output_dir: ./outputs
+log_store: { kind: jsonl }
 
-Experiment.from_yaml("config.yaml").run()
+run:
+  name: local_sft_run
+  data:                       # ← identical to the mock config
+    source_kind: in_memory
+    rows:
+      - {query: "save a contact", tool_slug: OUTLOOK_CREATE_CONTACT, toolkit: OUTLOOK, description: "..."}
+      - {query: "edit a slack message", tool_slug: SLACK_UPDATES_A_SLACK_MESSAGE, toolkit: SLACK, description: "..."}
+    transforms:
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
+  model: { name: Qwen/Qwen3-0.6B }        # ← a real model
+  algorithm:
+    kind: local_sft                       # ← TRL + peft LoRA
+    params: {max_steps: 5, lora_rank: 4, lora_alpha: 8, max_seq_len: 256, warmup_steps: 2}
+  backend:
+    kind: local                           # ← trains on your machine
+    params: {dtype: float32, device: cpu} # cuda / mps if available
+```
+
+</Tab>
+
+<Tab value="run.py">
+
+```python title="examples/quickstart_experiment/run.py"
+import sys
+from pathlib import Path
+from evsys_sdk import load_yaml, run_experiment
+
+HERE = Path(__file__).parent
+
+
+def main():
+    config_name = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
+    cfg = load_yaml(HERE / config_name)
+    [result] = run_experiment(cfg)
+    print(f"Status: {result.status}")
+    print(f"Artifacts: {list(result.artifacts.keys())}")
+    print(f"Metrics: {result.metrics}")
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 </Tab>
 
 </Tabs>
 
-## 3. Validate, then run
+## 3. Run the wiring test (mock)
+
+The `mock` backend produces a deterministic loss curve and stub checkpoints —
+no model, no GPU, no network. It's the fastest way to confirm everything is
+wired up.
 
 ```bash
-evsys validate config.yaml --deep   # parse + check every kind/params block
-evsys run config.yaml
+evsys validate examples/quickstart_experiment/config.yaml --deep   # parse + check every kind/params block
+python examples/quickstart_experiment/run.py                       # or: evsys run examples/quickstart_experiment/config.yaml
 ```
-
-You should see a `final_checkpoint` artifact and a `metrics.jsonl` under
-`outputs/<run>/logs/`:
 
 ```text
-✓ experiment hello-evsys
-  arm 0  status=succeeded  loss=0.0123  → outputs/hello-evsys/.../final_checkpoint
+Status: completed
+Artifacts: ['ckpt_step_1', 'ckpt_step_2', 'final_checkpoint']
+Metrics: {'train/final_loss': 0.1278, 'total_steps': 2.0}
 ```
 
-## 4. Go further
+## 4. Train for real (local)
+
+Now swap to the `local` backend — it trains a LoRA adapter on **Qwen3-0.6B**
+with transformers + TRL + peft, right on your machine. No GPU required; it runs
+on CPU/MPS in about a minute for 5 steps (the first run downloads the model,
+~1.2 GB).
+
+```bash
+python examples/quickstart_experiment/run.py config_local.yaml
+```
+
+```text
+{'loss': '6.047', 'grad_norm': '1.9e+04', 'learning_rate': '6.7e-05', 'mean_token_accuracy': '0.42', 'epoch': '5'}
+Status: completed
+Artifacts: ['final_checkpoint', 'checkpoint-5']
+Metrics: {'train/final_loss': 6.05}
+```
+
+This writes a real `adapter_model.safetensors` (the trained LoRA), per-step
+`metrics.jsonl`, and a resumable `checkpoint-5/` under
+`examples/quickstart_experiment/outputs/`. Bump `max_steps` to 100–500 for a
+real run, or set `backend.kind: tinker` to train hosted.
+
+## 5. The three training paradigms
+
+`evsys-sdk` runs **SFT, RL, and distillation** behind one config shape. Each has
+a ready-to-run config in `examples/configs/` and a hands-on walkthrough — raw
+data → transform → config → run:
+
+<Cards>
+  <Card title="🎯 SFT — supervised fine-tuning" href="/docs/examples/sft" />
+  <Card title="🏆 RL — reinforcement learning" href="/docs/examples/rl" />
+  <Card title="🎓 SDFT — self-distillation" href="/docs/examples/sdft" />
+</Cards>
+
+## 6. Go further
 
 <Cards>
   <Card title="📚 Learn the concepts" href="/docs/concepts/architecture">

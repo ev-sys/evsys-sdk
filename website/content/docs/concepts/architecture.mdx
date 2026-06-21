@@ -4,62 +4,28 @@ description: The whole system at a glance — one ExperimentConfig, five layers,
 ---
 
 `evsys-sdk` is organized around a single idea: **one `ExperimentConfig` (YAML)
-drives everything**, and every `kind:` in it resolves through a registry. The
-diagram below is the whole system on one screen — blue is what *you* author,
-grey is what the *SDK* owns.
+drives everything**, and every `kind:` in it resolves through a registry.
 
-```mermaid
-flowchart TB
-    CFG["ExperimentConfig (YAML)<br/><i>the single canonical artifact</i>"]
+## The Experiment — the organizing unit
 
-    subgraph ORG["① Experiment layer — the organizing unit"]
-        direction TB
-        E["Experiment.run()"]
-        EXP["expand: run / runs / matrix → arms<br/>n_repeats → seeded groups"]
-        AR["ArmResult per run"]
-        ER["ExperimentResult<br/>best_arm · best_score · conclusion · hypothesis"]
-        E --> EXP --> AR --> ER
-    end
+The **Experiment** is the top of the system. It's the scientific container: you
+give it a hypothesis and one or more runs, and it produces a best arm and an
+auto-synthesized conclusion. Concretely, `Experiment.run()`:
 
-    subgraph RUN["per-arm RunConfig (one training run)"]
-        direction LR
-        subgraph DATA["② Data surface"]
-            direction TB
-            SRC["raw source"] --> WSP["Workspace cache (.evsys/)"] --> TRN["transforms[]"] --> TYP["typed rows"]
-        end
-        subgraph ALG["③ Algorithm surface"]
-            direction TB
-            BK["Backend<br/>mock · local · tinker"] --> AL["Algorithm.train(ctx)"]
-            AL --> RES["RunResult<br/>status · metrics · artifacts"]
-        end
-        subgraph EVALS["④ Evaluation"]
-            direction TB
-            BMK["Benchmark (test, once)"]
-            VAL["Validation (in-loop)"]
-            MET["Metric · Verifier"]
-        end
-        TYP --> AL
-        AL --> EVALS
-    end
+1. **Expands** the config — a single `run`, a list of `runs`, or a `matrix`
+   shorthand — into one or more **arms** (each arm is one `RunConfig` = one
+   training job). `n_repeats` replicates an arm across seeds for variance.
+2. **Runs each arm** through the same pipeline — **Data → Training →
+   Evaluation** — with per-arm failure isolation.
+3. **Picks the best arm** by your `success_metric` and records an
+   `ExperimentResult` (`best_arm`, `conclusion`, metrics).
 
-    subgraph OBS["⑤ Observability & storage"]
-        direction LR
-        LS["LogStore"] --- DC["DashboardClient (offline-first)"] --- ST["EvsysStore (gateway)"]
-    end
+<ExperimentFlow />
 
-    REG["⑥ Registries (8) — kind → class<br/>algorithm · backend · transform · data_store · log_store · metric · verifier · inference"]
-
-    CFG --> E
-    EXP --> RUN
-    AR --> RES
-    AR --> EVALS
-    E --> OBS
-    REG -. "resolves every 'kind:' in the YAML" .-> RUN
-```
-
-> **Blue = things you author/implement. Grey = things the SDK owns.** One
-> `ExperimentConfig` ties it all together; every `kind:` in it resolves through
-> a registry.
+So an experiment is *one YAML* that can fan out into a whole campaign of runs,
+each of which is the left-to-right pipeline you saw on the
+[introduction](/docs). Blue is what you author; white pillars and the grey
+result are what the SDK owns.
 
 ## The five layers
 

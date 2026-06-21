@@ -1,0 +1,4 @@
+{"inputs": {"question": "What is the capital of France?"}, "expected": "Paris"}
+{"inputs": {"question": "What is the capital of Japan?"}, "expected": "Tokyo"}
+{"inputs": {"question": "What is the capital of Italy?"}, "expected": "Rome"}
+{"inputs": {"question": "What is the capital of Canada?"}, "expected": "Ottawa"}

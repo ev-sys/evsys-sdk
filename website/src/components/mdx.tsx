@@ -3,6 +3,8 @@ import type { MDXComponents } from 'mdx/types';
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import * as Python from 'fumadocs-python/components';
 import { Mermaid } from './mermaid';
+import { TopLevelFlow } from './diagrams/top-level-flow';
+import { ExperimentFlow } from './diagrams/experiment-flow';
 
 export function getMDXComponents(components?: MDXComponents) {
   return {
@@ -10,6 +12,8 @@ export function getMDXComponents(components?: MDXComponents) {
     Step,
     Steps,
     Mermaid,
+    TopLevelFlow,
+    ExperimentFlow,
     ...Python,
     ...components,
   } satisfies MDXComponents;

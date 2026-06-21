@@ -5,7 +5,7 @@ local backend (transformers + TRL + PEFT). No GPU required — runs on CPU
 or MPS in a few minutes for 5 steps.
 
 Run:
-    pip install -e ".[local]"
+    uv sync
     python examples/07_local_sft_qwen.py
 
 Expected output:

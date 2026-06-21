@@ -1,39 +1,84 @@
 import Link from 'next/link';
 import { Mermaid } from '@/components/mermaid';
 
-const PIPELINE = `flowchart LR
-    YAML["config.yaml"] --> EXP["Experiment"]
-    EXP -->|"expand arms"| RUNS["Run 1..N"]
-    DATA[("Dataset")] --> ALG
-    RUNS --> ALG{"Algorithm<br/>SFT · RL · Distill"}
-    ALG -->|"rollouts"| BACK["Backend<br/>local · tinker · fireworks"]
-    BACK --> EVAL["Eval<br/>verifiers + metrics"]
-    EVAL --> ART[("Artifacts<br/>checkpoints · scores")]`;
+// The whitepaper's "whole system at a glance" — the overall structure.
+const SYSTEM = `flowchart TB
+    CFG["ExperimentConfig (YAML)<br/>the single canonical artifact"]
 
-const CONFIG = `name: sft-smoke-test
-run:
-  data:
-    source: { kind: jsonl, params: { path: data/train.jsonl } }
-    transforms: [{ kind: jsonl_to_chat }]
-  model: { name: meta-llama/Llama-3.2-1B }
-  algorithm: { kind: sft, params: { epochs: 1, lr: 2.0e-5 } }
-  backend: { kind: mock }`;
+    subgraph ORG["① Experiment layer — the organizing unit"]
+        direction TB
+        E["Experiment.run()"]
+        EXP["expand: run / runs / matrix → arms<br/>n_repeats → seeded groups"]
+        AR["ArmResult per run"]
+        ER["ExperimentResult<br/>best_arm · best_score · conclusion"]
+        E --> EXP --> AR --> ER
+    end
 
-function Card({
+    subgraph RUN["per-arm RunConfig (one training run)"]
+        direction LR
+        subgraph DATA["② Data surface"]
+            direction TB
+            SRC["raw source"] --> WSP["Workspace cache"] --> TRN["transforms[]"] --> TYP["typed rows"]
+        end
+        subgraph ALG["③ Algorithm surface"]
+            direction TB
+            BK["Backend<br/>mock · local · tinker"] --> AL["Algorithm.train(ctx)"]
+            AL --> RES["RunResult<br/>status · metrics · artifacts"]
+        end
+        subgraph EVALS["④ Evaluation"]
+            direction TB
+            BMK["Benchmark (test, once)"]
+            VAL["Validation (in-loop)"]
+            MET["Metric · Verifier"]
+        end
+        TYP --> AL
+        AL --> EVALS
+    end
+
+    subgraph OBS["⑤ Observability & storage"]
+        direction LR
+        LS["LogStore"] --- DC["DashboardClient"] --- ST["EvsysStore"]
+    end
+
+    REG["⑥ Registries (8) — kind → class<br/>algorithm · backend · transform · data_store<br/>log_store · metric · verifier · inference"]
+
+    CFG --> E
+    EXP --> RUN
+    AR --> RES
+    AR --> EVALS
+    E --> OBS
+    REG -. "resolves every 'kind:' in the YAML" .-> RUN`;
+
+const AGENT_YAML = `# A coding agent launches an experiment by writing this — and
+# sweeps, swaps algorithms, or registers new components by editing it.
+matrix:
+  axes:
+    algorithm.kind: [sft, dpo, grpo]      # try three methods at once
+    algorithm.params.lr: [1.0e-5, 2.0e-5]
+base_run:
+  data: { source: { kind: jsonl, params: { path: data/train.jsonl } } }
+  backend: { kind: tinker }`;
+
+function ComponentCard({
   href,
+  index,
   title,
   children,
 }: {
   href: string;
+  index: string;
   title: string;
   children: React.ReactNode;
 }) {
   return (
     <Link
       href={href}
-      className="rounded-xl border bg-fd-card p-5 text-left transition-colors hover:bg-fd-accent"
+      className="group rounded-xl border bg-fd-card p-5 text-left transition-colors hover:bg-fd-accent"
     >
-      <h3 className="mb-1 font-semibold">{title}</h3>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-semibold text-fd-primary">{index}</span>
+        <h3 className="font-semibold">{title}</h3>
+      </div>
       <p className="text-sm text-fd-muted-foreground">{children}</p>
     </Link>
   );
@@ -42,20 +87,24 @@ function Card({
 export default function HomePage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-16">
-      {/* Hero */}
+      {/* Hero — the vision / motto */}
       <section className="flex flex-col items-center text-center">
-        <span className="mb-4 rounded-full border px-3 py-1 text-xs font-medium text-fd-muted-foreground">
-          v0.1.0 · SFT · RL · Distillation
+        <span className="mb-5 rounded-full border px-3 py-1 text-xs font-medium text-fd-muted-foreground">
+          evsys-sdk · the continual-learning training SDK
         </span>
         <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-6xl">
-          LLM training experiments from a single{' '}
-          <span className="text-fd-primary">YAML</span>.
+          Not a few models.{' '}
+          <span className="text-fd-primary">Thousands</span> — continually
+          learning.
         </h1>
-        <p className="mt-6 max-w-2xl text-balance text-lg text-fd-muted-foreground">
-          <code className="font-semibold">evsys-sdk</code> is a declarative
-          framework for SFT, RL, and distillation — pluggable algorithms,
-          verifiers, metrics, and backends. No glue code, no training-script
-          sprawl.
+        <p className="mt-7 max-w-3xl text-balance text-lg leading-relaxed text-fd-muted-foreground">
+          We believe there will not be a few generally intelligent models that
+          everyone uses, but <strong className="text-fd-foreground">thousands
+          of models adapted for every task</strong>, continually learning from
+          every interaction. To enable this we need infrastructure that lets{' '}
+          <strong className="text-fd-foreground">coding agents launch
+          experiments, learn from them, and train models that learn
+          continuously</strong>. This SDK is the first step toward that.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -65,10 +114,10 @@ export default function HomePage() {
             Get started
           </Link>
           <Link
-            href="/docs/evsys_sdk"
+            href="/docs/concepts/architecture"
             className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
           >
-            API reference
+            How it works
           </Link>
           <a
             href="https://github.com/trajectory-ai/evsys-sdk"
@@ -79,60 +128,122 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Killer demo: one file + one command */}
-      <section className="mt-16 grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border bg-fd-card p-5">
-          <div className="mb-2 text-xs font-medium text-fd-muted-foreground">
-            config.yaml
+      {/* Main points */}
+      <section className="mt-16 grid gap-4 sm:grid-cols-3">
+        {[
+          ['One declarative YAML', 'Every experiment is a single ExperimentConfig — nothing hidden in scripts.'],
+          ['SFT · RL · distillation', 'Three training paradigms behind one config shape and one runner.'],
+          ['Pluggable & continual', 'Eight registries for custom parts; weights chain so models keep learning.'],
+        ].map(([t, d]) => (
+          <div key={t} className="rounded-xl border bg-fd-card p-5">
+            <h3 className="mb-1 font-semibold">{t}</h3>
+            <p className="text-sm text-fd-muted-foreground">{d}</p>
           </div>
-          <pre className="overflow-x-auto text-left text-xs leading-relaxed">
-            <code>{CONFIG}</code>
-          </pre>
-        </div>
-        <div className="flex flex-col justify-center rounded-xl border bg-fd-card p-5">
-          <div className="mb-2 text-xs font-medium text-fd-muted-foreground">
-            run it
-          </div>
-          <pre className="overflow-x-auto text-left text-sm leading-relaxed">
-            <code>{`$ evsys validate config.yaml --deep
-$ evsys run config.yaml
-
-✓ experiment sft-smoke-test
-  arm 0  succeeded  → final_checkpoint`}</code>
-          </pre>
-          <p className="mt-4 text-sm text-fd-muted-foreground">
-            The same shape runs locally or on hosted backends — you only swap{' '}
-            <code>backend.kind</code>.
-          </p>
-        </div>
+        ))}
       </section>
 
-      {/* Pipeline diagram */}
+      {/* Main components */}
       <section className="mt-16">
-        <h2 className="mb-1 text-center text-sm font-medium uppercase tracking-wide text-fd-muted-foreground">
-          The spine
+        <h2 className="mb-2 text-2xl font-bold tracking-tight">
+          The main components
         </h2>
-        <p className="mb-4 text-center text-fd-muted-foreground">
-          config.yaml → Experiment → arms → backend → eval → artifacts
+        <p className="mb-6 text-fd-muted-foreground">
+          One <code>ExperimentConfig</code> ties together five layers. Every{' '}
+          <code>kind:</code> in it resolves through a registry.
         </p>
-        <Mermaid chart={PIPELINE} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ComponentCard index="①" title="Experiment" href="/docs/concepts/experiments">
+            The organizing unit — a hypothesis, one or more runs, an
+            auto-synthesized conclusion and <code>best_arm</code>.
+          </ComponentCard>
+          <ComponentCard index="②" title="Data surface" href="/docs/concepts/data">
+            Raw sources → ordered <code>transforms</code> → standardized typed
+            rows that carry only data.
+          </ComponentCard>
+          <ComponentCard index="③" title="Algorithm surface" href="/docs/concepts/algorithms">
+            One contract — <code>train(ctx) -&gt; RunResult</code> — over any
+            tinker-compatible backend.
+          </ComponentCard>
+          <ComponentCard index="④" title="Evaluation" href="/docs/concepts/algorithms">
+            A test/validation firewall: <code>Benchmark</code> (once) vs{' '}
+            <code>Validation</code> (in-loop), scored by metrics &amp; verifiers.
+          </ComponentCard>
+          <ComponentCard index="⑤" title="Extensibility" href="/docs/concepts/extensibility">
+            Eight registries — implement a protocol, register a{' '}
+            <code>kind</code>, reference it in YAML.
+          </ComponentCard>
+          <ComponentCard index="⑥" title="API reference" href="/docs/evsys_sdk">
+            263 pages auto-generated from the code — always in sync.
+          </ComponentCard>
+        </div>
       </section>
 
-      {/* Why */}
-      <section className="mt-16 grid gap-4 sm:grid-cols-2">
-        <Card href="/docs/concepts/architecture" title="One YAML drives everything">
-          One file expands into a whole campaign of runs via <code>matrix</code>.
-        </Card>
-        <Card href="/docs/concepts/extensibility" title="Pluggable by design">
-          Eight registries. Add a method with{' '}
-          <code>@register_algorithm</code> — no fork.
-        </Card>
-        <Card href="/docs/concepts/algorithms" title="SFT · RL · distillation">
-          One tool, one config shape, three training paradigms.
-        </Card>
-        <Card href="/docs/evsys_sdk" title="Auto-generated API reference">
-          263 pages introspected from the code, always in sync.
-        </Card>
+      {/* Overall structure diagram */}
+      <section className="mt-16">
+        <h2 className="mb-2 text-2xl font-bold tracking-tight">
+          The overall structure
+        </h2>
+        <p className="mb-4 text-fd-muted-foreground">
+          The whole system on one screen — one canonical config drives the
+          Experiment layer, each run's data and algorithm surfaces, evaluation,
+          and storage; the registries resolve every <code>kind:</code>.
+        </p>
+        <Mermaid chart={SYSTEM} />
+      </section>
+
+      {/* Built for coding agents — customisability */}
+      <section className="mt-16">
+        <h2 className="mb-2 text-2xl font-bold tracking-tight">
+          Built for coding agents
+        </h2>
+        <p className="mb-5 max-w-3xl text-fd-muted-foreground">
+          Because everything is one declarative artifact, a coding agent can
+          drive the whole loop programmatically — and customise it at every
+          layer without forking the library:
+        </p>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ul className="flex flex-col gap-4 text-sm">
+            <li className="rounded-xl border bg-fd-card p-4">
+              <strong>Launch &amp; sweep.</strong> An agent edits the{' '}
+              <code>ExperimentConfig</code> — flip an algorithm, add a{' '}
+              <code>matrix</code> axis — and a whole campaign of runs expands
+              from one file.
+            </li>
+            <li className="rounded-xl border bg-fd-card p-4">
+              <strong>Register new parts.</strong> Every <code>kind:</code>{' '}
+              resolves through a registry, so an agent can add a brand-new
+              algorithm, verifier, or backend with{' '}
+              <code>@register_algorithm(...)</code> — no SDK edit.
+            </li>
+            <li className="rounded-xl border bg-fd-card p-4">
+              <strong>Learn from results.</strong> Outcomes are structured
+              (<code>ExperimentResult</code> · <code>best_arm</code> ·{' '}
+              <code>conclusion</code>), so an agent can read them and decide the
+              next experiment.
+            </li>
+            <li className="rounded-xl border bg-fd-card p-4">
+              <strong>Train continuously.</strong> Weights chain via{' '}
+              <code>init_from_checkpoint</code>, so models keep learning across
+              experiments instead of starting cold.
+            </li>
+          </ul>
+          <div className="rounded-xl border bg-fd-card p-5">
+            <div className="mb-2 text-xs font-medium text-fd-muted-foreground">
+              what an agent edits
+            </div>
+            <pre className="overflow-x-auto text-left text-xs leading-relaxed">
+              <code>{AGENT_YAML}</code>
+            </pre>
+          </div>
+        </div>
+        <div className="mt-6">
+          <Link
+            href="/docs/concepts/extensibility"
+            className="text-sm font-medium text-fd-primary hover:underline"
+          >
+            Read how the registry pattern works →
+          </Link>
+        </div>
       </section>
     </main>
   );

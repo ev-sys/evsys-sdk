@@ -1,0 +1,47 @@
+# RL — on-policy reinforcement learning (rollouts run by harbor's engine).
+#
+# Data shape: HarborTask ({task_id, instruction, verifier}). Each task carries
+# its own in-process verifier; the runner rolls out the policy on `instruction`
+# and scores the completion with that verifier. The verifier `fn_name` resolves
+# against the SDK's in-process verifier-fn registry — built-ins:
+# exact_match, contains, regex_match, tool_calls_match. `num_samples >= 2`
+# enables the group-relative advantage baseline.
+#
+# Run:  .venv/bin/python examples/configs/run.py examples/configs/rl.yaml
+# (real training needs TINKER_API_KEY and charges a small amount.)
+
+name: example_rl
+output_dir: ./outputs
+
+run:
+  name: rl_smoke
+
+  data:
+    source_kind: in_memory
+    rows:
+      - task_id: t0
+        instruction: "What is 2 + 2? Put the final answer in <answer></answer>."
+        verifier: {kind: in_process, fn_name: contains, expected: "<answer>4</answer>"}
+      - task_id: t1
+        instruction: "What is 3 + 5? Put the final answer in <answer></answer>."
+        verifier: {kind: in_process, fn_name: contains, expected: "<answer>8</answer>"}
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: rl
+    params:
+      learning_rate: 1.0e-5
+      max_steps: 2
+      batch_size: 1
+      lora_rank: 1
+      num_samples: 2
+      max_tokens: 256
+      temperature: 1.0
+      max_turns: 1
+      user_template: "{prompt}"
+      save_at_fractions: [1.0]

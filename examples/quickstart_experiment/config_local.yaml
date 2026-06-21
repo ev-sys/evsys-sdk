@@ -1,0 +1,39 @@
+# Real local SFT — the same experiment as config.yaml, but actually training.
+#
+# Swaps the mock backend for `local` (transformers + TRL + peft): trains a LoRA
+# adapter on Qwen3-0.6B. No GPU required — runs on CPU/MPS in ~1 minute for 5
+# steps. First run downloads the model (~1.2 GB).
+name: quickstart_local
+output_dir: ./outputs
+log_store:
+  kind: jsonl
+
+run:
+  name: local_sft_run
+  data:
+    source_kind: in_memory
+    rows:
+      - {query: "save a contact", tool_slug: OUTLOOK_CREATE_CONTACT, toolkit: OUTLOOK, description: "..."}
+      - {query: "edit a slack message", tool_slug: SLACK_UPDATES_A_SLACK_MESSAGE, toolkit: SLACK, description: "..."}
+    transforms:
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
+  model:
+    name: Qwen/Qwen3-0.6B
+  algorithm:
+    kind: local_sft
+    params:
+      num_epochs: 1
+      per_device_train_batch_size: 1
+      max_steps: 5            # bump to 100-500 for real training
+      max_seq_len: 256
+      lora_rank: 4
+      lora_alpha: 8
+      warmup_steps: 2
+      logging_steps: 1
+      save_steps: 5
+  backend:
+    kind: local
+    params:
+      dtype: float32          # bfloat16 on CUDA
+      device: cpu             # cuda / mps if available

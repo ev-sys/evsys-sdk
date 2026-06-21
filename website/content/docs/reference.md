@@ -44,8 +44,7 @@ schema defines the legal mutation space.
 
 ```bash
 cd evsys-sdk
-uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[tinker,local,tensorboard]"
+uv sync && source .venv/bin/activate
 ```
 
 Optional dependency extras (`pyproject.toml`):

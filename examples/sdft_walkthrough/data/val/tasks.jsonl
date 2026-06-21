@@ -1,0 +1,2 @@
+{"task_id": "val_0", "instruction": "What is the capital of Germany? Answer with just the city name.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "Berlin"}}
+{"task_id": "val_1", "instruction": "What is the capital of Spain? Answer with just the city name.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "Madrid"}}

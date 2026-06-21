@@ -1,0 +1,131 @@
+---
+title: Backends
+description: The compute plane that materializes a model and hands training resources to the algorithm.
+---
+
+A **backend** is the seam between an algorithm and the machine that runs it. Its
+one job is to materialize a model plus its training resources (a client, a
+tokenizer, a service handle) and pass them along so the algorithm stays
+hardware-agnostic. You'd write your own to put the SDK on any **Tinker-compatible**
+training server — anything that exposes the Tinker training-server API, such as
+Fireworks, TML, or SkyRL — without touching algorithm code.
+
+## The contract
+
+A backend is any class satisfying the `Backend` protocol in
+`src/evsys_sdk/protocols.py`. It declares one ClassVar and implements two methods:
+
+- **`name: ClassVar[str]`** — the registry key, also the string you write under
+  `backend.kind` in YAML (`"tinker"`, `"local"`, `"mock"`).
+- **`Config: ClassVar[type]`** — a Pydantic model (`extra="forbid"`) describing
+  the backend's params. Whatever you put under `backend.params` in YAML is
+  validated against this before the backend is constructed.
+
+- **`prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]`**
+  Called once before training. Both arguments are keyword-only.
+  - `model` — a dict describing the model to fine-tune. It carries at least
+    `model["name"]` (the HuggingFace identifier), and optionally
+    `model["load_checkpoint_path"]`, `model["init_from_checkpoint"]`, and
+    `model["renderer_name"]` (these come straight from the YAML `model:` block).
+  - `run_dir` — the local filesystem directory this run may write to.
+  - **Returns** a dict of backend-specific *handles* that the runner attaches to
+    `ctx.extras["backend_handles"]`. The algorithm reads from it — e.g. a tinker
+    run needs `{"backend": "tinker", "service_client": ..., "model_name": ...,
+    "renderer_name": ..., "run_dir": ...}`; a local run needs
+    `{"model": <hf_model>, "tokenizer": ..., ...}`. The keys are a private
+    contract between a backend and the algorithms that target it.
+
+- **`teardown(self, handles: dict[str, Any]) -> None`**
+  Called once after training to release whatever `prepare` allocated. `handles`
+  is exactly the dict `prepare` returned. Returns nothing. (`MockBackend` and
+  `TinkerBackend` no-op here; `LocalBackend` drops the model and empties the
+  CUDA/MPS cache.)
+
+The `Algorithm` protocol is deliberately *not* parameterized by `Backend`. The
+registry routes a `(recipe.kind, backend.kind)` pair to a concrete algorithm
+instead, so a backend never knows which recipe will run against it.
+
+## Use a built-in
+
+```yaml
+model:
+  name: Qwen/Qwen3.5-4B
+  renderer_name: qwen3        # optional Tinker chat-renderer hint
+backend:
+  kind: tinker                # mock | local | tinker
+  params:
+    api_key_env: TINKER_API_KEY   # env var read at prepare()-time
+```
+
+| Built-in | What it does |
+|---|---|
+| `tinker` | Creates a `tinker.ServiceClient` (Tinker-compatible server); returns it plus `model_name` and checkpoint/renderer hints. The real LoRA training client is allocated later by the algorithm. Reads the API key from `api_key_env` (default `TINKER_API_KEY`); `base_url` overrides the service URL. |
+| `local` | Loads an HF tokenizer + `AutoModelForCausalLM` via transformers; returns the model + tokenizer for the TRL-based `local_*` algorithms. Params: `dtype` (`bfloat16`/`float16`/`float32`), `device` (`auto`/`cpu`/`cuda`/`mps`), `trust_remote_code`. |
+| `mock` | Deterministic, no I/O. `prepare` returns a stub dict; `teardown` is a no-op. For tests. Param `fail_on_prepare` forces `prepare` to raise. |
+
+## Create your own
+
+```python
+from typing import Any, ClassVar
+from pydantic import BaseModel, ConfigDict
+from evsys_sdk.registry import register_backend
+
+
+class FireworksBackendConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # a YAML typo fails loudly
+    api_key_env: str = "FIREWORKS_API_KEY"
+    base_url: str = "https://api.fireworks.ai/tinker"
+
+
+@register_backend("fireworks")
+class FireworksBackend:
+    name: ClassVar[str] = "fireworks"
+    Config: ClassVar[type] = FireworksBackendConfig
+
+    def __init__(self, *, api_key_env: str = "FIREWORKS_API_KEY",
+                 base_url: str = "https://api.fireworks.ai/tinker") -> None:
+        self.api_key_env = api_key_env
+        self.base_url = base_url
+
+    def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
+        import os, tinker  # Tinker-compatible server speaks the tinker API
+        api_key = os.environ[self.api_key_env]
+        os.environ[self.api_key_env] = api_key
+        service_client = tinker.ServiceClient(base_url=self.base_url)
+        return {
+            "backend": "tinker",          # so tinker-targeting algorithms accept it
+            "service_client": service_client,
+            "model_name": model["name"],
+            "renderer_name": model.get("renderer_name"),
+            "run_dir": run_dir,
+        }
+
+    def teardown(self, handles: dict[str, Any]) -> None:
+        return None
+```
+
+```yaml
+backend:
+  kind: fireworks
+  params:
+    api_key_env: FIREWORKS_API_KEY
+```
+
+## Ship it in a package
+
+A third-party package self-registers via a Python entry point in the
+`evsys_sdk.backends` group:
+
+```toml
+[project.entry-points."evsys_sdk.backends"]
+fireworks = "my_pkg.backends:FireworksBackend"
+```
+
+Importing `evsys_sdk` walks that group and imports the target module, running its
+`@register_backend` decorator — your backend is available by name with no SDK fork.
+
+<Cards>
+  <Card title="Algorithms" href="/docs/concepts/plugins/algorithms" />
+  <Card title="Agents" href="/docs/concepts/plugins/agents" />
+  <Card title="Extensibility" href="/docs/concepts/extensibility" />
+</Cards>

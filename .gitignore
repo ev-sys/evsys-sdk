@@ -12,8 +12,12 @@ build/
 dist/
 .DS_Store
 
+# Secrets — never commit API keys
+.env
+.env.*
+
 # Training outputs — checkpoints, model weights, logs (generated at runtime)
-examples/outputs/07/
+examples/outputs/
 outputs/
 
 # Skill-generated configs (created by /train-local, not hand-authored)

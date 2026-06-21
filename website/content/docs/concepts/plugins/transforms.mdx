@@ -1,0 +1,120 @@
+---
+title: Transforms
+description: Ordered row-rewriters that turn raw dataset rows into the standardized rows your algorithm consumes.
+---
+
+A **transform** is a small, named function-object that rewrites the rows of a
+dataset. Raw data on disk (`{query, answer, ...}`) almost never matches the
+shape an algorithm wants (`{messages: [...]}`); transforms bridge that gap. You
+list them on a dataset, they run **in order**, and each one takes the rows the
+previous one emitted. Write your own when your raw data has a layout no built-in
+knows how to read.
+
+## The contract
+
+The protocol lives in `src/evsys_sdk/protocols.py` as `class Transform(Protocol)`.
+A transform is any object that declares two class vars and is *callable*:
+
+- **`name: ClassVar[str]`** — the registry key. This is the exact string you put
+  as `kind:` in YAML.
+- **`Config: ClassVar[type]`** — a Pydantic model (with `extra="forbid"`)
+  describing the transform's params. The factory validates the `params:` block
+  from YAML against this model before constructing the transform, so an unknown
+  or mistyped param fails loudly instead of being silently ignored.
+- **`def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]`**
+  — the one method. It receives `rows`, an iterable of plain dicts (one dict per
+  data row, exactly as read from the JSONL/parquet source or as emitted by the
+  previous transform), and returns an iterable of dicts. There is no fixed schema
+  on the dicts — keys are whatever your data has. The convention is **additive**:
+  keep the original keys and add new ones (`yield {**row, "messages": ...}`) so a
+  later transform or the algorithm can still see the source fields. Returning a
+  generator is fine and encouraged — rows stream through lazily.
+
+Because transforms are chained, the *output row shape of one transform is the
+input row shape of the next*. The last transform in the list must emit rows in
+whatever standardized shape the algorithm expects (e.g. SFT wants a `messages`
+list; an RL data path wants `HarborTask`-shaped rows).
+
+## Use a built-in
+
+```yaml
+data:
+  dataset_name: my_corpus
+  transforms:
+    - kind: jsonl_to_chat
+      params:
+        system_prompt: "You are a careful math tutor."
+        user_template: "{query}"
+        assistant_template: "{answer}"
+```
+
+| Built-in | What it does |
+|---|---|
+| `jsonl_to_chat` | Turns each raw row into `{..., "messages": [...]}`. Adds a `system` message if `system_prompt` is set, a `user` message from `user_template.format(**row)`, and — if `assistant_template` is given (SFT) — an `assistant` message from `assistant_template.format(**row)`. Templates are Python format strings whose `{field}` placeholders pull from the row's keys. |
+| `identity` | Pass-through: returns the rows unchanged (`iter(rows)`). Useful for tests or when raw data is already in the right shape. Its `Config` has no fields. |
+
+## Create your own
+
+```python
+from typing import Any, ClassVar, Iterable
+
+from pydantic import BaseModel, ConfigDict
+
+from evsys_sdk.registry import register_transform
+
+
+class PrefixConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # reject unknown params
+    field: str = "query"          # which row key to prefix
+    prefix: str = "Q: "           # text to prepend
+
+
+@register_transform("prefix_query")          # registry key == YAML kind
+class PrefixQueryTransform:
+    name: ClassVar[str] = "prefix_query"
+    Config: ClassVar[type] = PrefixConfig
+
+    # The factory constructs you with the validated Config fields as kwargs.
+    def __init__(self, *, field: str = "query", prefix: str = "Q: ") -> None:
+        self.field = field
+        self.prefix = prefix
+
+    # Receives raw rows, yields rewritten rows. Stay additive: keep all keys.
+    def __call__(
+        self, rows: Iterable[dict[str, Any]]
+    ) -> Iterable[dict[str, Any]]:
+        for row in rows:
+            yield {**row, self.field: f"{self.prefix}{row[self.field]}"}
+```
+
+Then reference it by its registered name in YAML:
+
+```yaml
+data:
+  dataset_name: my_corpus
+  transforms:
+    - kind: prefix_query
+      params: {field: query, prefix: "Question: "}
+    - kind: jsonl_to_chat
+      params: {user_template: "{query}", assistant_template: "{answer}"}
+```
+
+## Ship it in a package
+
+To register a transform from a separate pip package (no SDK edit, no import in
+your project), declare a Python **entry point** under the group
+`evsys_sdk.transforms` in that package's `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.transforms"]
+prefix_query = "my_pkg.transforms:PrefixQueryTransform"
+```
+
+On import, `evsys_sdk` walks that group and loads each target, running its
+`@register_transform` decorator.
+
+<Cards>
+  <Card title="✅ Verifiers" href="/docs/concepts/plugins/verifiers" />
+  <Card title="📊 Metrics" href="/docs/concepts/plugins/metrics" />
+  <Card title="🧩 Extensibility" href="/docs/concepts/extensibility" />
+</Cards>

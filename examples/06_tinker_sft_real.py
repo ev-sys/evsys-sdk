@@ -1,7 +1,7 @@
 """06 — real Tinker SFT (small).
 
 Requires:
-  pip install -e .[tinker]
+  uv sync
   TINKER_API_KEY env var set
 
 This will charge a small amount against your Tinker quota. ~$0.01.

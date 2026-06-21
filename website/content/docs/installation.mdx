@@ -5,27 +5,18 @@ description: Get evsys-sdk installed and run your first experiment without a GPU
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/) (recommended) for environment management
 
 ## Install
 
 ```bash
 cd evsys-sdk
-uv venv .venv
+uv sync
 source .venv/bin/activate
-uv pip install -e ".[tinker,local,tensorboard]"
 ```
 
-The extras are optional:
-
-| Extra | Pulls in | Use it for |
-| --- | --- | --- |
-| `tinker` | Tinker client | Hosted SFT / RL training |
-| `local` | TRL + peft | Training on your own GPU |
-| `tensorboard` | TensorBoard log store | Local metric dashboards |
-
-For real Tinker training, also export your key:
+For real Tinker training, export your key:
 
 ```bash
 export TINKER_API_KEY=...

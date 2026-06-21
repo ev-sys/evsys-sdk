@@ -1,0 +1,77 @@
+# SFT walkthrough — the full beginner feature set in one config.
+#
+# What this demonstrates:
+#   * raw JSONL training data referenced BY PATH (data/train.jsonl)
+#   * a `jsonl_to_chat` transform that turns each raw row into a chat
+#     conversation (the supervised span is the algorithm's job, not the data's)
+#   * the built-in `sft` algorithm on the hosted `tinker` backend
+#   * in-loop validation against a benchmark, scored every step
+#     (metadata.benchmark, with run_every > 0)
+#   * local logging via the `local_logger` callback (metrics.jsonl + summary.md)
+#
+# Validate (no GPU, no network, no cost):
+#   .venv/bin/evsys validate examples/sft_walkthrough/config.yaml --deep
+#
+# Run for real (needs TINKER_API_KEY and charges a small amount):
+#   .venv/bin/python examples/sft_walkthrough/run.py
+
+name: sft_walkthrough
+description: Beginner SFT walkthrough — data-by-path, transform, in-loop val, local logging.
+output_dir: ./outputs
+
+# Logger callbacks live on the EXPERIMENT (not the run). local_logger prints a
+# per-step one-liner AND writes <output_dir>/<run_key>/{metrics.jsonl,
+# predictions/, summary.md}.
+callbacks:
+  - kind: local_logger
+    params:
+      print_every: 1
+
+run:
+  name: sft_tool_selection
+
+  data:
+    # Raw JSONL referenced by path (relative to CWD, or absolute). Each line is
+    # one raw object: {"query": "...", "tool_slug": "..."}.
+    source_kind: jsonl
+    path: examples/sft_walkthrough/data/train.jsonl
+    transforms:
+      # Build the chat conversation from each raw row. assistant_template makes
+      # this an SFT target; the algorithm's `supervise` decides which tokens
+      # actually carry loss.
+      - kind: jsonl_to_chat
+        params:
+          system_prompt: "You select the single best tool for the user's query."
+          user_template: "Query: {query}\nReply with the tool slug inside <answer></answer>."
+          assistant_template: "<answer>{tool_slug}</answer>"
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: sft
+    params:
+      learning_rate: 1.0e-4
+      max_steps: 4
+      batch_size: 1
+      lora_rank: 1
+      max_seq_len: 2048
+      supervise: all_assistant
+      save_at_fractions: [1.0]
+
+# In-loop validation. `metadata.benchmark` is read by
+# training/evaluators.py::build_in_loop_evaluators: every entry with
+# run_every > 0 becomes an evaluator scored against the live sampler.
+# `path` points at a harbor benchmark DIRECTORY containing tasks.jsonl.
+metadata:
+  benchmark:
+    - name: val
+      path: examples/sft_walkthrough/data/val
+      run_every: 1          # score every step (set higher for less frequent val)
+      metrics: [pass@1]      # registered metric; pass@1 = fraction with reward >= 1
+      max_tokens: 64
+      temperature: 0.0
+      limit: 3               # cap tasks scored per eval (optional)

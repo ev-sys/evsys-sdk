@@ -45,11 +45,11 @@ repo — [`trajectory-ai/evsys-sdk-docs`](https://github.com/trajectory-ai/evsys
 To publish (refresh the API reference first if the SDK changed):
 
 ```bash
-pnpm gen:api      # optional: re-introspect evsys_sdk
-pnpm deploy       # build with PAGES_BASE_PATH=/evsys-sdk-docs and force-push out/ to the public repo
+pnpm gen:api          # optional: re-introspect evsys_sdk
+pnpm run publish:site # build with PAGES_BASE_PATH=/evsys-sdk-docs and force-push out/ to the public repo
 ```
 
-`pnpm deploy` runs `scripts/deploy.sh`. The `PAGES_BASE_PATH` env var sets the
+`pnpm run publish:site` runs `scripts/deploy.sh`. The `PAGES_BASE_PATH` env var sets the
 project-pages sub-path; local `pnpm build` / `pnpm dev` leave it empty so the
 site works at `localhost`.
 

@@ -1,0 +1,30 @@
+# Minimal local mock SFT — the quickstart experiment.
+#
+# The mock backend + mock_sft algorithm produce a deterministic loss curve and
+# saved checkpoints, so you can verify the wiring with no GPU and no network.
+# Swap `backend.kind` to `local` (TRL+peft) or `tinker` (hosted) for real training.
+name: quickstart_experiment
+output_dir: ./outputs
+log_store:
+  kind: jsonl
+
+run:
+  name: mock_sft_run
+  data:
+    source_kind: in_memory
+    rows:
+      - {query: "save a contact", tool_slug: OUTLOOK_CREATE_CONTACT, toolkit: OUTLOOK, description: "..."}
+      - {query: "edit a slack message", tool_slug: SLACK_UPDATES_A_SLACK_MESSAGE, toolkit: SLACK, description: "..."}
+    transforms:
+      - kind: jsonl_to_chat
+        params: {user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>"}
+  model:
+    name: tiny/fake
+  algorithm:
+    kind: mock_sft
+    params:
+      num_epochs: 1
+      batch_size: 1
+      save_at_fractions: [0.5, 1.0]
+  backend:
+    kind: mock

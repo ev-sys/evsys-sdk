@@ -1,0 +1,97 @@
+---
+title: Metrics
+description: Reducers that collapse per-task, per-sample rewards into one benchmark scalar.
+---
+
+A **metric** reduces a benchmark's raw rewards to a single number. A benchmark
+scores each task by running its verifier on `num_samples` rollouts, producing a
+list of per-sample rewards per task; a metric takes that whole `list[list[float]]`
+and returns one float (`pass_rate`, `pass@3`, …). You list metrics by name on a
+benchmark and write your own when you need a reduction the built-ins don't cover.
+
+## The contract
+
+Defined in `src/evsys_sdk/protocols.py` as `class Metric(Protocol)`. A metric is
+simpler than the other plugins — it has **no `Config`** (metrics take no params):
+
+- **`name: ClassVar[str]`** — registry key; the string you put on a benchmark's
+  `metrics:` list.
+- **`def compute(self, task_rewards: Sequence[Sequence[float]]) -> float`** — the
+  one method. `task_rewards` is a sequence of sequences: **one inner sequence per
+  task**, holding that task's per-sample rewards. (So `task_rewards[i][j]` is the
+  reward of sample `j` on task `i`.) It returns a single `float` — the aggregated
+  score for the benchmark. A sample is treated as "passing" when its reward
+  clears `PASS_THRESHOLD` (`1.0`, defined in `metrics/basic.py`).
+
+## Use a built-in
+
+```yaml
+benchmark:
+  num_samples: 3
+  metrics: [pass_rate, pass@1, pass@3]
+```
+
+| Built-in | What it does |
+|---|---|
+| `mean_reward` | **Macro** mean reward: for each task take the mean of its samples, then average those task-means. Empty tasks are skipped; returns `0.0` if there are none. |
+| `avg` | Alias of `mean_reward` (same `compute`, different name). |
+| `pass_rate` | **Micro** pass rate: total passing samples ÷ total samples, pooled across all tasks (`0.0` if no samples). |
+| `pass@1` | Fraction of tasks where **any** of the first **1** sample passes. |
+| `pass@3` | Fraction of tasks where **any** of the first **3** samples passes (`any(_passes(r) for r in rs[:3])`). |
+| `pass^3` | "pass-hat-3" / consistency: fraction of tasks where **all** of the first **3** samples pass. |
+
+> **Economics metrics come free, separately.** Per-task **time, tokens, and
+> cost** are *not* part of this metric registry. They are harbor-native: they
+> come from each rollout's usage (surfaced via `Trajectory.metadata['usage']`
+> and aggregated into eval metrics), so you get them automatically without
+> registering or listing anything. The metric registry here is only for reducing
+> *rewards* to a scalar.
+
+## Create your own
+
+```python
+from typing import ClassVar, Sequence
+
+from evsys_sdk.registry import register_metric
+
+PASS = 1.0
+
+
+@register_metric("worst_task")       # registry key == name on metrics: list
+class WorstTask:
+    name: ClassVar[str] = "worst_task"
+    # No Config — metrics take no params.
+
+    # One inner sequence per task; returns one scalar for the benchmark.
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        tasks = [rs for rs in task_rewards if rs]   # drop empty tasks
+        if not tasks:
+            return 0.0
+        # Each task's mean sample reward; report the lowest (the weakest task).
+        means = [sum(rs) / len(rs) for rs in tasks]
+        return min(means)
+```
+
+```yaml
+benchmark:
+  num_samples: 3
+  metrics: [mean_reward, worst_task]
+```
+
+## Ship it in a package
+
+Register a metric from a separate pip package via the entry-point group
+`evsys_sdk.metrics` in its `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.metrics"]
+worst_task = "my_pkg.metrics:WorstTask"
+```
+
+`evsys_sdk` walks that group on import and runs the `@register_metric` decorator.
+
+<Cards>
+  <Card title="🔧 Transforms" href="/docs/concepts/plugins/transforms" />
+  <Card title="✅ Verifiers" href="/docs/concepts/plugins/verifiers" />
+  <Card title="🧩 Extensibility" href="/docs/concepts/extensibility" />
+</Cards>

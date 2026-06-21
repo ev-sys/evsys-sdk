@@ -1,89 +1,103 @@
 ---
 title: Introduction
-description: A declarative framework for LLM training experiments — SFT, RL, and distillation from a single YAML, with pluggable algorithms, verifiers, metrics, and backends.
+description: A declarative framework for LLM training experiments — SFT, RL, and distillation from a single YAML, built so coding agents can launch experiments, learn from them, and train models continuously.
 ---
 
-`evsys-sdk` is a declarative framework for LLM training experiments — **SFT,
-RL, and distillation driven by a single YAML**, with a registry pattern for
-pluggable algorithms, verifiers, metrics, and backends. It runs on
-[Harbor](/docs/concepts/algorithms) for rollouts and pushes results to the
-EvolvingSystems dashboard.
+We believe there will not be a few generally intelligent models that everyone
+uses, but **thousands of models adapted for every task**, continually learning
+from every interaction. To enable this we need infrastructure that lets
+**coding agents launch experiments, learn from them, and train models that
+learn continuously**. `evsys-sdk` is the first step toward that.
 
-The whole mental model is one line:
+This is the whole point of `evsys-sdk`: **turn your favourite coding agent into
+a model lab.**
 
-> **`config.yaml` → `Experiment` → arms → backend → eval → artifacts**
+To enable autoresearch we need **standardisation** of experiments — and
+`evsys-sdk` standardises every experiment while staying flexible enough to run
+**any algorithm on any data**.
 
-```mermaid
-flowchart LR
-    YAML["config.yaml<br/>single declarative spec"] --> EXP["Experiment"]
-    EXP -->|"expand arms / sweep"| RUNS["Run 1..N<br/>concurrent arms"]
-    DATA[("Dataset<br/>data only")] --> ALG
-    RUNS --> ALG{"Algorithm<br/>SFT · RL · Distill"}
-    ALG -->|"rollouts via Harbor"| BACK["Backend<br/>local · tinker · fireworks"]
-    BACK --> EVAL["Eval<br/>verifiers + metrics"]
-    EVAL --> ART[("Artifacts<br/>checkpoints · scores")]
-    ART -.->|"dashboard / .evsys"| DASH["Dashboard"]
-    ART -.->|"init_from_checkpoint"| EXP
-```
+Tinker-protocol training infrastructure has made the hard part — provisioning
+GPUs, sharding, the training loop — someone else's problem. What's left is the
+*research*: which **data** and which **recipe** produce a model that wins on
+your task. `evsys-sdk` makes that research the only thing you (and your agent)
+touch, and standardizes + centralizes every experiment so the agent always has
+the context of what's been tried.
 
-## See it
+So the loop becomes: your coding agent — **Claude Code**, **Codex**, anything —
+writes a config, launches it on the tinker backend, reads the structured
+result, and writes the next one. Run a series of educated experiments and you
+land a small, task-specific model that **beats frontier on your task at a
+fraction of the cost** — driven entirely by the agent.
 
-A complete experiment is one file plus one command:
+An experiment is a single YAML file.
 
-```yaml title="config.yaml"
-name: sft-smoke-test
-run:
-  data:
-    source: { kind: jsonl, params: { path: data/train.jsonl } }
-    transforms: [{ kind: jsonl_to_chat }]
-  model: { name: meta-llama/Llama-3.2-1B }
-  algorithm: { kind: sft, params: { epochs: 1, lr: 2.0e-5 } }
-  backend: { kind: mock }
-```
+<TopLevelFlow />
 
-```bash
-evsys validate config.yaml --deep
-evsys run config.yaml
-```
+<div className="grid gap-4 md:grid-cols-2 my-6">
 
-## Start here
+<div className="rounded-xl border bg-fd-card p-5">
+
+#### 🧑‍💻 Coding agents customise
+
+- **Data ablations** — what data goes into training (sources, mixes, transforms).
+- **Algorithmic changes** — only the heavy math: override `build_batch()` and the loss.
+
+</div>
+
+<div className="rounded-xl border bg-fd-card p-5">
+
+#### ⚙️ The SDK handles everything else
+
+- **Experiment orchestration** — sweeps, arms, seeds, failure isolation, conclusions.
+- **Data** — loading, caching & lineage → data format rows.
+- **The training loop** — forward/backward, optimizer steps, save cadence.
+- **Checkpointing & artifacts.**
+- **Evaluation** — in-loop validation + benchmark scoring, metrics & verifiers.
+- **Backends & compute** — mock / local / tinker, rollouts via Harbor.
+- **Logging, dashboard & storage.**
+
+</div>
+
+</div>
+
+## What you can plug in
+
+Every moving part is a registry: reference a built-in by name in the YAML, or
+register your own with a one-line `@register_*` decorator — no fork.
+
+- **Tinker-compatible backends** — train on anything that exposes the Tinker
+  training server: Fireworks, TML, SkyRL, … one line in the config switches provider.
+- **Algorithms** — any recipe under the sun (SFT, RL, distillation, or your
+  own), LoRA on any model — defined by overriding a single `build_batch()`.
+- **Agent harnesses** — train a model *inside* your own multi-turn harness (any
+  harbor `BaseAgent`) so it learns to use your tools — the way Opus is trained
+  inside the Claude Code harness.
+- **Transforms** — turn any raw data into the standard data-format rows; chain
+  built-ins or register your own.
+- **Verifiers** — the reward / correctness check for RL and eval
+  (`exact_match`, `contains`, LLM-judge, or custom).
+- **Metrics** — score rollouts however you measure success: `pass@1`, `pass@3`,
+  cost, latency, your own.
+- **Validation & evaluation** — score against benchmarks via `metadata.benchmark`:
+  `run_every: N` scores in-loop every N steps (omit it to score once after
+  training); the `split` tag (`val`/`test`) just separates the metrics.
+- **Inference clients** — how eval / RL query a model to generate.
+- **Data & log stores** — where data is read and where metrics/artifacts are
+  written (local files, the dashboard, TensorBoard).
+- **Callbacks** — hook the training lifecycle for logging, early stopping, or
+  dashboard upload.
+- **Deployers** — ship the trained adapter (e.g. Fireworks) with one line.
+
+## Next steps
 
 <Cards>
   <Card title="🚀 Quickstart" href="/docs/quickstart">
-    Train your first model in 5 minutes — no GPU, no network.
+    Train your first model in five minutes — no GPU, no network.
+  </Card>
+  <Card title="📦 Installation" href="/docs/installation">
+    Install evsys-sdk and the optional backends.
   </Card>
   <Card title="📐 Architecture" href="/docs/concepts/architecture">
-    The whole system on one screen, then drill into each layer.
-  </Card>
-  <Card title="🧩 Extensibility" href="/docs/concepts/extensibility">
-    Register your own algorithm/verifier/backend — no fork.
-  </Card>
-  <Card title="📖 API reference" href="/docs/evsys_sdk">
-    263 pages auto-generated from the code, always in sync.
+    A guided tour of the five layers and the eight registries.
   </Card>
 </Cards>
-
-## Why evsys-sdk
-
-<Cards>
-  <Card title="One YAML drives everything">
-    `evsys run experiments/sft.yaml` — one file expands into a whole campaign
-    of runs via `matrix`.
-  </Card>
-  <Card title="Pluggable by design">
-    Eight registries. Add a method with `@register_algorithm("dpo")` — see
-    [Extensibility](/docs/concepts/extensibility).
-  </Card>
-  <Card title="SFT · RL · distillation">
-    One tool, one config shape, three training paradigms.
-  </Card>
-  <Card title="Local or hosted">
-    `mock` for tests, `local` for TRL+peft on your GPU, `tinker` for hosted.
-  </Card>
-</Cards>
-
-<Callout title="Built for LLMs too">
-Every page is available as clean Markdown — append nothing or use the **Copy
-Markdown** button, and see [`/llms.txt`](/llms.txt) and
-[`/llms-full.txt`](/llms-full.txt) for the whole corpus in one file.
-</Callout>

@@ -1,0 +1,62 @@
+# RL walkthrough — the full beginner feature set in one config.
+#
+# What this demonstrates:
+#   * raw JSONL tasks referenced BY PATH (data/train.jsonl) — each is a
+#     HarborTask: {task_id, instruction, verifier}
+#   * the verifier IS the reward — the policy rolls out on `instruction` and the
+#     in-process verifier-fn (contains / exact_match / ...) scores the answer
+#   * the built-in `rl` algorithm on the hosted `tinker` backend; rollouts run
+#     on harbor's engine. num_samples >= 2 enables the advantage baseline
+#   * in-loop validation against a benchmark, scored every step
+#   * local logging via the `local_logger` callback
+#
+# Run for real (needs TINKER_API_KEY, charges a small amount):
+#   .venv/bin/python examples/rl_walkthrough/run.py
+
+name: rl_walkthrough
+description: Beginner RL walkthrough — tasks-by-path, verifier reward, in-loop val, local logging.
+output_dir: ./outputs
+
+callbacks:
+  - kind: local_logger
+    params:
+      print_every: 1
+
+run:
+  name: rl_arithmetic
+
+  data:
+    # Raw JSONL tasks. No transform needed — {task_id, instruction, verifier}
+    # is already a HarborTask, so the SDK detects the format directly.
+    source_kind: jsonl
+    path: examples/rl_walkthrough/data/train.jsonl
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: rl
+    params:
+      learning_rate: 1.0e-5
+      max_steps: 2            # bump to 100-500 for a real run
+      batch_size: 1
+      lora_rank: 1
+      num_samples: 2          # >=2 turns on the group-relative advantage baseline
+      max_tokens: 256
+      temperature: 1.0
+      max_turns: 1
+      user_template: "{prompt}"
+      save_at_fractions: [1.0]
+
+metadata:
+  benchmark:
+    - name: val
+      path: examples/rl_walkthrough/data/val
+      run_every: 1
+      metrics: [pass@1]
+      max_tokens: 64
+      temperature: 0.0
+      limit: 2

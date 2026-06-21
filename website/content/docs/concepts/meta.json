@@ -2,9 +2,10 @@
   "title": "Concepts",
   "pages": [
     "architecture",
+    "extensibility",
+    "plugins",
     "experiments",
     "data",
-    "algorithms",
-    "extensibility"
+    "algorithms"
   ]
 }

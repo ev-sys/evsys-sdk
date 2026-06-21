@@ -1,0 +1,2 @@
+{"task_id": "val_0", "instruction": "What is 5 + 5? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>10</answer>"}}
+{"task_id": "val_1", "instruction": "What is 8 + 1? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>9</answer>"}}

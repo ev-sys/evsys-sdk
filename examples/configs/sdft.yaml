@@ -1,0 +1,43 @@
+# SDFT — self-distillation fine-tuning.
+#
+# Data shape: PromptExample ({inputs: {question: ...}, expected: <gold>}). Each
+# step: the student rolls out on the question on-policy, a frozen teacher (the
+# same base model, shown the gold answer as an in-context demo) scores the
+# rollout's top-K tokens, and the student is CE-distilled toward that teacher
+# distribution. The teacher is built automatically from `model.name` — no extra
+# config needed; `topk` controls how many teacher tokens are distilled per step.
+#
+# Run:  .venv/bin/python examples/configs/run.py examples/configs/sdft.yaml
+# (real training needs TINKER_API_KEY and charges a small amount.)
+
+name: example_sdft
+output_dir: ./outputs
+
+run:
+  name: sdft_smoke
+
+  data:
+    source_kind: in_memory
+    rows:
+      - {inputs: {question: "What is the capital of France?"}, expected: "Paris"}
+      - {inputs: {question: "What is the capital of Japan?"},  expected: "Tokyo"}
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: sdft
+    params:
+      learning_rate: 1.0e-4
+      max_steps: 2
+      batch_size: 1
+      lora_rank: 1
+      topk: 20
+      max_context_length: 2048
+      max_tokens: 256
+      temperature: 1.0
+      user_template: "{question}"
+      save_at_fractions: [1.0]
