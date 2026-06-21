@@ -1,0 +1,32 @@
+name: Tinker smoke (e2e)
+
+# Release gate: on PRs into main, actually train SFT, RL, and SDFT for one step
+# each on the hosted tinker backend and assert they run end-to-end. Uses the
+# TINKER_API_KEY repo secret (charges a small amount; runs only on dev -> main).
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: SFT / RL / SDFT smoke on Tinker
+        env:
+          TINKER_API_KEY: ${{ secrets.TINKER_API_KEY }}
+        run: python examples/smoke_e2e.py
