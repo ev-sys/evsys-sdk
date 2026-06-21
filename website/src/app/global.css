@@ -7,6 +7,12 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* API/field signatures written as bold inline code (e.g. method contracts on the
+   plugin pages) pop in the primary colour so each line's header stands out. */
+#nd-page strong > code {
+  color: var(--color-fd-primary);
+}
+
 html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
