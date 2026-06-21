@@ -4,7 +4,9 @@ name: Deploy docs to GitHub Pages
 # https://ev-sys.github.io/evsys-sdk/
 on:
   push:
-    branches: [main, dev, docs/fumadocs-site]
+    # Production only — no dev/staging Pages. (docs/fumadocs-site kept so the
+    # live site updates during the initial rollout; drop it once docs reach main.)
+    branches: [main, docs/fumadocs-site]
     paths:
       - 'website/**'
       - '.github/workflows/deploy-docs.yml'
