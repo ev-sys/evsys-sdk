@@ -7,7 +7,6 @@
     "dev": "next dev",
     "start": "serve out",
     "gen:api": "../.venv/bin/fumapy-generate evsys_sdk --dir . && node scripts/generate-docs.mjs",
-    "publish:site": "bash scripts/deploy.sh",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
     "postinstall": "fumadocs-mdx"
   },
