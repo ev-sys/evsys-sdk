@@ -8,9 +8,12 @@ html {
 }
 
 /* API/field signatures written as bold inline code (e.g. method contracts on the
-   plugin pages) pop in the primary colour so each line's header stands out. */
+   plugin pages) pop in a distinct blue so each line's header stands out. */
 #nd-page strong > code {
-  color: var(--color-fd-primary);
+  color: #2563eb; /* light mode */
+}
+.dark #nd-page strong > code {
+  color: #8ab4ff; /* dark mode */
 }
 
 html > body[data-scroll-locked] {
