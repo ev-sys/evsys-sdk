@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
+    # --- Core ---
     "pydantic>=2.10",
     "pyyaml>=6.0",
     "typing-extensions>=4.12",
@@ -13,50 +14,33 @@ dependencies = [
     # Harbor is THE rollout engine for RL/SDFT (Job/Trial runner + TinkerLLM
     # sampler). Not optional — the SDK has no built-in rollout loop of its own.
     "harbor>=0.13.2",
-]
-
-[project.optional-dependencies]
-tinker = [
+    # --- Tinker hosted training ---
     # Pinned: the importance_sampling loss inputs (target_tokens/logprobs/advantages,
     # no mask/weights) are validated against this exact server/SDK version.
     "tinker==0.22.3",
     "tinker-cookbook==0.4.2",
     "chz",
-]
-local = [
+    # --- Local training (TRL + peft on your own GPU) ---
     "torch>=2.4",
     "transformers>=4.40",
     "trl>=0.20",
     "peft>=0.10",
     "datasets>=2.20",
     "accelerate>=0.30",
-]
-supabase = [
-    "requests>=2.32",
-]
-tensorboard = [
+    # --- Logging & plotting ---
     "tensorboard>=2.16",
-]
-plot = [
     "matplotlib>=3.8",
-]
-claude = [
+    # --- Frontier / API-model inference + benchmarks ---
     "anthropic>=0.40",
-]
-gemini = [
     "google-genai>=0.5",
-]
-openai = [
     "openai>=1.40",
-]
-gepa = [
+    # --- Prompt optimization ---
     "gepa>=0.0.7",
 ]
-frontier = [
-    "anthropic>=0.40",
-    "google-genai>=0.5",
-    "openai>=1.40",
-]
+
+[project.optional-dependencies]
+# Everything needed to run the SDK ships in the base install above. Only the
+# development toolchain stays optional.
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

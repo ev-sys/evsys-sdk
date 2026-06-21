@@ -275,6 +275,30 @@ class TrainingLoop:
 
         batch = await self.step_builder.build_batch(step)
 
+        # A step can legitimately yield no trainable data — e.g. RL with
+        # ``drop_constant_reward`` when every sampled group has identical reward
+        # (no advantage signal). Skip the gradient update instead of crashing
+        # the backend on an empty batch; still log progress and run any due eval.
+        if not batch.data:
+            logger.warning(
+                "step %d produced an empty batch (no trainable data) — skipping "
+                "the gradient update for this step.", step,
+            )
+            skip_metrics: dict[str, float] = {
+                self._keys.step: float(step),
+                self._keys.done_frac: float(step + 1) / float(num_steps),
+                self._keys.optim_lr: float(self.adam_params.learning_rate),
+                "train/skipped_empty_batch": 1.0,
+            }
+            skip_metrics.update(batch.metrics)
+            self.log_store.log_metrics(skip_metrics, step=step)
+            if state is not None:
+                self._dispatch("on_step_end", state, step, batch, skip_metrics)
+            due = [ev for ev in self.evaluators if self._is_due(ev, step)]
+            if due:
+                await self._run_eval(step, due, state)
+            return
+
         # Dispatch loss based on whether it's a name (server-side) or a
         # callable (client-side custom). Custom losses don't take
         # ``loss_fn_config`` — they're closures.
@@ -363,10 +387,11 @@ class TrainingLoop:
                     "evaluator %r raised at step %d; continuing", ev.name, step
                 )
                 continue
+            split = getattr(ev, "split", "val")
             self.log_store.log_metrics(
-                {f"val/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
+                {f"{split}/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
                 step=step + 1,
-                split="val",
+                split=split,
             )
             if state is not None:
                 self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))

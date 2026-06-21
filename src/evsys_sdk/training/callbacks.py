@@ -624,7 +624,13 @@ class LocalLoggerCallback(Callback):
     Writes ``<output_dir>/<run_key>/`` : ``metrics.jsonl`` (train + val rows),
     ``predictions/<name>.jsonl`` (per benchmark), and ``summary.md`` at
     run end. The "print what's happening" requirement is the per-step one-liner
-    (cadence ``print_every``)."""
+    (cadence ``print_every``).
+
+    It also persists the experiment-scope **hypothesis** and **conclusion** to
+    ``<output_dir>/experiment.md`` (hypothesis at experiment start, conclusion
+    at experiment end) — so the local mirror carries them even with no
+    dashboard. The hypothesis is also echoed into each run's ``summary.md``
+    header."""
 
     name: ClassVar[str] = "local_logger"
     Config: ClassVar[type] = LocalLoggerConfig
@@ -635,6 +641,23 @@ class LocalLoggerCallback(Callback):
         self._dir: Path | None = None
         self._metrics_fp: Any = None
         self._evals: list[dict] = []
+        self._hypothesis: str | None = None
+
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        # Mirror evsys_logger's access: hypothesis lives on the config metadata.
+        meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        self._hypothesis = meta.get("hypothesis")
+        self._write_experiment_md(ctx, conclusion=None)
+
+    def _write_experiment_md(self, ctx: LogContext, *, conclusion: str | None) -> None:
+        out = Path(ctx.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        name = getattr(ctx.config, "name", None) if ctx.config else None
+        lines = [f"# {name or 'experiment'}", ""]
+        lines.append(f"- hypothesis: {self._hypothesis or '(none)'}")
+        if conclusion is not None:
+            lines.append(f"- conclusion: {conclusion}")
+        (out / "experiment.md").write_text("\n".join(lines) + "\n")
 
     def on_run_start(self, ctx: LogContext) -> None:
         self._dir = Path(ctx.output_dir) / (ctx.run_key or "run")
@@ -690,6 +713,8 @@ class LocalLoggerCallback(Callback):
     def on_run_end(self, ctx, run_result, arm) -> None:
         if self._dir is not None:
             lines = [f"# {ctx.run_key}", ""]
+            if self._hypothesis:
+                lines.append(f"- hypothesis: {self._hypothesis}")
             status = getattr(run_result, "status", None)
             lines.append(f"- status: {status}")
             for ev in self._evals:
@@ -702,6 +727,14 @@ class LocalLoggerCallback(Callback):
                 self._metrics_fp.close()
             finally:
                 self._metrics_fp = None
+
+    def on_experiment_end(self, ctx, result) -> None:
+        # Persist the conclusion (and hypothesis) once the experiment finishes.
+        # The ExperimentResult also carries the hypothesis — prefer it if we
+        # never saw on_experiment_start (e.g. driven hook-by-hook).
+        if self._hypothesis is None:
+            self._hypothesis = getattr(result, "hypothesis", None)
+        self._write_experiment_md(ctx, conclusion=getattr(result, "conclusion", None))
 
 
 class EvsysLoggerConfig(BaseModel):

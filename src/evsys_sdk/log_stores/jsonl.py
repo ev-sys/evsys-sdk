@@ -55,8 +55,12 @@ class JSONLLogStore:
     def log_scalar(self, key: str, value: float, step: int) -> None:
         self._append({"ts": time.time(), "step": step, "metrics": {key: value}})
 
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
-        self._append({"ts": time.time(), "step": step, "metrics": dict(metrics)})
+    def log_metrics(
+        self, metrics: dict[str, float], step: int, *, split: str = "train"
+    ) -> None:
+        self._append(
+            {"ts": time.time(), "step": step, "split": split, "metrics": dict(metrics)}
+        )
 
     def log_hyperparams(self, params: dict[str, Any]) -> None:
         existing: dict[str, Any] = {}

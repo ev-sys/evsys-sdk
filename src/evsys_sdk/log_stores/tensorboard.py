@@ -29,7 +29,11 @@ class TensorBoardLogStore:
     def log_scalar(self, key: str, value: float, step: int) -> None:
         self._writer.add_scalar(key, value, global_step=step)
 
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
+    def log_metrics(
+        self, metrics: dict[str, float], step: int, *, split: str = "train"
+    ) -> None:
+        # `split` is already encoded in the metric keys (e.g. "val/..."); kept
+        # for interface parity with the other log stores.
         for k, v in metrics.items():
             self._writer.add_scalar(k, v, global_step=step)
 

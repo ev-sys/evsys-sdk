@@ -138,6 +138,37 @@ def test_local_logger_registered():
     assert get_callback("local_logger") is LocalLoggerCallback
 
 
+def test_local_logger_persists_hypothesis_and_conclusion(tmp_path):
+    """hypothesis (from config metadata at experiment start) and conclusion
+    (from the ExperimentResult at experiment end) are written locally."""
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+
+    cb = LocalLoggerCallback(print_every=0)
+    config = SimpleNamespace(name="exp42", metadata={"hypothesis": "more data helps"})
+    ctx = LogContext(output_dir=tmp_path, config=config, run_key="arm0")
+
+    cb.on_experiment_start(ctx)
+    # experiment.md exists with the hypothesis right away
+    exp_md = (tmp_path / "experiment.md").read_text()
+    assert "hypothesis: more data helps" in exp_md
+
+    # a run picks up the hypothesis in its per-run summary header
+    cb.on_run_start(ctx)
+    cb.on_run_end(ctx, SimpleNamespace(status="completed"), SimpleNamespace(name="arm0"))
+    summary = (tmp_path / "arm0" / "summary.md").read_text()
+    assert "hypothesis: more data helps" in summary
+
+    # conclusion lands at experiment end
+    result = SimpleNamespace(
+        hypothesis="more data helps",
+        conclusion="Best arm: arm0 at pass_rate=0.9000. 1/1 arms completed.",
+    )
+    cb.on_experiment_end(ctx, result)
+    exp_md = (tmp_path / "experiment.md").read_text()
+    assert "hypothesis: more data helps" in exp_md
+    assert "conclusion: Best arm: arm0 at pass_rate=0.9000." in exp_md
+
+
 # --- TensorBoardLoggerCallback (no torch → disables cleanly) -----------------
 
 def test_tensorboard_logger_disables_without_torch():
