@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, ClassVar
 
 import tinker
 from tinker_cookbook.tokenizer_utils import get_tokenizer  # type: ignore[import-untyped]
@@ -123,6 +123,18 @@ class TinkerBackend:
         self._tokenizer = tokenizer
         self._save_counter = 0
 
+    # Default env var for the API key; subclasses (FireworksBackend) override.
+    DEFAULT_API_KEY_ENV: ClassVar[str] = "TINKER_API_KEY"
+
+    @classmethod
+    def _make_service_client(cls, *, api_key_env: str) -> Any:
+        """Construct the tinker-compatible service client — the ONE thing that
+        differs across tinker-protocol providers. ``FireworksBackend`` overrides
+        this to build a ``FiretitanServiceClient``; everything downstream (LoRA
+        client creation, forward/backward, save, sampling) is identical because
+        Fireworks' client is API-compatible with tinker's."""
+        return tinker.ServiceClient()
+
     @classmethod
     async def create(
         cls,
@@ -132,9 +144,9 @@ class TinkerBackend:
         renderer_name: str | None = None,
         resume_state_path: str | None = None,
         init_weights_path: str | None = None,
-        api_key_env: str = "TINKER_API_KEY",
+        api_key_env: str | None = None,
         user_metadata: dict[str, str] | None = None,
-    ) -> "TinkerBackend":
+    ) -> TinkerBackend:
         """Async factory.
 
         ``resume_state_path``: when provided, the training client is created
@@ -149,9 +161,10 @@ class TinkerBackend:
         user metadata so the inference path can read it back from a
         checkpoint manifest (same convention tinker_cookbook used).
         """
+        api_key_env = api_key_env or cls.DEFAULT_API_KEY_ENV
         if not os.environ.get(api_key_env):
             raise RuntimeError(f"{api_key_env} not set in environment")
-        service = tinker.ServiceClient()
+        service = cls._make_service_client(api_key_env=api_key_env)
         meta = dict(user_metadata or {})
         if renderer_name:
             meta["renderer_name"] = renderer_name

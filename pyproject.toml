@@ -46,6 +46,12 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
+# Fireworks training backend — ships a tinker-compatible FiretitanServiceClient.
+# Optional + pre-release (its pins differ from the base tinker stack), so it is
+# NOT in the base install; opt in with: pip install 'evsys-sdk[fireworks]'.
+fireworks = [
+    "fireworks-ai>=1.2.0a83",
+]
 
 [project.scripts]
 evsys = "evsys_sdk.cli:main"
