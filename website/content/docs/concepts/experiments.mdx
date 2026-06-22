@@ -55,5 +55,31 @@ flowchart TD
 directly to train without bookkeeping.
 </Callout>
 
+## Continual learning
+
+`continual` is a **modifier** (not a fourth mode) on top of a single `run`: give
+it an ordered list of `datasets`, and the base run trains **once per dataset, in
+order**, with each stage starting from the **previous stage's weights** — a fresh
+optimizer initialised via `init_from_checkpoint`. All stages live in one
+experiment and each is scored on every benchmark, so you watch the model
+accumulate skills dataset by dataset.
+
+```yaml
+run:                       # the base recipe; its own `data` is ignored
+  model: { name: Qwen/Qwen3.5-4B }
+  algorithm: { kind: sft }
+continual:
+  datasets:                # one training stage per entry, chained in order
+    - { dataset_name: corpus_a, transforms: [...] }
+    - { dataset_name: corpus_b, transforms: [...] }
+    - { dataset_name: corpus_c, transforms: [...] }
+```
+
+This is the SDK's built-in **continually-learning** primitive: weights chain
+forward so each stage builds on the last instead of restarting from the base
+model. With `n_repeats > 1` the whole chain is replicated per seed (stage *i*'s
+replicates grouped for variance). It requires a single `run` base (not
+`runs`/`matrix`).
+
 Next: [Data](/docs/concepts/data) · [Algorithms](/docs/concepts/algorithms) ·
 [full `ExperimentConfig` reference](/docs/evsys_sdk/config/ExperimentConfig).

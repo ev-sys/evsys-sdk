@@ -1,0 +1,39 @@
+---
+title: Roadmap
+description: Where evsys-sdk is going — continual-learning autoresearch abstractions, a --remote sandbox client, and launching jobs on your own GPUs.
+---
+
+What we release today is **Phase 1**: the autoresearch loop. These are the
+pieces we're building next to turn it into the full continual-learning system.
+
+## Continual-learning autoresearch abstractions
+
+The autoresearch loop is the engine; the next layer is the **abstractions that
+make continual learning autonomous**. As laid out in our whitepaper, the end
+state is a closed loop: a deployed model produces **production traces**; a
+lightweight **decision agent** judges whether a batch is worth learning from
+and, if so, triggers **autoresearch** — a heavier, budgeted search for the right
+training recipe.
+
+Because there is **no single algorithm** that enables continual learning across
+all data — different data demands different recipes — the autoresearch agent
+must autonomously run experiments, **recover from training collapses**, and
+decide **which checkpoint is finally worth deploying**, gated by **deployment
+evals** before anything ships. We're building these abstractions directly on top
+of the SDK, so [continual learning](/docs/concepts/experiments#continual-learning)
+graduates from a config modifier into a self-driving loop.
+
+## `--remote` — run the whole client in a sandbox
+
+Today you run the SDK client locally and it drives the training backend over the
+network. The `--remote` feature will run the **entire client side inside an
+[e2b](https://e2b.dev) sandbox** — so nothing runs on your machine. No local
+Python environment, no local setup: launch an experiment and the whole thing
+executes remotely, for maximum ease of use.
+
+## Launch jobs on your own GPUs
+
+A **job orchestrator** so you can launch training jobs on **your own GPUs**, not
+only a hosted Tinker-compatible service. Bring your own compute and run the same
+configs against it — the SDK handles scheduling and bookkeeping, the GPUs are
+yours.

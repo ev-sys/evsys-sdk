@@ -29,6 +29,13 @@ result, and writes the next one. Run a series of educated experiments and you
 land a small, task-specific model that **beats frontier on your task at a
 fraction of the cost** — driven entirely by the agent.
 
+<Callout title="Continually learning — built in">
+The mission isn't just a slogan. The `continual` modifier trains a model across
+an ordered list of datasets, each stage resuming from the **previous stage's
+weights** — so the model accumulates skills instead of restarting from base.
+See [Continual learning](/docs/concepts/experiments#continual-learning).
+</Callout>
+
 An experiment is a single YAML file.
 
 <TopLevelFlow />
@@ -99,5 +106,8 @@ register your own with a one-line `@register_*` decorator — no fork.
   </Card>
   <Card title="📐 Architecture" href="/docs/concepts/architecture">
     A guided tour of the five layers and the eight registries.
+  </Card>
+  <Card title="🔁 Continual learning" href="/docs/concepts/experiments#continual-learning">
+    Chain a model across datasets — each stage builds on the last stage's weights.
   </Card>
 </Cards>
