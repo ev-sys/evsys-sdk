@@ -122,7 +122,7 @@ export default function HomePage() {
       <section className="mt-16 grid gap-4 sm:grid-cols-3">
         {[
           ['One declarative YAML', 'Every experiment is a single ExperimentConfig — nothing hidden in scripts.'],
-          ['SFT · RL · distillation', 'Three training paradigms behind one config shape and one runner.'],
+          ['Autoresearch friendly', 'Make your coding agents fine-tune models on your own data on demand.'],
           ['Pluggable & continual', 'Eight registries for custom parts; weights chain so models keep learning.'],
         ].map(([t, d]) => (
           <div key={t} className="rounded-xl border bg-fd-card p-5">
