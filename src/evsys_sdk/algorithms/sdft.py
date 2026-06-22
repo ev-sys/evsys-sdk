@@ -152,6 +152,19 @@ class SDFT(BaseAlgorithm):
             g.trajectories[0] if g.trajectories else Trajectory(turns=[]) for g in groups
         ]
 
+        # Guard: if every student rollout came back empty (no completion tokens),
+        # there is no learning signal this step. Return an empty batch so the
+        # loop skips the gradient step gracefully (mirrors RL's empty-batch
+        # guard) instead of feeding Tinker a (0, K) target and crashing with
+        # "target_tokens must not be empty". `--dry` still gets the rollouts.
+        if not any(t.turns for t in student_trajs):
+            return TrainingBatch(
+                data=[],
+                loss_fn="cross_entropy",
+                metrics={"train/skipped_empty_rollout": 1.0},
+                rollouts=groups,
+            )
+
         # 3. Wrap each rollout as a student Datum (carrying the completion mask).
         student_datums: list[tinker.Datum] = []
         completion_slices: list[CompletionSlice] = []
