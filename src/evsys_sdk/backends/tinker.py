@@ -59,6 +59,7 @@ class TinkerBackend:
             "load_checkpoint_path": model.get("load_checkpoint_path"),
             "init_from_checkpoint": model.get("init_from_checkpoint"),
             "renderer_name": model.get("renderer_name"),
+            "api_key_env": self.api_key_env,
             "run_dir": run_dir,
         }
 

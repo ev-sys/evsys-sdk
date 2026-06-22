@@ -208,7 +208,7 @@ def test_rejects_non_tinker_backend(ctx):
     class _M:
         name = "mock"
     ctx.backend = _M()
-    with pytest.raises(RuntimeError, match="backend=tinker"):
+    with pytest.raises(RuntimeError, match="tinker-compatible backend"):
         SDFT(max_steps=2, batch_size=4).train(ctx)
 
 

@@ -139,10 +139,10 @@ class BaseAlgorithm:
     # --- generic driver ----------------------------------------------------
 
     def train(self, ctx: RunContext) -> RunResult:
-        if ctx.backend.name != "tinker":
+        if ctx.backend.name not in ("tinker", "fireworks"):
             raise RuntimeError(
-                f"{type(self).__name__} requires backend=tinker "
-                f"(got '{ctx.backend.name}')."
+                f"{type(self).__name__} requires a tinker-compatible backend "
+                f"(tinker or fireworks); got '{ctx.backend.name}'."
             )
         return asyncio.run(self._train_async(ctx))
 
@@ -159,13 +159,20 @@ class BaseAlgorithm:
         # the same base model).
         self._model_name = model_name
 
-        # 1. backend (async factory; allocates the LoRA training client)
-        backend = await TinkerBackend.create(
+        # 1. backend (async factory; allocates the LoRA training client). tinker
+        # and fireworks share ONE allocator — FireworksBackend only swaps the
+        # service client (tinker-compatible Firetitan), inheriting the rest.
+        from ..training.fireworks_backend import FireworksBackend
+        BackendCls = (
+            FireworksBackend if ctx.backend.name == "fireworks" else TinkerBackend
+        )
+        backend = await BackendCls.create(
             model_name=model_name,
             lora_rank=self.cfg.lora_rank,
             renderer_name=self.cfg.renderer_name or handles.get("renderer_name"),
             resume_state_path=handles.get("load_checkpoint_path"),
             init_weights_path=handles.get("init_from_checkpoint"),
+            api_key_env=handles.get("api_key_env"),
         )
 
         # 2. per-algorithm prep (sets self._steps_per_epoch + stashes state)

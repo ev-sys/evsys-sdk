@@ -123,7 +123,7 @@ class ModelConfig(_Strict):
 class BackendConfig(_Strict):
     """Compute backend."""
 
-    kind: Literal["mock", "local", "tinker"] = "tinker"
+    kind: Literal["mock", "local", "tinker", "fireworks"] = "tinker"
     params: dict[str, Any] = Field(default_factory=dict)
 
 
