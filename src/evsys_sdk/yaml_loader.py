@@ -56,22 +56,28 @@ def load_yaml(source: str | Path | dict[str, Any]) -> ExperimentConfig:
 
 
 def apply_dry_run(cfg: ExperimentConfig, *, steps: int = 5) -> ExperimentConfig:
-    """Mutate ``cfg`` in place for a quick dry run: cap every run's algorithm to
-    ``steps`` (where the algorithm's Config supports ``max_steps``) and turn on
-    rollout logging. Returns the same config for chaining."""
+    """Mutate ``cfg`` in place for a quick dry run: cap every algorithm to
+    ``steps`` (where its Config supports ``max_steps``) and turn on rollout
+    logging. Covers ``run`` / ``runs`` / ``matrix`` AND each ``stages`` stage —
+    so a multi-stage SFT→RL recipe runs only a few steps *per stage*. Returns the
+    same config for chaining."""
     cfg.log_rollouts = True
-    runs: list[RunConfig] = []
-    if cfg.run is not None:
-        runs.append(cfg.run)
-    if cfg.runs is not None:
-        runs.extend(cfg.runs)
     from .registry import get_algorithm
-    for r in runs:
+    algos = []  # every AlgorithmConfig in the experiment, across modifiers
+    if cfg.run is not None:
+        algos.append(cfg.run.algorithm)
+    if cfg.runs is not None:
+        algos.extend(r.algorithm for r in cfg.runs)
+    if cfg.matrix is not None:
+        algos.append(cfg.matrix.base_run.algorithm)
+    if cfg.stages is not None:
+        algos.extend(st.algorithm for st in cfg.stages.stages)
+    for a in algos:
         try:
-            algo_cls = get_algorithm(r.algorithm.kind)
+            algo_cls = get_algorithm(a.kind)
             fields = getattr(getattr(algo_cls, "Config", None), "model_fields", {})
             if "max_steps" in fields:
-                r.algorithm.params["max_steps"] = steps
+                a.params["max_steps"] = steps
         except Exception:
             pass
     return cfg

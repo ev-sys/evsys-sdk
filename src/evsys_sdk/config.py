@@ -191,6 +191,13 @@ class ExperimentConfig(_Strict):
     # stages live in one experiment and each is scored on all benchmarks.
     continual: ContinualConfig | None = None
 
+    # -- Multi-stage recipes (e.g. SFT → RL) ----------------------------------
+    # Like ``continual``, but each stage carries its OWN algorithm + data, so you
+    # can chain different recipes (an SFT warmup, then RL). Stages run in order;
+    # each starts from the previous stage's weights (fresh optimizer). One arm per
+    # stage, each scored on all benchmarks. Mutually exclusive with ``continual``.
+    stages: StagesConfig | None = None
+
     # -- Run groups (variance studies) ---------------------------------------
     # When ``n_repeats > 1``, each primary RunConfig (from ``run`` / ``runs`` /
     # ``matrix``) becomes a *group*: it's replicated N times with seeds
@@ -221,6 +228,12 @@ class ExperimentConfig(_Strict):
             raise ValueError(
                 "continual requires a single `run` as the base (not runs/matrix)."
             )
+        if self.stages is not None and self.run is None:
+            raise ValueError(
+                "stages requires a single `run` as the base (not runs/matrix)."
+            )
+        if self.stages is not None and self.continual is not None:
+            raise ValueError("set either `stages` or `continual`, not both.")
 
 
 class MatrixSpec(_Strict):
@@ -265,6 +278,43 @@ class ContinualConfig(_Strict):
     datasets: list[DataConfig] = Field(min_length=1)
     name_template: str | None = None
     """Optional stage-name template; uses {base} and {i}. Default '{base}_stage{i}'."""
+
+
+class StageSpec(_Strict):
+    """One stage of a multi-stage recipe over a single base ``run``. Each stage
+    carries its own ``algorithm`` + ``data`` (overriding the base run's), so a
+    sequence like SFT → RL is expressible in one config."""
+
+    algorithm: AlgorithmConfig
+    data: DataConfig
+    name: str | None = None
+    """Optional stage name; defaults to the name template (includes the algorithm kind)."""
+
+
+class StagesConfig(_Strict):
+    """Sequential multi-stage training over a base ``run`` — the multi-algorithm
+    generalization of :class:`ContinualConfig`.
+
+    Unlike ``continual`` (which swaps *data only*, keeping one algorithm), each
+    stage here has its own ``algorithm`` + ``data``. Stages run in order and each
+    starts from the previous stage's final weights (fresh optimizer, via
+    ``init_from_checkpoint``). So an SFT warmup followed by RL is one config that
+    expands to **one arm per stage**, each scored on every benchmark.
+
+    Example:
+        run:
+          model: {name: Qwen/Qwen3.5-4B}
+          data: {...}              # ignored; per-stage data below is used
+          algorithm: {kind: sft}   # ignored; per-stage algorithm below is used
+        stages:
+          stages:
+            - {algorithm: {kind: sft}, data: {...}}
+            - {algorithm: {kind: rl},  data: {...}}   # starts from the SFT weights
+    """
+
+    stages: list[StageSpec] = Field(min_length=1)
+    name_template: str | None = None
+    """Optional stage-name template; uses {base}, {i}, {kind}. Default '{base}_stage{i}_{kind}'."""
 
 
 # pydantic v2 forward-ref resolution
