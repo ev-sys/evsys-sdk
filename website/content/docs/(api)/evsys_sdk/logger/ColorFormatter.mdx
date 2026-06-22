@@ -1,0 +1,65 @@
+---
+title: ColorFormatter
+---
+
+Wrap formatted records in ANSI color based on level (TTY only).
+
+## Attributes
+
+<PyAttribute name={"COLORS"} type={null} value={"{logging.DEBUG: GRAY, logging.INFO: GRAY, logging.WARNING: YELLOW, logging.ERROR: RED, logging.CRITICAL: RED}"} />
+
+<PyAttribute name={"use_color"} type={null} value={"use_color and sys.stdout.isatty()"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, fmt=None, datefmt=None, use_color=True)"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, fmt=None, datefmt=None, use_color=True):
+    super().__init__(fmt=fmt, datefmt=datefmt)
+    self.use_color = use_color and sys.stdout.isatty()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"fmt"} type={null} value={"None"} />
+<PyParameter name={"datefmt"} type={null} value={"None"} />
+<PyParameter name={"use_color"} type={null} value={"True"} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"format"} type={"(self, record)"}>
+
+<PySourceCode >
+
+```python
+def format(self, record):
+    message = super().format(record)
+    if self.use_color:
+        color = self.COLORS.get(record.levelno, "")
+        if color:
+            message = f"{color}{message}{RESET}"
+    return message
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"record"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>

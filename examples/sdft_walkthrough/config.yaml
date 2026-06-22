@@ -1,0 +1,62 @@
+# SDFT walkthrough — the full beginner feature set in one config.
+#
+# What this demonstrates:
+#   * raw JSONL prompts referenced BY PATH (data/train.jsonl) — each is a
+#     PromptExample: {inputs: {question: ...}, expected: <gold>}
+#   * the built-in `sdft` (self-distillation) algorithm on the `tinker` backend:
+#     the student rolls out on the question, a frozen teacher (the same base
+#     model shown the gold answer as an in-context demo) scores the rollout's
+#     top-K tokens, and the student is CE-distilled toward it
+#   * in-loop validation against a benchmark, scored every step
+#   * local logging via the `local_logger` callback
+#
+# Run for real (needs TINKER_API_KEY, charges a small amount):
+#   .venv/bin/python examples/sdft_walkthrough/run.py
+
+name: sdft_walkthrough
+description: Beginner SDFT walkthrough — prompts-by-path, teacher distillation, in-loop val, local logging.
+output_dir: ./outputs
+
+callbacks:
+  - kind: local_logger
+    params:
+      print_every: 1
+
+run:
+  name: sdft_capitals
+
+  data:
+    # Raw JSONL prompts. No transform needed — {inputs: {question}, expected}
+    # is already a PromptExample, so the SDK detects the format directly.
+    source_kind: jsonl
+    path: examples/sdft_walkthrough/data/train.jsonl
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: sdft
+    params:
+      learning_rate: 1.0e-4
+      max_steps: 2            # bump to 100-500 for a real run
+      batch_size: 1
+      lora_rank: 1
+      topk: 20                # how many teacher tokens are distilled per step
+      max_context_length: 2048
+      max_tokens: 256
+      temperature: 1.0
+      user_template: "{question}"
+      save_at_fractions: [1.0]
+
+metadata:
+  benchmark:
+    - name: val
+      path: examples/sdft_walkthrough/data/val
+      run_every: 1
+      metrics: [pass@1]
+      max_tokens: 64
+      temperature: 0.0
+      limit: 2

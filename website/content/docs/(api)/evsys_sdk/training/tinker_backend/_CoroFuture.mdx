@@ -1,0 +1,63 @@
+---
+title: _CoroFuture
+---
+
+Bridge tinker's coroutine-returning ``*_async`` methods to the
+:class:`~evsys_sdk.training.loop.TrainingLoop` contract.
+
+The loop fires forward_backward / optim WITHOUT awaiting, then awaits each
+one's ``result_async()`` (the shape :class:`MockBackend` implements). But
+tinker's ``forward_backward_async`` / ``optim_step_async`` are *coroutine
+functions* — calling them returns an un-awaited coroutine, not a future.
+This wraps that coroutine so ``await wrapper.result_async()`` awaits the
+coroutine to obtain the tinker future, then awaits the future's result.
+
+## Attributes
+
+<PyAttribute name={"__slots__"} type={null} value={"('_coro',)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, coro) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, coro: Any) -> None:
+    self._coro = coro
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"coro"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"result_async"} type={"(self) -> Any"}>
+
+<PySourceCode >
+
+```python
+async def result_async(self) -> Any:
+    future = await self._coro
+    return await future.result_async()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>

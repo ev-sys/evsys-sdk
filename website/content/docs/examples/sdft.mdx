@@ -1,0 +1,127 @@
+---
+title: SDFT — Self-Distillation Fine-Tuning
+description: A complete, run-it-yourself SDFT walkthrough — prompts with gold answers, a frozen teacher built from the same model, the built-in sdft algorithm, in-loop validation, and local logging.
+---
+
+A full walkthrough of self-distillation for a beginner. The trick: there's **no
+separate, larger teacher model**. The same base model — shown the gold answer as
+an in-context hint — acts as the teacher, and the student is trained to match the
+teacher's *answer-aware* distribution while rolling out on its own. We'll teach a
+model to answer capital-city questions.
+
+Runnable in the repo at **`examples/sdft_walkthrough/`**.
+
+## 1. The raw data — prompts you point the config at
+
+SDFT data is a **JSONL file** of **`PromptExample`** rows: a question and the
+gold answer the teacher (not the student) is allowed to see:
+
+```json title="examples/sdft_walkthrough/data/train.jsonl"
+{"inputs": {"question": "What is the capital of France?"}, "expected": "Paris"}
+{"inputs": {"question": "What is the capital of Japan?"}, "expected": "Tokyo"}
+```
+
+Point the config at the file:
+
+```yaml
+data:
+  source_kind: jsonl
+  path: examples/sdft_walkthrough/data/train.jsonl
+```
+
+**No transform is needed** — `{inputs: {question}, expected}` is already a
+`PromptExample`, so the SDK detects the format directly. (As always, you could
+write a `@register_transform` if your raw data came in a different shape.)
+
+## 2. How the teacher works (no extra config)
+
+There's no teacher model to configure — it's **built automatically from
+`model.name`**. Each step:
+
+1. The **student** rolls out on the question on-policy (its own current answer).
+2. A frozen **teacher** — the same base model, but shown the gold `expected`
+   answer as an in-context demo — scores the rollout's **top-K** next-token
+   distribution. That's "what a model that knew the answer would say."
+3. The student is **CE-distilled** toward that teacher distribution.
+
+`topk` controls how many teacher tokens are distilled per step. `user_template`
+(`"{question}"`) renders the prompt the student rolls out on.
+
+## 3. The built-in `sdft` algorithm
+
+```yaml
+model:   { name: Qwen/Qwen3.5-4B }
+backend: { kind: tinker }
+algorithm:
+  kind: sdft
+  params:
+    learning_rate: 1.0e-4
+    max_steps: 2            # bump to 100-500 for a real run
+    batch_size: 1
+    lora_rank: 1
+    topk: 20                # how many teacher tokens are distilled per step
+    user_template: "{question}"
+```
+
+## 4. Benchmarks & validation — score it *during* training
+
+Identical to the other two: a benchmark **directory** with a verifier-scored
+`tasks.jsonl`, attached under `metadata.benchmark` with a `run_every` so it's
+scored **in-loop every N steps**:
+
+```json title="examples/sdft_walkthrough/data/val/tasks.jsonl"
+{"task_id": "val_0", "instruction": "What is the capital of Germany? Answer with just the city name.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "Berlin"}}
+```
+
+```yaml
+metadata:
+  benchmark:
+    - name: val
+      path: examples/sdft_walkthrough/data/val   # directory holding tasks.jsonl
+      run_every: 1
+      metrics: [pass@1]
+      split: val
+```
+
+`run_every: N` scores the benchmark **in-loop every N steps**; omit `run_every`
+and it's scored **once, after training** (any entry — a `test` benchmark can run
+in-loop too). `split` (`val` / `test`) is just a label that keeps different
+benchmarks' metrics apart in the logs; it doesn't decide when an entry runs.
+
+## 5. Local logging — where the metrics show up
+
+Same `local_logger` callback, writing to
+`examples/sdft_walkthrough/outputs/sdft_capitals/`:
+
+| File | What's in it |
+| --- | --- |
+| `metrics.jsonl` | per-step rows `{step, split, metrics}` — train rows carry `train/mean_loss` (`split: "train"`); in-loop val rows carry `val/val/pass@1` (`split: "val"`) |
+| `predictions/val.jsonl` | the student's answer for each val question |
+| `summary.md` | final status + per-eval metric lines |
+
+```json
+{"step": 1, "split": "train", "metrics": {"train/mean_loss": ...}}
+{"step": 1, "split": "val",   "metrics": {"val/val/pass@1": ...}}
+```
+
+## 6. Run it
+
+```bash
+evsys validate examples/sdft_walkthrough/config.yaml --deep    # offline check
+export TINKER_API_KEY=...
+python examples/sdft_walkthrough/run.py
+```
+
+```text
+Status:    completed
+Metrics:   {'train/mean_loss': ...}
+Logs:      examples/sdft_walkthrough/outputs (metrics.jsonl, predictions/, summary.md)
+```
+
+## Next
+
+<Cards>
+  <Card title="🎯 SFT walkthrough" href="/docs/examples/sft" />
+  <Card title="🏆 RL walkthrough" href="/docs/examples/rl" />
+  <Card title="🔁 Autoresearch" href="/docs/autoresearch" />
+</Cards>

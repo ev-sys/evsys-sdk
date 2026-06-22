@@ -1,0 +1,94 @@
+---
+title: combo
+---
+
+Combo — chain multiple algorithms sequentially in one run.
+
+Use case: ``SFT warmup → GRPO refine``, ``cold-start distill → DAPO``, etc.
+Each phase runs against the same RunContext but writes its artifacts to a
+``phase\{i\}_\{name\}`` subdirectory; the previous phase's ``final_checkpoint``
+artifact is threaded into the next phase via ``ctx.extras``.
+
+YAML example::
+
+    kind: combo
+    phases:
+      - kind: mock_sft
+        config:
+          num_epochs: 1
+      - kind: mock_rl
+        config:
+          num_iterations: 50
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"ComboPhaseConfig"} href={"/docs/evsys_sdk/algorithms/combo/ComboPhaseConfig"} />
+<Card title={"ComboConfig"} href={"/docs/evsys_sdk/algorithms/combo/ComboConfig"} />
+<Card title={"ComboAlgorithm"} href={"/docs/evsys_sdk/algorithms/combo/ComboAlgorithm"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_phase_context"} type={"(parent, phase_dir, prior_artifacts, label) -> RunContext"}>
+
+Build a per-phase RunContext that:
+- writes into phase_dir
+- exposes the previous phase's final_checkpoint via ctx.extras
+- shares the parent's data_store, log_store, backend
+
+<PySourceCode >
+
+```python
+def _phase_context(
+    parent: RunContext,
+    phase_dir: Path,
+    prior_artifacts: dict[str, str],
+    label: str,
+) -> RunContext:
+    """Build a per-phase RunContext that:
+        - writes into phase_dir
+        - exposes the previous phase's final_checkpoint via ctx.extras
+        - shares the parent's data_store, log_store, backend
+    """
+    new_extras = dict(parent.extras)
+    # Thread the most recent final_checkpoint forward as `init_checkpoint`.
+    for k, v in reversed(list(prior_artifacts.items())):
+        if k.endswith("/final_checkpoint") or k == "final_checkpoint":
+            new_extras["init_checkpoint"] = v
+            break
+    new_extras["combo_phase"] = label
+
+    return replace(
+        parent,
+        run_id=f"{parent.run_id}/{label}",
+        output_dir=str(phase_dir),
+        extras=new_extras,
+    ) if dataclasses.is_dataclass(parent) else parent  # type: ignore[arg-type]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"parent"} type={"RunContext"} value={null} />
+<PyParameter name={"phase_dir"} type={"Path"} value={null} />
+<PyParameter name={"prior_artifacts"} type={"dict[str, str]"} value={null} />
+<PyParameter name={"label"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.RunContext"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

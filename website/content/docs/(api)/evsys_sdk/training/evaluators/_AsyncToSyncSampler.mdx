@@ -1,0 +1,121 @@
+---
+title: _AsyncToSyncSampler
+---
+
+Sync :class:`~evsys_sdk.protocols.InferenceClient` over an async
+:class:`~evsys_sdk.training.backend.SamplingClient`.
+
+``.generate(prompt=...)`` is called sequentially by
+:meth:`Benchmark.score` from a worker thread; we route the awaited
+``sample_async`` call back to the main event loop via
+:func:`asyncio.run_coroutine_threadsafe` so the inner async work
+runs on the loop that owns the live training client.
+
+Exposes ``_tokenizer`` so :class:`ChatTemplatedInference` can wrap
+this client without further plumbing — same shape
+:class:`TinkerInference` exposes.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'in_loop_sampler'"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, sampler, tokenizer, loop) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, sampler: Any, tokenizer: Any, loop: asyncio.AbstractEventLoop) -> None:
+    self._sampler = sampler
+    self._tokenizer = tokenizer
+    self._loop = loop
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"sampler"} type={"Any"} value={null} />
+<PyParameter name={"tokenizer"} type={"Any"} value={null} />
+<PyParameter name={"loop"} type={"asyncio.AbstractEventLoop"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"generate"} type={"(self, *, prompt, max_tokens=256, temperature=0.0, stop=None) -> str"}>
+
+<PySourceCode >
+
+```python
+def generate(
+    self,
+    *,
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.0,
+    stop: list[str] | None = None,
+) -> str:
+    ids = self._tokenizer.encode(prompt, add_special_tokens=False)
+    prompt_mi = tinker.ModelInput.from_ints(ids)
+    params = tinker.SamplingParams(
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stop=stop or [],
+    )
+    coro = self._sampler.sample_async(prompt=prompt_mi, params=params)
+    fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+    response = fut.result()
+    return self._decode(response)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"str"} value={null} />
+<PyParameter name={"max_tokens"} type={"int"} value={"256"} />
+<PyParameter name={"temperature"} type={"float"} value={"0.0"} />
+<PyParameter name={"stop"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"_decode"} type={"(self, response) -> str"}>
+
+<PySourceCode >
+
+```python
+def _decode(self, response: Any) -> str:
+    seqs = getattr(response, "sequences", None)
+    if not seqs:
+        return ""
+    first = seqs[0]
+    tokens = (
+        getattr(first, "tokens", None) or getattr(first, "token_ids", None) or []
+    )
+    if not tokens:
+        return ""
+    return self._tokenizer.decode(list(tokens))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"response"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>

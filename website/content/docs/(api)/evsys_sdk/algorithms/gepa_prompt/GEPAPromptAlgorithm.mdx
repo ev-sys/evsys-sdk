@@ -1,0 +1,86 @@
+---
+title: GEPAPromptAlgorithm
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'gepa_prompt'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"GEPAPromptConfig"} />
+
+<PyAttribute name={"cfg"} type={null} value={"GEPAPromptConfig.model_validate(kwargs)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, **kwargs) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, **kwargs) -> None:
+    self.cfg = GEPAPromptConfig.model_validate(kwargs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"kwargs"} type={null} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"train"} type={"(self, ctx) -> RunResult"}>
+
+<PySourceCode >
+
+```python
+def train(self, ctx: RunContext) -> RunResult:
+    out = Path(ctx.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    examples = ctx.extras.get("prompt_examples") or []
+    if not examples:
+        return RunResult(
+            run_id=ctx.run_id, status="failed",
+            error="GEPA requires ctx.extras['prompt_examples'] = list[PromptExample-like dict]",
+        )
+
+    score_fn = ctx.extras.get("prompt_score_fn") or _default_score_fn
+    rng = random.Random(self.cfg.seed)
+
+    task_lm = get_inference(self.cfg.task_lm)(**self.cfg.task_lm_config)
+    ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
+
+    if self.cfg.use_gepa_lib:
+        try:
+            import gepa  # noqa: F401
+            return _run_with_gepa_lib(
+                ctx=ctx, cfg=self.cfg, examples=examples,
+                task_lm=task_lm, score_fn=score_fn, out=out, rng=rng,
+            )
+        except ImportError:
+            logger.info("gepa package not installed — using built-in hill-climber")
+
+    return _run_hill_climber(
+        ctx=ctx, cfg=self.cfg, examples=examples,
+        task_lm=task_lm, score_fn=score_fn, out=out, rng=rng,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"RunContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.protocols.RunResult"} />
+
+</PyFunction>

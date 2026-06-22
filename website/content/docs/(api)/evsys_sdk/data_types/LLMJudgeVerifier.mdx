@@ -1,0 +1,34 @@
+---
+title: LLMJudgeVerifier
+---
+
+LLM judge — ``judge_model`` scores the completion against ``rubric``.
+
+The runner calls the judge model with the rubric + completion and parses a
+numeric score from the response (usually in a ``\boxed\{\}`` or
+``\<score>...\</score>`` tag).
+
+## Attributes
+
+<PyAttribute name={"judge_model"} type={"str"} value={"''"} />
+
+<PyAttribute name={"rubric"} type={"str"} value={"''"} />
+
+<PyAttribute name={"kind"} type={"Literal['llm_judge']"} value={"'llm_judge'"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, judge_model='', rubric='', kind='llm_judge') -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"judge_model"} type={"str"} value={"''"} />
+<PyParameter name={"rubric"} type={"str"} value={"''"} />
+<PyParameter name={"kind"} type={"Literal['llm_judge']"} value={"'llm_judge'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

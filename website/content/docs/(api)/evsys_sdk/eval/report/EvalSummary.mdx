@@ -1,0 +1,75 @@
+---
+title: EvalSummary
+---
+
+## Attributes
+
+<PyAttribute name={"pass_at_1"} type={"float"} value={null} />
+
+<PyAttribute name={"pass_at_3"} type={"float"} value={null} />
+
+<PyAttribute name={"pass_pow_3"} type={"float"} value={null} />
+
+<PyAttribute name={"n_rows"} type={"int"} value={null} />
+
+<PyAttribute name={"n_queries"} type={"int"} value={null} />
+
+<PyAttribute name={"per_toolkit"} type={"dict[str, dict[str, float]]"} value={"field(default_factory=dict)"} />
+
+<PyAttribute name={"retry_report"} type={"dict[str, Any]"} value={"field(default_factory=dict)"} />
+
+<PyAttribute name={"notes"} type={"list[str]"} value={"field(default_factory=list)"} />
+
+## Functions
+
+<PyFunction name={"as_dict"} type={"(self) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def as_dict(self) -> dict[str, Any]:
+    return {
+        "overall": {
+            "pass_at_1": round(self.pass_at_1, 4),
+            "pass_at_3": round(self.pass_at_3, 4),
+            "pass_pow_3": round(self.pass_pow_3, 4),
+        },
+        "n_rows": self.n_rows,
+        "n_queries": self.n_queries,
+        "per_toolkit": self.per_toolkit,
+        "retry_report": self.retry_report,
+        "notes": self.notes,
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, pass_at_1, pass_at_3, pass_pow_3, n_rows, n_queries, per_toolkit=dict(), retry_report=dict(), notes=list()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"pass_at_1"} type={"float"} value={null} />
+<PyParameter name={"pass_at_3"} type={"float"} value={null} />
+<PyParameter name={"pass_pow_3"} type={"float"} value={null} />
+<PyParameter name={"n_rows"} type={"int"} value={null} />
+<PyParameter name={"n_queries"} type={"int"} value={null} />
+<PyParameter name={"per_toolkit"} type={"dict[str, dict[str, float]]"} value={"dict()"} />
+<PyParameter name={"retry_report"} type={"dict[str, Any]"} value={"dict()"} />
+<PyParameter name={"notes"} type={"list[str]"} value={"list()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

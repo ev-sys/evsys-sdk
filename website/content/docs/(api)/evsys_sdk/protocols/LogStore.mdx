@@ -1,0 +1,126 @@
+---
+title: LogStore
+---
+
+Where metrics, hyperparams, and artifact pointers go.
+
+Implementations:
+  * ``JSONLLogStore``      — append-only metrics.jsonl.
+  * ``TensorBoardLogStore``— wraps SummaryWriter (optional dep).
+  * ``SupabaseLogStore``   — persists rows to training_metrics table.
+  * ``MultiplexLogStore``  — fan out to several stores at once.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+## Functions
+
+<PyFunction name={"log_scalar"} type={"(self, key, value, step) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_scalar(self, key: str, value: float, step: int) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"key"} type={"str"} value={null} />
+<PyParameter name={"value"} type={"float"} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_metrics"} type={"(self, metrics, step) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_metrics(self, metrics: dict[str, float], step: int) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_hyperparams"} type={"(self, params) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_hyperparams(self, params: dict[str, Any]) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"params"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_artifact"} type={"(self, name, path, *, kind='file') -> None"}>
+
+<PySourceCode >
+
+```python
+def log_artifact(self, name: str, path: str, *, kind: str = "file") -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"kind"} type={"str"} value={"'file'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"close"} type={"(self) -> None"}>
+
+<PySourceCode >
+
+```python
+def close(self) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

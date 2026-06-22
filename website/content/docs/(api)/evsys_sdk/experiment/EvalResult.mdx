@@ -1,0 +1,52 @@
+---
+title: EvalResult
+---
+
+One benchmark scored against one arm at one moment.
+
+Multiple ``EvalResult`` entries can attach to an ``ArmResult`` when an
+experiment carries several benchmarks under ``metadata.benchmark``
+(e.g. a `val` set + a `test` set). The ``step`` field disambiguates
+in-loop validation rows (with their training-step value) from a
+single post-training row (``step is None``).
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+<PyAttribute name={"benchmark_id"} type={"str | None"} value={null} />
+
+<PyAttribute name={"metrics"} type={"dict[str, float]"} value={null} />
+
+<PyAttribute name={"breakdowns"} type={"dict[str, Any]"} value={null} />
+
+<PyAttribute name={"eval_seconds"} type={"float"} value={null} />
+
+<PyAttribute name={"step"} type={"int | None"} value={"None"}>
+
+``None`` → scored once post-training; int → in-loop at that step.
+
+</PyAttribute>
+
+<PyAttribute name={"tags"} type={"list[str]"} value={"field(default_factory=list)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, name, benchmark_id, metrics, breakdowns, eval_seconds, step=None, tags=list()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"benchmark_id"} type={"str | None"} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={null} />
+<PyParameter name={"breakdowns"} type={"dict[str, Any]"} value={null} />
+<PyParameter name={"eval_seconds"} type={"float"} value={null} />
+<PyParameter name={"step"} type={"int | None"} value={"None"} />
+<PyParameter name={"tags"} type={"list[str]"} value={"list()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

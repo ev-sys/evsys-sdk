@@ -1,0 +1,129 @@
+---
+title: Checkpoint
+---
+
+One row of a `checkpoints.jsonl` manifest.
+
+## Attributes
+
+<PyAttribute name={"label"} type={"str"} value={null}>
+
+The `name` field — e.g. `"final"`, `"epoch-3"`, or a step string.
+
+</PyAttribute>
+
+<PyAttribute name={"step"} type={"int | None"} value={"None"}>
+
+Training step / batch index, if recorded (``batch`` in tinker).
+
+</PyAttribute>
+
+<PyAttribute name={"epoch"} type={"int | None"} value={"None"} />
+
+<PyAttribute name={"weights_path"} type={"str | None"} value={"None"}>
+
+Training-state checkpoint URI (``state_path`` in tinker).
+
+</PyAttribute>
+
+<PyAttribute name={"sampler_path"} type={"str | None"} value={"None"}>
+
+Inference-ready sampler URI; what you pass to a sampling client.
+
+</PyAttribute>
+
+<PyAttribute name={"raw"} type={"dict"} value={"field(default_factory=dict)"}>
+
+Untouched manifest row, for fields not modeled above.
+
+</PyAttribute>
+
+<PyAttribute name={"has_path"} type={"bool"} value={null} />
+
+## Functions
+
+<PyFunction name={"from_manifest_row"} type={"(cls, row) -> Checkpoint"}>
+
+<PySourceCode >
+
+```python
+@classmethod
+def from_manifest_row(cls, row: dict) -> Checkpoint:
+    return cls(
+        label=str(row.get("name", "?")),
+        step=_as_int(row.get("batch")),
+        epoch=_as_int(row.get("epoch")),
+        weights_path=_as_str(row.get("state_path")),
+        sampler_path=_as_str(row.get("sampler_path")),
+        raw=dict(row),
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"cls"} type={null} value={null} />
+<PyParameter name={"row"} type={"dict"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.checkpoint.Checkpoint"} />
+
+</PyFunction>
+
+<PyFunction name={"pick_final"} type={"(checkpoints) -> Checkpoint | None"}>
+
+Pick the one to evaluate against.
+
+Strategy: prefer an explicit ``name == "final"`` row that exposes a
+path, else the last row that exposes a path, else None.
+
+<PySourceCode >
+
+```python
+@staticmethod
+def pick_final(checkpoints: list["Checkpoint"]) -> Checkpoint | None:
+    """Pick the one to evaluate against.
+
+    Strategy: prefer an explicit ``name == "final"`` row that exposes a
+    path, else the last row that exposes a path, else None.
+    """
+    candidates = [c for c in checkpoints if c.has_path]
+    if not candidates:
+        return None
+    for c in candidates:
+        if c.label == "final":
+            return c
+    return candidates[-1]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"checkpoints"} type={"list['Checkpoint']"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.checkpoint.Checkpoint | None"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, label, step=None, epoch=None, weights_path=None, sampler_path=None, raw=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"label"} type={"str"} value={null} />
+<PyParameter name={"step"} type={"int | None"} value={"None"} />
+<PyParameter name={"epoch"} type={"int | None"} value={"None"} />
+<PyParameter name={"weights_path"} type={"str | None"} value={"None"} />
+<PyParameter name={"sampler_path"} type={"str | None"} value={"None"} />
+<PyParameter name={"raw"} type={"dict"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

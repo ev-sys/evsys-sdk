@@ -1,0 +1,58 @@
+---
+title: DataConfig
+---
+
+Where the training data comes from + how to transform it.
+
+The preferred way to reference a dataset is by ``dataset_id`` (or
+``dataset_name``): the SDK pulls it from the dashboard into the local
+``.evsys/`` workspace and trains from that cache — so stored
+experiment scripts are portable and don't depend on local file layout.
+``dataset_id`` / ``dataset_name`` take precedence over ``source_kind`` /
+``path``, which remain as an offline / dev fallback.
+
+## Attributes
+
+<PyAttribute name={"source_kind"} type={"Literal['jsonl', 'json', 'in_memory', 'hf_dataset']"} value={"'jsonl'"}>
+
+Which built-in source loader to use (ignored when dataset_id/name set).
+
+</PyAttribute>
+
+<PyAttribute name={"dataset_id"} type={"str | None"} value={"None"}>
+
+Dashboard dataset id — pulled into .evsys/ and trained from locally.
+
+</PyAttribute>
+
+<PyAttribute name={"dataset_name"} type={"str | None"} value={"None"}>
+
+Dashboard dataset name — resolved to the latest version's id, then pulled.
+
+</PyAttribute>
+
+<PyAttribute name={"path"} type={"str | None"} value={"None"}>
+
+For 'jsonl' / 'json': absolute or store-relative path.
+
+</PyAttribute>
+
+<PyAttribute name={"rows"} type={"list[dict[str, Any]] | None"} value={"None"}>
+
+For 'in_memory'.
+
+</PyAttribute>
+
+<PyAttribute name={"hf_dataset"} type={"str | None"} value={"None"}>
+
+For 'hf_dataset': HuggingFace dataset id.
+
+</PyAttribute>
+
+<PyAttribute name={"hf_split"} type={"str"} value={"'train'"} />
+
+<PyAttribute name={"transforms"} type={"list[TransformSpec]"} value={"Field(default_factory=list)"}>
+
+Applied in order to the raw rows.
+
+</PyAttribute>

@@ -1,0 +1,182 @@
+---
+title: benchmark
+---
+
+Benchmark — load a harbor-format eval suite and score a model against it.
+
+A benchmark on disk is a directory:
+
+    data/benchmark/\<name>/
+        tasks.jsonl       # required — one HarborTask per line
+        metadata.yaml     # optional — description, version, source, splits, ...
+        images/           # optional — referenced by relative path from tasks
+        raw/              # optional — pre-harbor source for traceability
+
+`Benchmark.from_dir(path)` loads the suite. `bench.score(client)` runs each
+task's `instruction` through an `InferenceClient`, then scores the completion
+via the SDK's in-process verifier-fn registry (`verifiers/fns.py`). The result
+collects per-task rows, top-level aggregates (`mean_reward`, `pass_rate`,
+`n_tasks`), and optional breakdown buckets (e.g. per-toolkit pass rate) keyed
+by an attribute path into `metadata`.
+
+E2B and LLM-judge verifiers are recognized but not executed here — they need
+network / sandboxes and live behind their own runners. Tasks carrying those
+verifier kinds raise a clear error so callers don't silently mis-score.
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['Benchmark', 'BenchmarkScore', 'BenchmarkTaskResult']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"BenchmarkTaskResult"} href={"/docs/evsys_sdk/benchmark/BenchmarkTaskResult"} />
+<Card title={"BenchmarkScore"} href={"/docs/evsys_sdk/benchmark/BenchmarkScore"} />
+<Card title={"Benchmark"} href={"/docs/evsys_sdk/benchmark/Benchmark"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_score_task"} type={"(task, completion) -> tuple[float, Any]"}>
+
+<PySourceCode >
+
+```python
+def _score_task(task: HarborTask, completion: str) -> tuple[float, Any]:
+    verifier = task.verifier
+    if isinstance(verifier, InProcessVerifier):
+        fn = verifier_fns.get(verifier.fn_name)
+        reward = float(fn(completion, verifier.expected, dict(verifier.params or {})))
+        return reward, verifier.expected
+    if isinstance(verifier, E2BVerifier):
+        raise NotImplementedError(
+            f"task {task.task_id!r} uses E2BVerifier; run it through an E2B-aware "
+            "scorer rather than Benchmark.score"
+        )
+    if isinstance(verifier, LLMJudgeVerifier):
+        raise NotImplementedError(
+            f"task {task.task_id!r} uses LLMJudgeVerifier; run it through an "
+            "LLM-judge scorer rather than Benchmark.score"
+        )
+    raise TypeError(f"task {task.task_id!r} has unknown verifier type: {type(verifier).__name__}")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"task"} type={"HarborTask"} value={null} />
+<PyParameter name={"completion"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"tuple[float, typing.Any]"} />
+
+</PyFunction>
+<PyFunction name={"_read_metadata_yaml"} type={"(path) -> dict"}>
+
+<PySourceCode >
+
+```python
+def _read_metadata_yaml(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    import yaml  # local — pyyaml is a required dep
+
+    data = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: metadata.yaml must be a mapping at the top level")
+    return data
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"Path"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict"} />
+
+</PyFunction>
+<PyFunction name={"_compute_breakdowns"} type={"(per_task, breakdown_keys) -> dict[str, dict[str, dict[str, float]]]"}>
+
+Bucket per-task rewards by each dotted ``metadata`` key →
+``\{key: \{value: \{n, mean_reward, pass_rate\}\}\}``. Shared by the in-process
+and harbor scoring paths.
+
+<PySourceCode >
+
+```python
+def _compute_breakdowns(
+    per_task: list[BenchmarkTaskResult], breakdown_keys: list[str],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Bucket per-task rewards by each dotted ``metadata`` key →
+    ``{key: {value: {n, mean_reward, pass_rate}}}``. Shared by the in-process
+    and harbor scoring paths."""
+    breakdowns: dict[str, dict[str, dict[str, float]]] = {}
+    for key in breakdown_keys:
+        buckets: dict[str, list[float]] = {}
+        for r in per_task:
+            bucket = str(_dotted_get(r.metadata, key, "__missing__"))
+            buckets.setdefault(bucket, []).append(r.reward)
+        breakdowns[key] = {
+            bucket: {
+                "n": float(len(rewards)),
+                "mean_reward": sum(rewards) / len(rewards),
+                "pass_rate": sum(1 for x in rewards if x >= 1.0) / len(rewards),
+            }
+            for bucket, rewards in buckets.items()
+        }
+    return breakdowns
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"per_task"} type={"list[BenchmarkTaskResult]"} value={null} />
+<PyParameter name={"breakdown_keys"} type={"list[str]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, dict[str, dict[str, float]]]"} />
+
+</PyFunction>
+<PyFunction name={"_dotted_get"} type={"(d, dotted_key, default) -> Any"}>
+
+<PySourceCode >
+
+```python
+def _dotted_get(d: dict, dotted_key: str, default: Any) -> Any:
+    cur: Any = d
+    for part in dotted_key.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"d"} type={"dict"} value={null} />
+<PyParameter name={"dotted_key"} type={"str"} value={null} />
+<PyParameter name={"default"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

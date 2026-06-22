@@ -1,0 +1,69 @@
+---
+title: PrintProgressCallback
+---
+
+Compact one-liner per step to stdout. Useful when you're not on a
+dashboard.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'print_progress'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"PrintProgressConfig"} />
+
+<PyAttribute name={"every"} type={"int"} value={"1"} />
+
+<PyAttribute name={"keys"} type={"list[str] | None"} value={"None"} />
+
+<PyAttribute name={"stream"} type={"Any"} value={"field(default_factory=(lambda: sys.stdout))"} />
+
+## Functions
+
+<PyFunction name={"on_step_end"} type={"(self, state, step_idx, batch, metrics)"}>
+
+<PySourceCode >
+
+```python
+def on_step_end(self, state, step_idx, batch, metrics):
+    if self.every > 1 and (step_idx % self.every) != 0:
+        return
+    view = (
+        {k: metrics[k] for k in self.keys if k in metrics}
+        if self.keys is not None else metrics
+    )
+    line = f"[{step_idx + 1}/{state.num_steps}] " + " ".join(
+        f"{k}={_fmt_value(v)}" for k, v in view.items()
+    )
+    print(line, file=self.stream, flush=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"batch"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, every=1, keys=None, stream=(lambda: sys.stdout)()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"every"} type={"int"} value={"1"} />
+<PyParameter name={"keys"} type={"list[str] | None"} value={"None"} />
+<PyParameter name={"stream"} type={"Any"} value={"(lambda: sys.stdout)()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

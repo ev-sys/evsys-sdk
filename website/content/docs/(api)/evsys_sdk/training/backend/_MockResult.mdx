@@ -1,0 +1,30 @@
+---
+title: _MockResult
+---
+
+Duck-typed ForwardBackwardResult / OptimStepResult.
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, **fields) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, **fields: Any) -> None:
+    for k, v in fields.items():
+        setattr(self, k, v)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"fields"} type={"Any"} value={"{}"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

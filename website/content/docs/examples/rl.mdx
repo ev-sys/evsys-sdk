@@ -1,0 +1,138 @@
+---
+title: RL — Reinforcement Learning
+description: A complete, run-it-yourself RL walkthrough — tasks with verifiers as the reward, the built-in rl algorithm, rollouts via Harbor, in-loop validation, and local logging.
+---
+
+A full walkthrough of on-policy RL for a beginner. Unlike SFT there's no "right
+answer" to copy — the model **tries**, a **verifier scores the attempt**, and the
+reward pushes the policy toward higher-scoring answers. We'll teach a model to
+solve simple arithmetic and put the answer in `<answer></answer>`.
+
+Runnable in the repo at **`examples/rl_walkthrough/`**.
+
+## 1. The raw data — tasks you point the config at
+
+RL data is a **JSONL file** of **`HarborTask`** rows. Each line is a task: an
+`instruction` (the prompt the model attempts) and a `verifier` (how to score the
+attempt):
+
+```json title="examples/rl_walkthrough/data/train.jsonl"
+{"task_id": "t0", "instruction": "What is 2 + 2? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>4</answer>"}}
+{"task_id": "t1", "instruction": "What is 3 + 5? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>8</answer>"}}
+```
+
+Point the config at the file — same as SFT:
+
+```yaml
+data:
+  source_kind: jsonl
+  path: examples/rl_walkthrough/data/train.jsonl
+```
+
+**No transform is needed here.** A row with `task_id` + `instruction` +
+`verifier` is *already* a `HarborTask`, so the SDK detects the format directly.
+(If your raw data were plain QA, you'd write a `@register_transform` that builds
+these task dicts — same idea as SFT's `jsonl_to_chat`.)
+
+## 2. The verifier IS the reward
+
+This is the heart of RL. Each task carries an **in-process verifier**:
+
+```yaml
+verifier: { kind: in_process, fn_name: contains, expected: "<answer>4</answer>" }
+```
+
+- `fn_name` is a built-in reward function — `contains`, `exact_match`,
+  `regex_match`, or `tool_calls_match`.
+- `expected` is what it checks the model's completion for.
+
+When training runs, the policy **rolls out** on `instruction` (generates an
+answer), and the verifier returns a reward (here: 1.0 if the completion contains
+`<answer>4</answer>`, else 0.0). That reward is the entire learning signal — no
+gold completion is ever shown to the model.
+
+## 3. The built-in `rl` algorithm
+
+Select `rl` by `kind`. Rollouts are executed by **Harbor's engine**;
+`num_samples: 2` generates two attempts per task so the algorithm can compute a
+**group-relative advantage** (which attempt beat the other) as its baseline:
+
+```yaml
+model:   { name: Qwen/Qwen3.5-4B }
+backend: { kind: tinker }
+algorithm:
+  kind: rl
+  params:
+    learning_rate: 1.0e-5
+    max_steps: 2            # bump to 100-500 for a real run
+    batch_size: 1
+    lora_rank: 1
+    num_samples: 2          # >=2 turns on the advantage baseline
+    max_tokens: 256
+    user_template: "{prompt}"
+```
+
+## 4. Benchmarks & validation — score it *during* training
+
+Exactly like SFT: a benchmark is a **directory** with a `tasks.jsonl` of
+verifier-scored tasks, attached under `metadata.benchmark` with a `run_every` so
+it's scored **in-loop every N steps**:
+
+```yaml
+metadata:
+  benchmark:
+    - name: val
+      path: examples/rl_walkthrough/data/val   # directory holding tasks.jsonl
+      run_every: 1          # score every step
+      metrics: [pass@1]      # fraction of held-out tasks solved
+      split: val
+```
+
+`run_every: N` scores the benchmark **in-loop every N steps**; omit `run_every`
+and it's scored **once, after training** (any entry — a `test` benchmark can run
+in-loop too). `split` (`val` / `test`) is just a label that keeps different
+benchmarks' metrics apart in the logs; it doesn't decide when an entry runs.
+
+## 5. Local logging — where the metrics show up
+
+Same `local_logger` callback as everywhere:
+
+```yaml
+callbacks:
+  - kind: local_logger
+    params: { print_every: 1 }
+```
+
+It writes to `examples/rl_walkthrough/outputs/rl_arithmetic/`:
+
+| File | What's in it |
+| --- | --- |
+| `metrics.jsonl` | per-step rows `{step, split, metrics}` — train rows carry `reward/mean` and friends (`split: "train"`); in-loop val rows carry `val/val/pass@1` (`split: "val"`) |
+| `predictions/val.jsonl` | the model's actual rollout for each val task |
+| `summary.md` | final status + per-eval metric lines |
+
+Train rows carry `reward/mean` (`split: "train"`); in-loop val rows carry
+`val/val/pass@1` (`split: "val"`). As the policy learns, you watch `reward/mean`
+rise.
+
+## 6. Run it
+
+```bash
+evsys validate examples/rl_walkthrough/config.yaml --deep    # offline check
+export TINKER_API_KEY=...
+python examples/rl_walkthrough/run.py
+```
+
+```text
+Status:    completed
+Metrics:   {'reward/mean': ...}
+Logs:      examples/rl_walkthrough/outputs (metrics.jsonl, predictions/, summary.md)
+```
+
+## Next
+
+<Cards>
+  <Card title="🎯 SFT walkthrough" href="/docs/examples/sft" />
+  <Card title="🎓 SDFT walkthrough" href="/docs/examples/sdft" />
+  <Card title="🔁 Autoresearch" href="/docs/autoresearch" />
+</Cards>

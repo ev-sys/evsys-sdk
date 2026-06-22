@@ -1,0 +1,116 @@
+---
+title: SimpleSDFTDataset
+---
+
+Stock :class:`SDFTDataset` over :class:`~evsys_sdk.data_types.PromptExample`
+rows: the question lives in ``inputs['question']`` and the gold answer in
+``expected``. Wraps modulo dataset length so the loop can exceed one epoch
+(no ``_RepeatingSDFTProvider`` hack needed).
+
+## Attributes
+
+<PyAttribute name={"rows"} type={"list[PromptExample]"} value={null} />
+
+<PyAttribute name={"batch_size"} type={"int"} value={null} />
+
+## Functions
+
+<PyFunction name={"__post_init__"} type={"(self) -> None"}>
+
+<PySourceCode >
+
+```python
+def __post_init__(self) -> None:
+    if not self.rows:
+        raise ValueError("SimpleSDFTDataset: rows is empty")
+    if self.batch_size <= 0:
+        raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
+    missing = [
+        i for i, r in enumerate(self.rows[:5])
+        if not r.inputs.get("question") or r.expected is None
+    ]
+    if missing:
+        raise ValueError(
+            f"SimpleSDFTDataset: rows need inputs['question'] + expected "
+            f"(indices {missing} of first 5)"
+        )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"__len__"} type={"(self) -> int"}>
+
+<PySourceCode >
+
+```python
+def __len__(self) -> int:
+    return max(1, len(self.rows) // self.batch_size)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"int"} />
+
+</PyFunction>
+
+<PyFunction name={"get_batch"} type={"(self, step_idx) -> tuple[list[str], list[str]]"}>
+
+<PySourceCode >
+
+```python
+def get_batch(self, step_idx: int) -> tuple[list[str], list[str]]:
+    n = len(self.rows)
+    start = (step_idx * self.batch_size) % n
+    end = start + self.batch_size
+    if end <= n:
+        slice_ = self.rows[start:end]
+    else:
+        slice_ = self.rows[start:] + self.rows[: end - n]
+    return (
+        [r.inputs["question"] for r in slice_],
+        [str(r.expected) for r in slice_],
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"tuple[list[str], list[str]]"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, rows, batch_size) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"rows"} type={"list[PromptExample]"} value={null} />
+<PyParameter name={"batch_size"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

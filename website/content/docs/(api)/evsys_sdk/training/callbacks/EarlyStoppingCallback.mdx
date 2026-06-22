@@ -1,0 +1,88 @@
+---
+title: EarlyStoppingCallback
+---
+
+Watch a metric emitted on eval; request_stop after N evals without
+improvement.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'early_stopping'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"EarlyStoppingConfig"} />
+
+<PyAttribute name={"metric"} type={"str"} value={null} />
+
+<PyAttribute name={"eval_name"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"patience"} type={"int"} value={"3"} />
+
+<PyAttribute name={"mode"} type={"str"} value={"'max'"} />
+
+<PyAttribute name={"min_delta"} type={"float"} value={"0.0"} />
+
+## Functions
+
+<PyFunction name={"on_eval"} type={"(self, state, step_idx, eval_name, metrics)"}>
+
+<PySourceCode >
+
+```python
+def on_eval(self, state, step_idx, eval_name, metrics):
+    if self.eval_name is not None and eval_name != self.eval_name:
+        return
+    if self.metric not in metrics:
+        return
+    v = float(metrics[self.metric])
+    if self._best is None:
+        self._best = v
+        return
+    improved = (
+        v > self._best + self.min_delta if self.mode == "max"
+        else v < self._best - self.min_delta
+    )
+    if improved:
+        self._best = v
+        self._staleness = 0
+    else:
+        self._staleness += 1
+        if self._staleness >= self.patience:
+            logger.info(
+                "EarlyStoppingCallback: stop after %d evals without improvement on %r",
+                self._staleness, self.metric,
+            )
+            state.request_stop()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={null} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"eval_name"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={null} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, metric, eval_name=None, patience=3, mode='max', min_delta=0.0) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metric"} type={"str"} value={null} />
+<PyParameter name={"eval_name"} type={"str | None"} value={"None"} />
+<PyParameter name={"patience"} type={"int"} value={"3"} />
+<PyParameter name={"mode"} type={"str"} value={"'max'"} />
+<PyParameter name={"min_delta"} type={"float"} value={"0.0"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

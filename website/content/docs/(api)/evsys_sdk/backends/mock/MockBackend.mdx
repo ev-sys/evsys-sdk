@@ -1,0 +1,86 @@
+---
+title: MockBackend
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'mock'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"MockBackendConfig"} />
+
+<PyAttribute name={"fail_on_prepare"} type={null} value={"fail_on_prepare"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, fail_on_prepare=False) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, fail_on_prepare: bool = False) -> None:
+    self.fail_on_prepare = fail_on_prepare
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"fail_on_prepare"} type={"bool"} value={"False"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"prepare"} type={"(self, *, model, run_dir) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
+    if self.fail_on_prepare:
+        raise RuntimeError("MockBackend asked to fail")
+    return {
+        "backend": "mock",
+        "model": dict(model),
+        "run_dir": run_dir,
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"model"} type={"dict[str, Any]"} value={null} />
+<PyParameter name={"run_dir"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"teardown"} type={"(self, handles) -> None"}>
+
+<PySourceCode >
+
+```python
+def teardown(self, handles: dict[str, Any]) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"handles"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

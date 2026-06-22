@@ -1,0 +1,112 @@
+---
+title: RetryReport
+---
+
+Collects retry-exhausted failures during an eval pass.
+
+## Attributes
+
+<PyAttribute name={"failures"} type={"list[RetryFailure]"} value={"field(default_factory=list)"} />
+
+## Functions
+
+<PyFunction name={"record"} type={"(self, context, exc, attempts) -> None"}>
+
+<PySourceCode >
+
+```python
+def record(self, context: str, exc: BaseException, attempts: int) -> None:
+    self.failures.append(
+        RetryFailure(
+            context=context,
+            exception_type=type(exc).__name__,
+            exception_message=str(exc),
+            attempts=attempts,
+        )
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"context"} type={"str"} value={null} />
+<PyParameter name={"exc"} type={"BaseException"} value={null} />
+<PyParameter name={"attempts"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"as_dict"} type={"(self) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def as_dict(self) -> dict[str, Any]:
+    return {
+        "total_failures": len(self.failures),
+        "by_exception_type": self._by_type(),
+        "failures": [
+            {
+                "context": f.context,
+                "exception_type": f.exception_type,
+                "exception_message": f.exception_message,
+                "attempts": f.attempts,
+            }
+            for f in self.failures
+        ],
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"_by_type"} type={"(self) -> dict[str, int]"}>
+
+<PySourceCode >
+
+```python
+def _by_type(self) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for f in self.failures:
+        counts[f.exception_type] = counts.get(f.exception_type, 0) + 1
+    return counts
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, int]"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, failures=list()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"failures"} type={"list[RetryFailure]"} value={"list()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

@@ -1,0 +1,116 @@
+---
+title: MockSamplingClient
+---
+
+In-memory SamplingClient for tests.
+
+Returns ``canned[i % len(canned)]`` per call to ``sample_async``. Tests
+that need fancy behavior can subclass; the default is enough to exercise
+the loop's eval slot.
+
+## Attributes
+
+<PyAttribute name={"canned"} type={null} value={"canned or ['']"} />
+
+<PyAttribute name={"name"} type={null} value={"name"} />
+
+<PyAttribute name={"model_path"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"sample_calls"} type={"list[dict]"} value={"[]"} />
+
+<PyAttribute name={"logprob_calls"} type={"list[tinker.ModelInput]"} value={"[]"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, canned=None, name='mock') -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, canned: list[str] | None = None, name: str = "mock") -> None:
+    self.canned = canned or [""]
+    self.name = name
+    self.model_path: str | None = None
+    self.sample_calls: list[dict] = []
+    self.logprob_calls: list[tinker.ModelInput] = []
+    self._idx = 0
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"canned"} type={"list[str] | None"} value={"None"} />
+<PyParameter name={"name"} type={"str"} value={"'mock'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"sample_async"} type={"(self, *, prompt, params, num_samples=1, include_prompt_logprobs=False, topk_prompt_logprobs=0) -> Any"}>
+
+<PySourceCode >
+
+```python
+async def sample_async(
+    self,
+    *,
+    prompt: tinker.ModelInput,
+    params: tinker.SamplingParams,
+    num_samples: int = 1,
+    include_prompt_logprobs: bool = False,
+    topk_prompt_logprobs: int = 0,
+) -> Any:
+    self.sample_calls.append({
+        "prompt_len": prompt.length, "params": params, "num_samples": num_samples,
+        "topk_prompt_logprobs": topk_prompt_logprobs,
+    })
+    text = self.canned[self._idx % len(self.canned)]
+    self._idx += 1
+    # Mimic tinker's SamplingResponse: a .sequences list, each with .tokens.
+    seq = _MockResult(tokens=list(range(len(text))) or [0])
+    return _MockResult(sequences=[seq], topk_prompt_logprobs=None)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+<PyParameter name={"params"} type={"tinker.SamplingParams"} value={null} />
+<PyParameter name={"num_samples"} type={"int"} value={"1"} />
+<PyParameter name={"include_prompt_logprobs"} type={"bool"} value={"False"} />
+<PyParameter name={"topk_prompt_logprobs"} type={"int"} value={"0"} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Any"} />
+
+</PyFunction>
+
+<PyFunction name={"compute_logprobs_async"} type={"(self, prompt) -> list[float | None]"}>
+
+<PySourceCode >
+
+```python
+async def compute_logprobs_async(self, prompt: tinker.ModelInput) -> list[float | None]:
+    self.logprob_calls.append(prompt)
+    return [0.0] * prompt.length
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"prompt"} type={"tinker.ModelInput"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[float | None]"} />
+
+</PyFunction>

@@ -1,0 +1,35 @@
+---
+title: algorithms
+---
+
+Built-in algorithms.
+
+Each algorithm targets a specific (recipe-kind, backend-kind) pair via the
+registry: the algorithm's `name` is what users put in `algorithm.kind:` of
+the YAML; routing to a specific backend happens inside the algorithm's
+.train() (it inspects ctx.backend.name).
+
+Some algorithms are backend-agnostic (Mock); most route to a single backend.
+
+<Tabs items={["Modules"]}>
+
+<Tab value={"Modules"}>
+
+<Cards >
+
+<Card href={"/docs/evsys_sdk/algorithms/mock_rl"} title={"mock_rl"} />
+<Card href={"/docs/evsys_sdk/algorithms/sdft"} title={"sdft"} />
+<Card href={"/docs/evsys_sdk/algorithms/rl"} title={"rl"} />
+<Card href={"/docs/evsys_sdk/algorithms/sft"} title={"sft"} />
+<Card href={"/docs/evsys_sdk/algorithms/combo"} title={"combo"} />
+<Card href={"/docs/evsys_sdk/algorithms/local_rl"} title={"local_rl"} />
+<Card href={"/docs/evsys_sdk/algorithms/local_sft"} title={"local_sft"} />
+<Card href={"/docs/evsys_sdk/algorithms/gepa_prompt"} title={"gepa_prompt"} />
+<Card href={"/docs/evsys_sdk/algorithms/base"} title={"base"} />
+<Card href={"/docs/evsys_sdk/algorithms/mock_sft"} title={"mock_sft"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

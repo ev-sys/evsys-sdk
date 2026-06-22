@@ -1,0 +1,104 @@
+---
+title: TinkerBackend
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'tinker'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"TinkerBackendConfig"} />
+
+<PyAttribute name={"api_key_env"} type={null} value={"api_key_env"} />
+
+<PyAttribute name={"base_url"} type={null} value={"base_url"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, api_key_env='TINKER_API_KEY', base_url=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, api_key_env: str = "TINKER_API_KEY", base_url: str | None = None) -> None:
+    self.api_key_env = api_key_env
+    self.base_url = base_url
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"api_key_env"} type={"str"} value={"'TINKER_API_KEY'"} />
+<PyParameter name={"base_url"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"prepare"} type={"(self, *, model, run_dir) -> dict[str, Any]"}>
+
+<PySourceCode >
+
+```python
+def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
+    api_key = os.environ.get(self.api_key_env)
+    if not api_key:
+        raise RuntimeError(
+            f"{self.api_key_env} not set in env — needed for TinkerBackend.prepare()"
+        )
+    kwargs: dict[str, Any] = {}
+    if self.base_url:
+        kwargs["base_url"] = self.base_url
+    # tinker.ServiceClient picks up the API key from env automatically;
+    # we set it explicitly so the active env wins over any earlier export.
+    os.environ[self.api_key_env] = api_key
+    service_client = tinker.ServiceClient(**kwargs)
+    return {
+        "backend": "tinker",
+        "service_client": service_client,
+        "model_name": model["name"],
+        "load_checkpoint_path": model.get("load_checkpoint_path"),
+        "init_from_checkpoint": model.get("init_from_checkpoint"),
+        "renderer_name": model.get("renderer_name"),
+        "run_dir": run_dir,
+    }
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"model"} type={"dict[str, Any]"} value={null} />
+<PyParameter name={"run_dir"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"teardown"} type={"(self, handles) -> None"}>
+
+<PySourceCode >
+
+```python
+def teardown(self, handles: dict[str, Any]) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"handles"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

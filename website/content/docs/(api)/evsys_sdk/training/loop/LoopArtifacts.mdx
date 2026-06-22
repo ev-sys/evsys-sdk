@@ -1,0 +1,95 @@
+---
+title: LoopArtifacts
+---
+
+Per-run filesystem + state pointers, used to populate `RunResult`.
+
+## Attributes
+
+<PyAttribute name={"run_dir"} type={"Path"} value={null}>
+
+The output directory written to. Algorithms surface this as
+``RunResult.artifacts["run_dir"]`` for downstream consumers
+(e.g. ``TinkerInference.from_run_result``).
+
+</PyAttribute>
+
+<PyAttribute name={"manifest_path"} type={"Path"} value={null}>
+
+Path to the ``checkpoints.jsonl`` the loop wrote.
+
+</PyAttribute>
+
+<PyAttribute name={"checkpoints"} type={"list[ManifestRow]"} value={null}>
+
+Manifest rows the loop wrote, in order. The last one is the
+final sampler — the URI eval consumes.
+
+</PyAttribute>
+
+<PyAttribute name={"total_requested_steps"} type={"int"} value={null}>
+
+The step horizon passed to :meth:`TrainingLoop.run` (``num_steps``) —
+NOT the number of steps actually executed. These differ when a callback
+early-stops the loop via ``state.request_stop()``: this field still reads
+the requested ceiling. For "how many steps actually ran", read
+``state.step + 1`` inside ``on_train_end`` (``state.step`` is the last
+executed index).
+
+</PyAttribute>
+
+<PyAttribute name={"train_seconds"} type={"float"} value={null} />
+
+## Functions
+
+<PyFunction name={"as_dict"} type={"(self) -> dict[str, str]"}>
+
+Flatten to the ``RunResult.artifacts`` shape that downstream
+consumers (e.g. ``TinkerInference.from_run_result``) read.
+
+<PySourceCode >
+
+```python
+def as_dict(self) -> dict[str, str]:
+    """Flatten to the ``RunResult.artifacts`` shape that downstream
+    consumers (e.g. ``TinkerInference.from_run_result``) read."""
+    out: dict[str, str] = {"run_dir": str(self.run_dir)}
+    for row in self.checkpoints:
+        if row.sampler_path:
+            out[f"checkpoint-{row.name}"] = row.sampler_path
+        # Full training-state path (weights + optimizer). Surfaced so
+        # continual learning can chain a stage's final weights into the
+        # next stage (see Experiment continual mode).
+        if row.state_path:
+            out[f"state-{row.name}"] = row.state_path
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, str]"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, run_dir, manifest_path, checkpoints, total_requested_steps, train_seconds) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_dir"} type={"Path"} value={null} />
+<PyParameter name={"manifest_path"} type={"Path"} value={null} />
+<PyParameter name={"checkpoints"} type={"list[ManifestRow]"} value={null} />
+<PyParameter name={"total_requested_steps"} type={"int"} value={null} />
+<PyParameter name={"train_seconds"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

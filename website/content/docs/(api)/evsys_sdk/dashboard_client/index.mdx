@@ -1,0 +1,77 @@
+---
+title: dashboard_client
+---
+
+DashboardClient — push SDK runs to the EvolvingSystems backend, with a local mirror.
+
+Architecture: SDK → Django HTTP → Supabase. The user holds an API key (the
+same key the dashboard issues at ``Settings → API keys``) plus a project id
+(shared by everyone on the project, set in the SDK env). The SDK calls
+``/api/dashboard/api/sdk/...`` routes; the backend authenticates the key, checks
+the user belongs to the project, and writes Supabase with its service key.
+
+Robustness (wandb-offline style):
+  * Every write is **also** mirrored to a local folder (``EVSYS_LOG_DIR``,
+    default ``./evsys_sdk``). There is no remote-only mode.
+  * If the backend is unreachable (connection error / timeout / 5xx) the call
+    logs a warning and keeps going with the local mirror — it does not crash.
+  * Auth is required by default: without an API key + project id the client
+    raises. Set ``EVSYS_OFFLINE=true`` (or ``offline=True``) to run with no
+    auth, writing only to the local mirror.
+
+Env vars (see constants.py): EVSYS_API_URL, EVSYS_API_KEY,
+EVSYS_PROJECT_ID, EVSYS_LOG_DIR, EVSYS_OFFLINE,
+EVSYS_LOGGING_LEVEL.
+
+Quick usage::
+
+    from evsys_sdk import DashboardClient, ExperimentRun
+
+    client = DashboardClient()  # reads env vars
+
+    with ExperimentRun(client, experiment_name="sft_run_v9",
+                       recipe_kind="sft",
+                       run_config=\{"lr": 1e-5, "batch_size": 16\}) as run:
+        for step in range(1, 1001):
+            run.log_step(step, loss=...)
+        run.log_eval(metrics=\{"pass_at_1": 0.83\}, benchmark_id="...")
+        run.set_best_score(0.83)
+
+<PyAttribute name={"log"} type={null} value={"get_logger(__name__)"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['DashboardClient', 'DashboardClientError', 'EvsysAuthError', 'ExperimentRun']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"DashboardClientError"} href={"/docs/evsys_sdk/dashboard_client/DashboardClientError"} />
+<Card title={"EvsysAuthError"} href={"/docs/evsys_sdk/dashboard_client/EvsysAuthError"} />
+<Card title={"DashboardClient"} href={"/docs/evsys_sdk/dashboard_client/DashboardClient"} />
+<Card title={"ExperimentRun"} href={"/docs/evsys_sdk/dashboard_client/ExperimentRun"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_new_id"} type={"() -> str"}>
+
+<PySourceCode >
+
+```python
+def _new_id() -> str:
+    return str(uuid.uuid4())
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

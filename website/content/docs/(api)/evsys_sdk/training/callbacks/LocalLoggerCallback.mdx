@@ -1,0 +1,244 @@
+---
+title: LocalLoggerCallback
+---
+
+Human-readable local logging: prints what's happening per step AND
+persists metrics + benchmark predictions to files under the run dir.
+
+Writes ``\<output_dir>/\<run_key>/`` : ``metrics.jsonl`` (train + val rows),
+``predictions/\<name>.jsonl`` (per benchmark), and ``summary.md`` at
+run end. The "print what's happening" requirement is the per-step one-liner
+(cadence ``print_every``).
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'local_logger'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"LocalLoggerConfig"} />
+
+<PyAttribute name={"print_every"} type={null} value={"int(print_every)"} />
+
+<PyAttribute name={"keys"} type={null} value={"keys"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, print_every=1, keys=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, print_every: int = 1, keys: list[str] | None = None) -> None:
+    self.print_every = int(print_every)
+    self.keys = keys
+    self._dir: Path | None = None
+    self._metrics_fp: Any = None
+    self._evals: list[dict] = []
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"print_every"} type={"int"} value={"1"} />
+<PyParameter name={"keys"} type={"list[str] | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_start"} type={"(self, ctx) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_start(self, ctx: LogContext) -> None:
+    self._dir = Path(ctx.output_dir) / (ctx.run_key or "run")
+    self._dir.mkdir(parents=True, exist_ok=True)
+    self._metrics_fp = (self._dir / "metrics.jsonl").open("a")
+    self._evals = []
+    if self.print_every:
+        print(f"[local_logger] run {ctx.run_key} → {self._dir}", flush=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={"LogContext"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_write_metrics"} type={"(self, step, metrics, split) -> None"}>
+
+<PySourceCode >
+
+```python
+def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
+    if self._metrics_fp is None:
+        return
+    import json  # noqa: PLC0415
+    self._metrics_fp.write(
+        json.dumps({"step": step, "split": split,
+                    "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n"
+    )
+    self._metrics_fp.flush()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+<PyParameter name={"metrics"} type={"dict"} value={null} />
+<PyParameter name={"split"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_step_end"} type={"(self, state, step_idx, batch, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
+    self._write_metrics(step_idx, metrics, "train")
+    if self.print_every and (step_idx + 1) % self.print_every == 0:
+        view = metrics if self.keys is None else {k: metrics[k] for k in self.keys if k in metrics}
+        line = f"[{step_idx + 1}/{state.num_steps}] " + " ".join(
+            f"{k}={_fmt_value(v)}" for k, v in view.items()
+        )
+        print(line, flush=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"batch"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_eval"} type={"(self, state, step_idx, eval_name, metrics) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_eval(self, state: LoopState, step_idx, eval_name, metrics) -> None:
+    self._write_metrics(step_idx, metrics, "val")
+    if self.print_every:
+        cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+        print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"state"} type={"LoopState"} value={null} />
+<PyParameter name={"step_idx"} type={null} value={null} />
+<PyParameter name={"eval_name"} type={null} value={null} />
+<PyParameter name={"metrics"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_benchmark_eval"} type={"(self, ctx, eval_result, predictions, *, step=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
+    if self._dir is None:
+        return
+    import json  # noqa: PLC0415
+    ename = getattr(eval_result, "name", "benchmark")
+    metrics = dict(getattr(eval_result, "metrics", {}) or {})
+    self._evals.append({"name": ename, "step": step, "metrics": metrics})
+    if predictions:
+        pdir = self._dir / "predictions"
+        pdir.mkdir(exist_ok=True)
+        safe = ename.replace("/", "_").replace(" ", "_")
+        with (pdir / f"{safe}.jsonl").open("w") as f:
+            for p in predictions:
+                f.write(json.dumps(p, default=str) + "\n")
+    if self.print_every:
+        cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
+        print(f"  [benchmark {ename}] {cells}  n_pred={len(predictions)}", flush=True)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"eval_result"} type={null} value={null} />
+<PyParameter name={"predictions"} type={null} value={null} />
+<PyParameter name={"step"} type={null} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"on_run_end"} type={"(self, ctx, run_result, arm) -> None"}>
+
+<PySourceCode >
+
+```python
+def on_run_end(self, ctx, run_result, arm) -> None:
+    if self._dir is not None:
+        lines = [f"# {ctx.run_key}", ""]
+        status = getattr(run_result, "status", None)
+        lines.append(f"- status: {status}")
+        for ev in self._evals:
+            cells = ", ".join(f"{k}={v:.4f}" for k, v in ev["metrics"].items()
+                              if isinstance(v, (int, float)))
+            lines.append(f"- eval **{ev['name']}** (step={ev['step']}): {cells}")
+        (self._dir / "summary.md").write_text("\n".join(lines) + "\n")
+    if self._metrics_fp is not None:
+        try:
+            self._metrics_fp.close()
+        finally:
+            self._metrics_fp = None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"ctx"} type={null} value={null} />
+<PyParameter name={"run_result"} type={null} value={null} />
+<PyParameter name={"arm"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

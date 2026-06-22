@@ -1,0 +1,42 @@
+---
+title: DashboardClientError
+---
+
+Raised on a 4xx response (auth / membership / bad request).
+
+## Attributes
+
+<PyAttribute name={"status"} type={null} value={"status"} />
+
+<PyAttribute name={"body"} type={null} value={"body"} />
+
+<PyAttribute name={"path"} type={null} value={"path"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, status, body, path) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, status: int, body: str, path: str) -> None:
+    super().__init__(f"{path} → HTTP {status}: {body[:200]}")
+    self.status = status
+    self.body = body
+    self.path = path
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"status"} type={"int"} value={null} />
+<PyParameter name={"body"} type={"str"} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

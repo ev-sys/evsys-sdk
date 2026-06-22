@@ -1,0 +1,6 @@
+{"query": "save a contact from this email", "tool_slug": "OUTLOOK_CREATE_CONTACT"}
+{"query": "edit a slack message I sent earlier", "tool_slug": "SLACK_UPDATES_A_SLACK_MESSAGE"}
+{"query": "create a new event on my calendar", "tool_slug": "GOOGLECALENDAR_CREATE_EVENT"}
+{"query": "send a direct message to a teammate", "tool_slug": "SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL"}
+{"query": "add a row to my spreadsheet", "tool_slug": "GOOGLESHEETS_BATCH_UPDATE"}
+{"query": "open a pull request on the repo", "tool_slug": "GITHUB_CREATE_A_PULL_REQUEST"}

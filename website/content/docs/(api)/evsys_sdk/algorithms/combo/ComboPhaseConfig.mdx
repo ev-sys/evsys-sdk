@@ -1,0 +1,25 @@
+---
+title: ComboPhaseConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"kind"} type={"str"} value={null}>
+
+Registry name of the sub-algorithm to run (e.g. 'mock_sft', 'rl').
+
+</PyAttribute>
+
+<PyAttribute name={"config"} type={"dict[str, Any]"} value={"Field(default_factory=dict)"}>
+
+Per-phase config dict passed to the sub-algorithm's Config constructor.
+
+</PyAttribute>
+
+<PyAttribute name={"name"} type={"str | None"} value={"None"}>
+
+Optional human-readable phase name; defaults to ``phase\{i\}_\{kind\}``.
+
+</PyAttribute>

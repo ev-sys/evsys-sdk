@@ -1,0 +1,21 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "---Getting Started---",
+    "index",
+    "installation",
+    "quickstart",
+    "examples",
+    "autoresearch",
+    "---Roadmap---",
+    "roadmap",
+    "---Concepts---",
+    "concepts",
+    "---Guides---",
+    "cookbook",
+    "---Reference---",
+    "reference",
+    "design",
+    "(api)"
+  ]
+}

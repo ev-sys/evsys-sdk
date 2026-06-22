@@ -1,0 +1,150 @@
+---
+title: TensorBoardLogStore
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'tensorboard'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"TensorBoardLogStoreConfig"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, *, log_dir, flush_secs=30) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, *, log_dir: str, flush_secs: int = 30) -> None:
+    self._writer = SummaryWriter(log_dir=log_dir, flush_secs=flush_secs)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"log_dir"} type={"str"} value={null} />
+<PyParameter name={"flush_secs"} type={"int"} value={"30"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_scalar"} type={"(self, key, value, step) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_scalar(self, key: str, value: float, step: int) -> None:
+    self._writer.add_scalar(key, value, global_step=step)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"key"} type={"str"} value={null} />
+<PyParameter name={"value"} type={"float"} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_metrics"} type={"(self, metrics, step) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_metrics(self, metrics: dict[str, float], step: int) -> None:
+    for k, v in metrics.items():
+        self._writer.add_scalar(k, v, global_step=step)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_hyperparams"} type={"(self, params) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_hyperparams(self, params: dict[str, Any]) -> None:
+    # add_hparams is finicky; persist as text instead
+    self._writer.add_text("hparams", str(params))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"params"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_artifact"} type={"(self, name, path, *, kind='file') -> None"}>
+
+<PySourceCode >
+
+```python
+def log_artifact(self, name: str, path: str, *, kind: str = "file") -> None:
+    self._writer.add_text(f"artifact/{name}", f"[{kind}] {path}")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"name"} type={"str"} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"kind"} type={"str"} value={"'file'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"close"} type={"(self) -> None"}>
+
+<PySourceCode >
+
+```python
+def close(self) -> None:
+    self._writer.close()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

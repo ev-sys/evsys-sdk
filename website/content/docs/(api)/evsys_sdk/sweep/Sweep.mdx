@@ -1,0 +1,160 @@
+---
+title: Sweep
+---
+
+Declarative axes over a single ``RunConfig``.
+
+## Attributes
+
+<PyAttribute name={"base_run"} type={"RunConfig"} value={null} />
+
+<PyAttribute name={"axes"} type={"dict[str, list[Any]]"} value={"field(default_factory=dict)"} />
+
+<PyAttribute name={"name_template"} type={"str | None"} value={"None"} />
+
+## Functions
+
+<PyFunction name={"__post_init__"} type={"(self) -> None"}>
+
+<PySourceCode >
+
+```python
+def __post_init__(self) -> None:
+    for axis, vals in self.axes.items():
+        if not isinstance(vals, list) or len(vals) == 0:
+            raise ValueError(
+                f"Sweep axis {axis!r} must be a non-empty list of values"
+            )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"expand"} type={"(self) -> list[RunConfig]"}>
+
+Cartesian product over axes → one ``RunConfig`` per cell.
+
+<PySourceCode >
+
+```python
+def expand(self) -> list[RunConfig]:
+    """Cartesian product over axes → one ``RunConfig`` per cell."""
+    return expand_runs(self.base_run, self.axes, self.name_template)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.config.RunConfig]"} />
+
+</PyFunction>
+
+<PyFunction name={"__len__"} type={"(self) -> int"}>
+
+<PySourceCode >
+
+```python
+def __len__(self) -> int:
+    if not self.axes:
+        return 1
+    n = 1
+    for vals in self.axes.values():
+        n *= len(vals)
+    return n
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"int"} />
+
+</PyFunction>
+
+<PyFunction name={"to_matrix"} type={"(self) -> MatrixSpec"}>
+
+Repackage as a ``MatrixSpec`` for YAML serialization.
+
+<PySourceCode >
+
+```python
+def to_matrix(self) -> MatrixSpec:
+    """Repackage as a ``MatrixSpec`` for YAML serialization."""
+    return MatrixSpec(
+        base_run=self.base_run,
+        axes=dict(self.axes),
+        name_template=self.name_template,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.config.MatrixSpec"} />
+
+</PyFunction>
+
+<PyFunction name={"from_matrix"} type={"(cls, matrix) -> Sweep"}>
+
+<PySourceCode >
+
+```python
+@classmethod
+def from_matrix(cls, matrix: MatrixSpec) -> Sweep:
+    return cls(
+        base_run=matrix.base_run,
+        axes=dict(matrix.axes),
+        name_template=matrix.name_template,
+    )
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"cls"} type={null} value={null} />
+<PyParameter name={"matrix"} type={"MatrixSpec"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.sweep.Sweep"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, base_run, axes=dict(), name_template=None) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"base_run"} type={"RunConfig"} value={null} />
+<PyParameter name={"axes"} type={"dict[str, list[Any]]"} value={"dict()"} />
+<PyParameter name={"name_template"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

@@ -3,7 +3,7 @@
 Declarative, modular experiment framework for LLM training. Built around a single YAML, with pluggable algorithms / verifiers / metrics / data stores / log stores / backends. Runs locally on TRL or remotely on Tinker.
 
 ```bash
-uv pip install -e .[tinker,local,tensorboard]
+uv sync
 evsys validate config.yaml --deep
 evsys run config.yaml
 ```

@@ -1,0 +1,55 @@
+---
+title: RunResult
+---
+
+What an algorithm returns from .train(ctx).
+
+## Attributes
+
+<PyAttribute name={"run_id"} type={"str"} value={null} />
+
+<PyAttribute name={"status"} type={"str"} value={null}>
+
+One of: 'completed', 'failed', 'cancelled'.
+
+</PyAttribute>
+
+<PyAttribute name={"metrics"} type={"dict[str, float]"} value={"field(default_factory=dict)"}>
+
+Final aggregated metrics for the run.
+
+</PyAttribute>
+
+<PyAttribute name={"artifacts"} type={"dict[str, str]"} value={"field(default_factory=dict)"}>
+
+Named artifact paths (e.g. \{'final_checkpoint': 's3://...', ...\}).
+
+</PyAttribute>
+
+<PyAttribute name={"error"} type={"str | None"} value={"None"}>
+
+If status != 'completed', a short human-readable reason.
+
+</PyAttribute>
+
+<PyAttribute name={"extras"} type={"dict[str, Any]"} value={"field(default_factory=dict)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, run_id, status, metrics=dict(), artifacts=dict(), error=None, extras=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str"} value={null} />
+<PyParameter name={"status"} type={"str"} value={null} />
+<PyParameter name={"metrics"} type={"dict[str, float]"} value={"dict()"} />
+<PyParameter name={"artifacts"} type={"dict[str, str]"} value={"dict()"} />
+<PyParameter name={"error"} type={"str | None"} value={"None"} />
+<PyParameter name={"extras"} type={"dict[str, Any]"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

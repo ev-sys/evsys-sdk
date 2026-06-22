@@ -1,0 +1,231 @@
+---
+title: SFT — Supervised Fine-Tuning
+description: A complete, run-it-yourself SFT walkthrough — JSONL data, a transform, the built-in sft algorithm, in-loop validation, and local logging, explained line by line.
+---
+
+This is a full walkthrough for someone who has never used the SDK. We'll train a
+small model to pick the right tool for a user's query — emitting
+`<answer>TOOL_SLUG</answer>` — and explain **every** moving part: the raw data,
+the transform that shapes it, the built-in algorithm, in-loop validation, and
+where the logs land.
+
+Everything here is a real, runnable example in the repo at
+**`examples/sft_walkthrough/`**. You can run it directly (see [step 6](#6-run-it)).
+
+## 1. The raw data — JSONL rows you point the config at
+
+Training data is a **JSONL file**: one JSON object per line. You bring whatever
+shape your data is in — here, each line is a query and the tool that answers it:
+
+```json title="examples/sft_walkthrough/data/train.jsonl"
+{"query": "save a contact from this email", "tool_slug": "OUTLOOK_CREATE_CONTACT"}
+{"query": "edit a slack message I sent earlier", "tool_slug": "SLACK_UPDATES_A_SLACK_MESSAGE"}
+{"query": "create a new event on my calendar", "tool_slug": "GOOGLECALENDAR_CREATE_EVENT"}
+```
+
+You don't load this yourself. You **point the config at the file** — `source_kind:
+jsonl` tells the SDK it's a JSONL file, and `path` is where to find it (relative
+to where you run from, or absolute):
+
+```yaml
+data:
+  source_kind: jsonl
+  path: examples/sft_walkthrough/data/train.jsonl
+```
+
+The SDK reads the file through a **data store** and hands the rows to the next
+stage. At this point they're still raw dicts — `{"query": ..., "tool_slug": ...}`.
+
+## 2. The transform — shape raw rows into a chat conversation
+
+An algorithm doesn't train on arbitrary dicts. SFT trains on a
+**`ChatMessagesRow`** — a conversation of `{role, content}` messages. A
+**transform** bridges the two.
+
+A transform is just a function with one contract: **`rows -> rows`**. You list
+transforms in the config and they run in order. The built-in `jsonl_to_chat`
+renders each raw dict into a chat turn using templates you provide:
+
+```yaml
+transforms:
+  - kind: jsonl_to_chat
+    params:
+      system_prompt: "You select the single best tool for the user's query."
+      user_template: "Query: {query}\nReply with the tool slug inside <answer></answer>."
+      assistant_template: "<answer>{tool_slug}</answer>"
+```
+
+So this raw row:
+
+```json
+{"query": "edit a slack message I sent earlier", "tool_slug": "SLACK_UPDATES_A_SLACK_MESSAGE"}
+```
+
+becomes this `ChatMessagesRow`:
+
+```json
+{ "messages": [
+  { "role": "system",    "content": "You select the single best tool for the user's query." },
+  { "role": "user",      "content": "Query: edit a slack message I sent earlier\nReply with the tool slug inside <answer></answer>." },
+  { "role": "assistant", "content": "<answer>SLACK_UPDATES_A_SLACK_MESSAGE</answer>" }
+] }
+```
+
+The conversation carries **only data** — it does *not* say which tokens to learn
+from. That's the algorithm's decision (next step).
+
+<Callout title="Registering your own transform">
+When no built-in fits, write your own and reference it by `kind` — no SDK fork:
+
+```python
+from pydantic import BaseModel
+from evsys_sdk import register_transform
+
+@register_transform("strip_pii")          # ← the name you use in the config
+class StripPII:
+    name = "strip_pii"
+    class Config(BaseModel, extra="forbid"):
+        field: str = "query"
+    def __init__(self, **kw): self.cfg = self.Config(**kw)
+    def __call__(self, rows):              # ← the rows -> rows contract
+        for r in rows:
+            r[self.cfg.field] = redact(r[self.cfg.field])
+        return rows
+```
+
+Then add `{ kind: strip_pii, params: { field: query } }` to `transforms`. The
+SDK finds it in the registry by that name. See [Plugins](/docs/concepts/plugins/algorithms).
+</Callout>
+
+## 3. The built-in `sft` algorithm
+
+You don't implement training — you select a built-in algorithm by `kind` and
+pass its knobs. `sft` tokenizes each chat row (masking the loss to the assistant
+turns) and runs the SDK training loop on the hosted **`tinker`** backend:
+
+```yaml
+model:
+  name: Qwen/Qwen3.5-4B
+backend:
+  kind: tinker
+algorithm:
+  kind: sft
+  params:
+    learning_rate: 1.0e-4
+    max_steps: 2            # bump to 100-500 for a real run
+    batch_size: 1
+    lora_rank: 1
+    supervise: all_assistant   # which turns carry a loss — the ALGORITHM's call
+```
+
+`supervise: all_assistant` is what makes this *supervised* — the loss is on the
+assistant tokens (the `<answer>…</answer>`), not the prompt. Note this lives on
+the **algorithm**, not the data: the same chat rows could be used differently by
+another algorithm.
+
+## 4. Benchmarks & validation — score the model *during* training
+
+To know if training is working, you score the model against a held-out
+**benchmark** while it trains. A benchmark is a **directory** containing a
+`tasks.jsonl` — each task has an `instruction` (the full prompt) and a
+**verifier** that says whether an answer is correct:
+
+```json title="examples/sft_walkthrough/data/val/tasks.jsonl"
+{"task_id": "val_0", "instruction": "Query: schedule a meeting on my calendar\nReply with the tool slug inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>GOOGLECALENDAR_CREATE_EVENT</answer>"}}
+```
+
+You attach it under `metadata.benchmark` and give it a **`run_every`** so it's
+scored **in-loop, repeatedly, every N steps**:
+
+```yaml
+metadata:
+  benchmark:
+    - name: val
+      path: examples/sft_walkthrough/data/val   # the DIRECTORY (holds tasks.jsonl)
+      run_every: 1          # score every step. Use 50 / 100 for longer runs.
+      metrics: [pass@1]      # fraction of tasks the model gets right
+      split: val            # tags the metrics as validation (vs a `test` benchmark)
+      max_tokens: 64
+```
+
+Two **independent** knobs to understand:
+
+- **`run_every` controls *when* it's scored.** `run_every: N` scores the
+  benchmark **in-loop every N steps** during training; omit `run_every` and it's
+  scored **once, after training**. (This is true of any entry — a `test`
+  benchmark can have a `run_every` and run in-loop too.)
+- **`split` (`val` / `test`) is just a label** — it namespaces the metrics so
+  different benchmarks' scores stay apart in the logs; it does *not* decide when
+  an entry runs. `pass@1` here = the fraction of tasks whose answer the verifier
+  accepts (contains the right `<answer>SLUG</answer>`).
+
+## 5. Local logging — where the metrics show up
+
+Logging is a **callback** on the experiment. `local_logger` prints a per-step
+line and writes the metrics to disk:
+
+```yaml
+callbacks:
+  - kind: local_logger
+    params:
+      print_every: 1
+```
+
+It writes to **`<output_dir>/<run_name>/`**, which the runner sets to
+`examples/sft_walkthrough/outputs/sft_tool_selection/`:
+
+| File | What's in it |
+| --- | --- |
+| `metrics.jsonl` | one row per event — `{step, split, metrics}`. **Train** steps are tagged `split: "train"`; the in-loop **validation** scores are tagged `split: "val"` (so you can tell them apart). |
+| `predictions/val.jsonl` | the model's actual answer for each val task each time it's scored |
+| `summary.md` | final status + the per-eval metric lines, written at the end |
+
+A typical `metrics.jsonl` looks like:
+
+Each row is `{step, split, metrics}` — training steps are tagged
+`split: "train"` and the in-loop validation scores are tagged `split: "val"`, so
+both live in one file:
+
+```json
+{"step": 1, "split": "train", "metrics": {"train_mean_nll": ..., "optim/lr": ...}}
+{"step": 1, "split": "val",   "metrics": {"val/val/pass@1": ...}}
+```
+
+You read training loss and validation score side by side, scored in-loop.
+
+## 6. Run it
+
+Everything above is the file `examples/sft_walkthrough/config.yaml`. The runner
+just loads it and calls the SDK:
+
+```bash
+# offline — checks every kind/params block, no GPU/network/cost:
+evsys validate examples/sft_walkthrough/config.yaml --deep
+
+# real hosted training (needs a Tinker key, charges a small amount):
+export TINKER_API_KEY=...
+python examples/sft_walkthrough/run.py
+```
+
+```text
+Status:     completed
+Artifacts:  ['run_dir', 'checkpoint-final', 'state-final', ...]
+Conclusion: 1/1 arms completed.
+Logs:       examples/sft_walkthrough/outputs — metrics.jsonl, predictions/, summary.md, experiment.md
+```
+
+The runner uses `Experiment(cfg).run()` (not the bare `run_experiment`) so the
+`local_logger` callback fires and writes the files above — including
+`experiment.md` with the hypothesis and conclusion.
+
+You get a LoRA adapter that emits the tool slug, plus the `metrics.jsonl` /
+`predictions/` / `summary.md` from step 5. Bump `max_steps` and grow the val set
+for a run that actually moves the needle.
+
+## Next
+
+<Cards>
+  <Card title="🏆 RL walkthrough" href="/docs/examples/rl" />
+  <Card title="🎓 SDFT walkthrough" href="/docs/examples/sdft" />
+  <Card title="🔁 Autoresearch" href="/docs/autoresearch" />
+</Cards>

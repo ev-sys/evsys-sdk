@@ -1,0 +1,218 @@
+---
+title: Verifiers
+description: How RL rewards work — the verifier rides on each task row and names a function in the verifier-fn registry.
+---
+
+A **verifier** turns a model's completion into a reward. The key thing to
+understand first: **the verifier rides on the data**, and the **registry holds
+the function it names**. They are not two competing options — they work together.
+
+### How RL picks a verifier
+
+Every RL task **row** carries a `verifier` spec — so each task brings its own
+check *and* its own expected answer:
+
+```yaml
+# one HarborTask row in your task data
+- task_id: q0
+  instruction: "What is 2 + 2? Put the answer in <answer></answer>."
+  verifier:
+    kind: in_process          # which verifier CLASS (RL supports only this today)
+    fn_name: contains         # which scoring FUNCTION in the verifier-fn registry
+    expected: "<answer>4</answer>"   # the gold value, carried per-row
+    params: { ignore_case: true }
+```
+
+At score time the SDK resolves `fn_name` → a function in the **verifier-fn
+registry** and calls it with this row's `expected`/`params`. The remote backend
+never stores verifier *code* — only the `fn_name` + `expected`/`params`; the SDK
+is the single source of truth for the function (D10).
+
+So the two pieces are:
+
+- **The data** *selects* the verifier (`kind` + `fn_name`) and supplies the
+  per-task gold (`expected`, `params`).
+- **The registry** *holds* the reusable scoring function that `fn_name` points
+  at. Register your own once with `@register_fn`, reference it by name from any
+  row.
+
+A few facts that clear up the common confusion:
+
+- For the **RL rollout path, `kind` must be `in_process`** today — that's
+  `InProcessVerifier`, which just dispatches to your `fn_name`. The full
+  `@register_verifier` **class** registry (below) is a separate, heavier
+  extension used for config-level reward logic, not the per-row RL path.
+- `verifier_name` on the RL algorithm config is only a **default `fn_name`** —
+  used when a row leaves `fn_name` blank, so you don't repeat it on every task.
+
+Start with **(a) the verifier-fn registry** — it's what RL uses. Reach for
+**(b) the Verifier class registry** only when the reward is config-level and
+shared across all tasks.
+
+---
+
+## (a) The verifier-fn registry — what RL uses
+
+These are **functions** (not classes) in `src/evsys_sdk/verifiers/fns.py`,
+referenced **by name from each task row** via `fn_name`. This is the single
+source of truth for cheap Python verification logic.
+
+```yaml
+# inside a HarborTask row in your task data
+verifier:
+  kind: in_process
+  fn_name: exact_match
+  expected: "42"
+  params: {ignore_case: true}
+```
+
+At score time the runner looks up `fn_name` via `fns.get(fn_name)` and calls the
+function. Every verifier-fn shares this exact signature:
+
+```python
+VerifierFn = Callable[[str, Any, dict], float]
+
+def fn(model_output: str, expected: Any, params: dict) -> float: ...
+```
+
+- **`model_output: str`** — the model's completion text.
+- **`expected: Any`** — the gold value from the task's `expected` field (string,
+  dict, etc., depending on the fn).
+- **`params: dict`** — the task's `params` block, a plain dict of options.
+- **returns `float`** — the reward, typically `1.0` (pass) or `0.0` (fail).
+
+### Use a built-in fn
+
+| `fn_name` | Exact signature & behavior |
+|---|---|
+| `exact_match` | `exact_match(model_output, expected, params) -> float`. Strips whitespace from both sides; if `params["ignore_case"]` is truthy, lower-cases both; returns `1.0` on exact string equality else `0.0`. |
+| `contains` | `contains(model_output, expected, params) -> float`. Returns `1.0` if `str(expected)` is a non-empty substring of `model_output` (case-folded when `params["ignore_case"]`), else `0.0`. |
+| `regex_match` | `regex_match(model_output, expected, params) -> float`. Treats `expected` as a regex; returns `1.0` if `re.search` finds it in `model_output` (with `re.IGNORECASE` when `params["ignore_case"]`), else `0.0`. |
+| `tool_calls_match` | `tool_calls_match(model_output, expected, params) -> float`. Parses both `model_output` and `expected` as JSON dicts (stripping code fences). Returns `1.0` only if `tool` and `action` match; any `ref`/`text` present in `expected` must match; and a `coordinate` must be within `params["coordinate_tolerance"]` (default `25`) on both axes. Otherwise `0.0`. |
+
+### Create your own fn
+
+Register a function with the `@register_fn` decorator (or `register(name, fn)`)
+from `evsys_sdk.verifiers.fns`:
+
+```python
+from evsys_sdk.verifiers.fns import register_fn
+
+
+@register_fn("startswith")
+def startswith(model_output: str, expected, params: dict) -> float:
+    a = model_output or ""
+    b = str(expected or "")
+    if params.get("ignore_case"):
+        a, b = a.lower(), b.lower()
+    return 1.0 if b and a.startswith(b) else 0.0
+```
+
+Then any task row can reference it: `verifier: {kind: in_process, fn_name: startswith, expected: "Answer:", params: {ignore_case: true}}` — or set `verifier_name: startswith` on the RL algorithm so every row defaults to it.
+
+---
+
+## (b) The Verifier class registry — config-level rewards
+
+### The contract
+
+Defined in `src/evsys_sdk/protocols.py` as `class Verifier(Protocol)`, alongside
+the result dataclass:
+
+```python
+@dataclass
+class VerificationResult:
+    reward: float
+    info: dict[str, Any] = field(default_factory=dict)
+```
+
+A verifier class declares two class vars and one method:
+
+- **`name: ClassVar[str]`** — registry key / YAML `kind`.
+- **`Config: ClassVar[type]`** — Pydantic model (`extra="forbid"`) for the
+  verifier's params; `params:` from YAML is validated against it.
+- **`def verify(self, *, prompt: str, completion: str, target: dict[str, Any]) -> VerificationResult`**
+  — all three arguments are **keyword-only**. `prompt` is the input text the
+  model saw; `completion` is the model's generated text; `target` is a dict of
+  gold/reference data for this example (answer keys, expected fields, etc.). It
+  returns a `VerificationResult` whose `reward` is a float and whose `info` is a
+  free-form dict of diagnostics (surfaced for debugging, not used for training).
+
+### Use a built-in
+
+```yaml
+verifier:
+  kind: format_only
+  params:
+    has_think_reward: 0.5
+    has_answer_reward: 0.5
+```
+
+| Built-in | What it does |
+|---|---|
+| `format_only` | Rewards **structure only**, ignoring correctness. `verify` checks whether `completion` contains both `<think>`/`</think>` (adds `has_think_reward`, default `0.5`) and `<answer>`/`</answer>` (adds `has_answer_reward`, default `0.5`). Returns the summed reward and `info={"has_think": ..., "has_answer": ...}`. Handy as a warm-up reward so a model first learns the output format. |
+
+### Create your own
+
+```python
+from typing import Any, ClassVar
+
+from pydantic import BaseModel, ConfigDict
+
+from evsys_sdk.protocols import VerificationResult
+from evsys_sdk.registry import register_verifier
+
+
+class LengthConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_len: int = 100        # ideal completion length in chars
+    tolerance: int = 20
+
+
+@register_verifier("length_band")          # registry key == YAML kind
+class LengthBandVerifier:
+    name: ClassVar[str] = "length_band"
+    Config: ClassVar[type] = LengthConfig
+
+    def __init__(self, *, target_len: int = 100, tolerance: int = 20) -> None:
+        self.target_len = target_len
+        self.tolerance = tolerance
+
+    # Keyword-only args, exactly as the protocol declares.
+    def verify(
+        self, *, prompt: str, completion: str, target: dict[str, Any]
+    ) -> VerificationResult:
+        off = abs(len(completion) - self.target_len)
+        reward = 1.0 if off <= self.tolerance else 0.0
+        return VerificationResult(reward=reward, info={"chars_off": off})
+```
+
+```yaml
+verifier:
+  kind: length_band
+  params: {target_len: 120, tolerance: 30}
+```
+
+> **Which one do I use?** Use a **verifier-fn** for sub-millisecond per-task
+> checks where each task carries its own `expected` (tool-call matching,
+> exact-match, boxed answers). Use a **Verifier class** when the reward logic is
+> config-level and shared across tasks, or needs richer params via `Config`.
+
+## Ship it in a package
+
+A `Verifier` **class** can be registered from an external package via the
+entry-point group `evsys_sdk.verifiers` in its `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.verifiers"]
+length_band = "my_pkg.verifiers:LengthBandVerifier"
+```
+
+(Verifier *fns* are registered in-process with `@register_fn` at import time;
+they are not loaded through entry points.)
+
+<Cards>
+  <Card title="🔧 Transforms" href="/docs/concepts/plugins/transforms" />
+  <Card title="📊 Metrics" href="/docs/concepts/plugins/metrics" />
+  <Card title="🧩 Plugins" href="/docs/concepts/plugins/algorithms" />
+</Cards>

@@ -1,0 +1,12 @@
+---
+title: SFTConfig
+---
+
+Config for :class:`SFT`. Inherits the shared training/save/eval knobs
+from :class:`BaseAlgorithmConfig`; adds SFT-only fields.
+
+## Attributes
+
+<PyAttribute name={"max_seq_len"} type={"int"} value={"2048"} />
+
+<PyAttribute name={"supervise"} type={"Literal['all_assistant', 'last_assistant']"} value={"'all_assistant'"} />

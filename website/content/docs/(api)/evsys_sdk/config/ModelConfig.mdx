@@ -1,0 +1,32 @@
+---
+title: ModelConfig
+---
+
+Which model to fine-tune.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null}>
+
+HuggingFace identifier, e.g. 'Qwen/Qwen3-4B'.
+
+</PyAttribute>
+
+<PyAttribute name={"load_checkpoint_path"} type={"str | None"} value={"None"}>
+
+Resume from a previous checkpoint *with* optimizer state (full resume).
+
+</PyAttribute>
+
+<PyAttribute name={"init_from_checkpoint"} type={"str | None"} value={"None"}>
+
+Initialise weights from a previous checkpoint but start a *fresh*
+optimizer (weights-only). Used to chain continual-learning stages.
+
+</PyAttribute>
+
+<PyAttribute name={"renderer_name"} type={"str | None"} value={"None"}>
+
+Tinker chat renderer hint, e.g. 'qwen3'.
+
+</PyAttribute>

@@ -1,0 +1,37 @@
+---
+title: InProcessVerifier
+---
+
+Cheap Python-function verifier.
+
+The runner looks up ``fn_name`` in a registered verifier-fn map and calls
+it with ``(completion, expected, **params)``. Sub-millisecond — use this
+for tool-call matching, exact-match, boxed-answer parsing.
+
+## Attributes
+
+<PyAttribute name={"fn_name"} type={"str"} value={null} />
+
+<PyAttribute name={"expected"} type={"Any"} value={"None"} />
+
+<PyAttribute name={"params"} type={"dict"} value={"field(default_factory=dict)"} />
+
+<PyAttribute name={"kind"} type={"Literal['in_process']"} value={"'in_process'"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, fn_name, expected=None, params=dict(), kind='in_process') -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"fn_name"} type={"str"} value={null} />
+<PyParameter name={"expected"} type={"Any"} value={"None"} />
+<PyParameter name={"params"} type={"dict"} value={"dict()"} />
+<PyParameter name={"kind"} type={"Literal['in_process']"} value={"'in_process'"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

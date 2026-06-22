@@ -1,0 +1,28 @@
+---
+title: tinker
+---
+
+TinkerBackend — thin wrapper around the tinker SDK.
+
+prepare() lazily creates a ServiceClient and returns it as a handle along with
+the chosen model name + a tokenizer. The actual training-client creation is
+left to the algorithm so it can pick LoraConfig / lr / etc.
+
+Most of the heavy lifting (SFT loop, RL loop, checkpointing, eval cadence) is
+in tinker_cookbook — algorithms that target this backend should call into the
+cookbook recipes rather than reinventing the loop.
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"TinkerBackendConfig"} href={"/docs/evsys_sdk/backends/tinker/TinkerBackendConfig"} />
+<Card title={"TinkerBackend"} href={"/docs/evsys_sdk/backends/tinker/TinkerBackend"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

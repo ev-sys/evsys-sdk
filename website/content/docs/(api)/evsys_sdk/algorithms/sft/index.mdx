@@ -1,0 +1,37 @@
+---
+title: sft
+---
+
+SFT — supervised fine-tuning on the SDK training loop.
+
+All the composer
+plumbing (backend, step/save cadence, evaluators, loop wiring, artifacts)
+lives in :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`. SFT only has to
+say *how a batch is built*:
+
+* :meth:`setup` — standardize rows → typed :class:`ChatMessagesRow`, tokenize
+  to a static list of :class:`tinker.Datum` with assistant-span loss masks.
+* :meth:`build_batch` — slice ``batch_size`` datums per step (wrapping the
+  dataset so ``num_steps`` can exceed one epoch).
+* :meth:`step_metrics` — ``train_mean_nll`` from the per-position logprobs.
+
+Researchers wanting a one-line tweak (focal loss, custom loss, extra metrics)
+subclass ``SFT`` and override ``build_batch`` / ``step_metrics`` — no SDK
+change needed.
+
+<PyAttribute name={"__all__"} type={null} value={"['SFT', 'SFTConfig']"} />
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"SFTConfig"} href={"/docs/evsys_sdk/algorithms/sft/SFTConfig"} />
+<Card title={"SFT"} href={"/docs/evsys_sdk/algorithms/sft/SFT"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

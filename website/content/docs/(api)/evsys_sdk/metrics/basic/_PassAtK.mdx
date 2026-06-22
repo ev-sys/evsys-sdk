@@ -1,0 +1,37 @@
+---
+title: _PassAtK
+---
+
+pass@k: a task is solved if **any** of its first ``k`` samples passes.
+
+## Attributes
+
+<PyAttribute name={"k"} type={"int"} value={null} />
+
+## Functions
+
+<PyFunction name={"compute"} type={"(self, task_rewards) -> float"}>
+
+<PySourceCode >
+
+```python
+def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+    tasks = _nonempty(task_rewards)
+    if not tasks:
+        return 0.0
+    solved = sum(1 for rs in tasks if any(_passes(r) for r in rs[: self.k]))
+    return solved / len(tasks)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"task_rewards"} type={"Sequence[Sequence[float]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"float"} />
+
+</PyFunction>

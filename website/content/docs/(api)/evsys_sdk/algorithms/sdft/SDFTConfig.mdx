@@ -1,0 +1,26 @@
+---
+title: SDFTConfig
+---
+
+Config for :class:`SDFT`. Inherits the shared training/save/eval knobs
+from :class:`BaseAlgorithmConfig`; adds SDFT-only fields.
+
+## Attributes
+
+<PyAttribute name={"topk"} type={"int"} value={"20"} />
+
+<PyAttribute name={"teacher_sync_every"} type={"int | None"} value={"None"} />
+
+<PyAttribute name={"max_context_length"} type={"int"} value={"2048"} />
+
+<PyAttribute name={"demo_template"} type={"str"} value={"DEFAULT_DEMO_TEMPLATE"} />
+
+<PyAttribute name={"system_prompt"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"skip_first_n_tokens"} type={"int"} value={"3"} />
+
+<PyAttribute name={"user_template"} type={"str"} value={"'{question}'"} />
+
+<PyAttribute name={"max_tokens"} type={"int"} value={"256"} />
+
+<PyAttribute name={"temperature"} type={"float"} value={"1.0"} />

@@ -1,0 +1,150 @@
+---
+title: Data stores
+description: The read/write layer — where the SDK reads inputs from and writes outputs to.
+---
+
+A **data store** is the SDK's abstract file layer: every time an algorithm reads
+a dataset or writes rendered rows / predictions, it goes through a `DataStore`.
+The default is your local filesystem, so you rarely think about it — you make
+your own when data lives somewhere else (a database, object storage, an
+in-process cache for tests).
+
+## The contract
+
+The contract is `evsys_sdk.protocols.DataStore` (a `typing.Protocol`, so you
+satisfy it by implementing the methods — no subclassing). An implementation
+declares one ClassVar and six methods:
+
+- **`name: ClassVar[str]`** — the registry key, the string you put in YAML as
+  `kind`. (Data stores have no `Config` ClassVar requirement in the protocol,
+  but the built-ins carry one — see below.)
+
+- **`read_jsonl(self, path: str) -> list[dict[str, Any]]`** — read a JSONL file
+  at `path` and return its rows as a list of dicts, one dict per line. This is
+  the primary way datasets are loaded.
+
+- **`write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None`** —
+  write an iterable of dicts to `path`, one JSON object per line. Used for
+  rendered training data, predictions, and other row-shaped outputs. Returns
+  nothing.
+
+- **`read_json(self, path: str) -> Any`** — read a single JSON document at
+  `path` and return the parsed value (any JSON type — dict, list, scalar).
+
+- **`write_json(self, path: str, value: Any) -> None`** — serialize `value` to
+  JSON and write it to `path`. Used for manifests, summaries, config snapshots.
+
+- **`exists(self, path: str) -> bool`** — return `True` if something is present
+  at `path`, `False` otherwise. Callers use this to skip work or guard reads.
+
+- **`list(self, prefix: str) -> list[str]`** — return the paths under `prefix`.
+  For the local store, a directory prefix is walked recursively and a glob
+  pattern is expanded; paths come back relative to the store root.
+
+## Use a built-in
+
+The local filesystem store is the default; you almost never name it explicitly.
+When you do, it looks like this:
+
+```yaml
+data_store:
+  kind: local
+  params:
+    root: ./data   # relative paths resolve against this; default "."
+```
+
+| Built-in | What it does / where it writes |
+|---|---|
+| `local` | `LocalDataStore` (`src/evsys_sdk/data_stores/local.py`). Reads/writes JSONL and JSON on the filesystem, no network. Relative `path`s resolve against `root` (default `"."`); absolute paths pass through. `write_*` create parent dirs; `list` walks a directory recursively or expands a glob, returning paths relative to `root`. |
+| `in_memory` | `InMemoryDataStore` (`src/evsys_sdk/data_stores/in_memory.py`). Keeps JSONL and JSON in two dicts keyed by path — nothing touches disk. `read_*` raise `FileNotFoundError` for unknown paths. For tests. |
+
+## Create your own
+
+Implement the six methods, carry `name` + a `Config` Pydantic model
+(`extra="forbid"` so YAML typos fail loudly), and decorate with
+`@register_data_store("<name>")`:
+
+```python
+from typing import Any, ClassVar, Iterable
+from pydantic import BaseModel, ConfigDict
+from evsys_sdk.registry import register_data_store
+
+
+class S3DataStoreConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bucket: str
+    prefix: str = ""
+
+
+@register_data_store("s3")
+class S3DataStore:
+    name: ClassVar[str] = "s3"            # the YAML `kind`
+    Config: ClassVar[type] = S3DataStoreConfig
+
+    def __init__(self, *, bucket: str, prefix: str = "") -> None:
+        import boto3
+        self._s3 = boto3.client("s3")
+        self.bucket = bucket
+        self.prefix = prefix
+
+    def read_jsonl(self, path: str) -> list[dict[str, Any]]:
+        import json
+        body = self._s3.get_object(Bucket=self.bucket, Key=self.prefix + path)["Body"].read()
+        return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+    def write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None:
+        import json
+        body = "\n".join(json.dumps(r) for r in rows).encode()
+        self._s3.put_object(Bucket=self.bucket, Key=self.prefix + path, Body=body)
+
+    def read_json(self, path: str) -> Any:
+        import json
+        return json.loads(self._s3.get_object(Bucket=self.bucket, Key=self.prefix + path)["Body"].read())
+
+    def write_json(self, path: str, value: Any) -> None:
+        import json
+        self._s3.put_object(Bucket=self.bucket, Key=self.prefix + path, Body=json.dumps(value).encode())
+
+    def exists(self, path: str) -> bool:
+        from botocore.exceptions import ClientError
+        try:
+            self._s3.head_object(Bucket=self.bucket, Key=self.prefix + path)
+            return True
+        except ClientError:
+            return False
+
+    def list(self, prefix: str) -> list[str]:
+        resp = self._s3.list_objects_v2(Bucket=self.bucket, Prefix=self.prefix + prefix)
+        return sorted(o["Key"] for o in resp.get("Contents", []))
+```
+
+Then reference it by `kind` in YAML — no SDK edit:
+
+```yaml
+data_store:
+  kind: s3
+  params:
+    bucket: my-research-bucket
+    prefix: datasets/
+```
+
+## Ship it in a package
+
+To make your store importable from any project without copying code, expose it
+as a Python entry point under the group `evsys_sdk.data_stores` in your
+package's `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.data_stores"]
+s3 = "my_pkg.stores:S3DataStore"
+```
+
+On import, `evsys_sdk` walks that group and imports the target, running its
+`@register_data_store` decorator — your `kind` is available everywhere with no
+fork.
+
+<Cards>
+  <Card title="Log stores" href="/docs/concepts/plugins/log-stores" />
+  <Card title="Inference clients" href="/docs/concepts/plugins/inference" />
+  <Card title="Plugins" href="/docs/concepts/plugins/algorithms" />
+</Cards>

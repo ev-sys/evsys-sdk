@@ -1,0 +1,69 @@
+---
+title: workspace
+---
+
+Workspace — local cache for remote datasets/benchmarks.
+
+Remote-first: datasets live in the backend (D20, accessed via ``EvsysStore``
+over the gateway). Streaming every row over HTTP during training is slow, so the
+agent materializes a dataset to a local JSONL **once** and trains from the local
+file. On ``pull_dataset`` the local copy is reused if present and complete;
+otherwise it's fetched from remote, written, and cached.
+
+Safe to cache: datasets are versioned and immutable per version, so a given
+``dataset_id`` never changes — the only risk is a partial pull, guarded by a
+``.meta.json`` manifest (atomic rename + ``complete`` flag + n_rows match).
+
+The workspace root (``$EVSYS_WORKSPACE`` or ``./.evsys``) writes a
+self-ignoring ``.gitignore`` (``*``) on init, so nothing in it is ever tracked.
+Rows are written **raw** (D17); ``MaterializedDataset`` carries the dataset's
+``format`` + ``transform`` so the trainer can render typed rows on read.
+
+<PyAttribute name={"__all__"} type={null} value={"['Workspace', 'MaterializedDataset', 'read_jsonl_rows']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"MaterializedDataset"} href={"/docs/evsys_sdk/workspace/MaterializedDataset"} />
+<Card title={"Workspace"} href={"/docs/evsys_sdk/workspace/Workspace"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"read_jsonl_rows"} type={"(path) -> list[dict[str, Any]]"}>
+
+Read a materialized ``.evsys/`` JSONL (one payload per line) to dicts.
+
+<PySourceCode >
+
+```python
+def read_jsonl_rows(path: str) -> list[dict[str, Any]]:
+    """Read a materialized ``.evsys/`` JSONL (one payload per line) to dicts."""
+    out: list[dict[str, Any]] = []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[dict[str, typing.Any]]"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

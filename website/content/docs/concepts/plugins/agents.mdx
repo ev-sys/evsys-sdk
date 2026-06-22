@@ -1,0 +1,154 @@
+---
+title: Agents
+description: The pluggable rollout harness the policy is trained inside, so it learns to use that harness.
+---
+
+An **agent** is the rollout harness for RL (and SDFT) — the harbor `BaseAgent`
+that actually drives the model through a task, turn by turn, and records what
+happened. It's pluggable on purpose: point at any harbor agent and the model
+trains *inside* that harness, so it learns to use it. This is the same principle
+as Opus being trained inside the Claude Code harness — the policy adapts to the
+exact loop, tools, and message flow it will run under at inference time. You'd
+write your own to train against a multi-turn loop, a tool-use protocol, or a
+custom environment.
+
+## The contract
+
+The default harness is `BasicLoopAgent` in
+`src/evsys_sdk/training/harbor_agents.py`. It subclasses `BaseAgent` from
+`harbor.agents.base`, which the rollout engine builds fresh per trial. The
+methods a harbor `BaseAgent` implements (as `BasicLoopAgent` shows):
+
+- **`@staticmethod name() -> str`** — the agent's harbor name
+  (`"evsys-basic-loop"`). A static method returning a string.
+
+- **`version(self) -> str | None`** — an optional version string (`"1.0.0"`).
+
+- **`async setup(self, environment: BaseEnvironment) -> None`** — one-time prep
+  before any rollout, given the environment harbor allocated (the SDK default is
+  `NoOpEnvironment`, a sandbox-free in-process env). Returns nothing.
+
+- **`async run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None`**
+  The core method — one rollout for one task. This is what you override.
+  - `instruction` — the task prompt (the templated `HarborTask.instruction`).
+  - `environment` — the harbor environment to act in (exec/upload/download;
+    no-op for in-process runs).
+  - `context: AgentContext` — the object harbor harvests after the rollout. The
+    agent **writes its results onto it**: `BasicLoopAgent` sets
+    `context.rollout_details` (token-level data — present for tinker, empty for
+    API models), plus `context.n_input_tokens`, `context.n_output_tokens`,
+    `context.n_cache_tokens`, and `context.cost_usd` (usage/cost, harbor records
+    these on the trial). It also writes the completion text to its agent dir so
+    the host-side verifier can read and score it.
+  - Returns nothing — all output flows through `context` and the agent dir.
+
+`BasicLoopAgent.run` drives a `Chat(<llm>)` for `max_turns` turns. Its `__init__`
+takes the kwargs the RL/SDFT engine passes through: `model_name`, `model_path`,
+`renderer_name`, `max_tokens`, `temperature`, `max_turns`, `system_prompt`,
+`model_client`, `api_base`. `model_client` picks the sampler: `"tinker"` (an
+on-policy `TinkerLLM` reading the just-saved `model_path` — this is the path the
+gradient flows back through) or `"litellm"` (any litellm provider, for
+benchmarking closed/API models through the same harness).
+
+## Use a built-in
+
+There's one built-in harness; you select an alternative by pointing the RL
+algorithm at any harbor agent's import path:
+
+```yaml
+algorithm:
+  kind: rl
+  params:
+    agent_import_path: null      # null → the default BasicLoopAgent
+    num_samples: 2
+    max_turns: 1
+    max_tokens: 256
+    temperature: 1.0
+```
+
+When `agent_import_path` is `null`, the engine uses
+`BasicLoopAgent`, parameterized by the rollout kwargs above. When you set it to a
+`"module.path:ClassName"` string, **that agent wins and the engine passes it no
+kwargs** — it must be fully self-configured.
+
+| Built-in | What it does |
+|---|---|
+| `BasicLoopAgent` (`evsys-basic-loop`) | Drives `Chat(TinkerLLM(model_path))` for `max_turns` turns on the current policy weights, records token-level `rollout_details` + usage/cost onto the `AgentContext`, and writes the completion for the host-side verifier. Switch `model_client` to `"litellm"` to benchmark an API model through the same path. |
+
+## Create your own
+
+A custom harness is any harbor `BaseAgent` whose `run` drives your loop and
+writes the rollout onto the `AgentContext`:
+
+```python
+from pathlib import Path
+from harbor.agents.base import BaseAgent
+from harbor.environments.base import BaseEnvironment
+from harbor.llms.chat import Chat
+from harbor.llms.tinker import TinkerLLM
+from harbor.models.agent.context import AgentContext
+
+
+class ToolLoopAgent(BaseAgent):
+    """A 5-turn tool-use harness the policy is trained inside."""
+
+    def __init__(self, *, model_name: str, model_path: str | None = None,
+                 renderer_name: str | None = None, **kw) -> None:
+        super().__init__(**kw)
+        self._model_name = model_name
+        self._model_path = model_path
+        self._renderer_name = renderer_name
+
+    @staticmethod
+    def name() -> str:
+        return "tool-loop"
+
+    def version(self) -> str | None:
+        return "1.0.0"
+
+    async def setup(self, environment: BaseEnvironment) -> None:
+        return None
+
+    async def run(self, instruction: str, environment: BaseEnvironment,
+                  context: AgentContext) -> None:
+        llm = TinkerLLM(                       # on-policy: reads current weights
+            model_name=self._model_name,
+            model_path=self._model_path,
+            renderer_name=self._renderer_name,
+            collect_rollout_details=True,      # token-level data for training
+        )
+        chat = Chat(llm)
+        resp = await chat.chat(instruction)    # ... your multi-turn / tool loop
+        context.rollout_details = chat.rollout_details   # what the gradient uses
+        context.n_input_tokens = chat.total_input_tokens
+        context.n_output_tokens = chat.total_output_tokens
+        context.cost_usd = chat.total_cost
+        logs_dir = getattr(self, "logs_dir", None)
+        if logs_dir is not None:               # completion → verifier reads it
+            Path(logs_dir).mkdir(parents=True, exist_ok=True)
+            (Path(logs_dir) / "completion.txt").write_text(resp.content or "")
+```
+
+```yaml
+algorithm:
+  kind: rl
+  params:
+    agent_import_path: my_pkg.agents:ToolLoopAgent   # train the policy inside it
+    num_samples: 4
+```
+
+Because the engine hands a self-configured agent no kwargs, give your `__init__`
+the defaults it needs to construct a sampler on the current policy.
+
+## Ship it in a package
+
+A custom agent ships as an ordinary Python class — the RL config references it by
+its `module.path:ClassName` import string, so any installed package (or your own
+project module) works with no SDK fork. The engine imports it by that path at
+rollout time, exactly as it imports the built-in `BasicLoopAgent`.
+
+<Cards>
+  <Card title="Algorithms" href="/docs/concepts/plugins/algorithms" />
+  <Card title="Backends" href="/docs/concepts/plugins/backends" />
+  <Card title="Plugins" href="/docs/concepts/plugins/algorithms" />
+</Cards>

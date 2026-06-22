@@ -1,0 +1,98 @@
+---
+title: LoopState
+---
+
+Live training-loop context handed to every callback hook.
+
+The fields are mutated in-place by the loop as the run progresses;
+``step`` advances every iteration, ``stop_requested`` flips when a
+callback calls :meth:`request_stop`. Other fields are immutable for
+the run's lifetime.
+
+## Attributes
+
+<PyAttribute name={"step"} type={"int"} value={null}>
+
+Current step index (0-based). Advances per iteration.
+
+</PyAttribute>
+
+<PyAttribute name={"num_steps"} type={"int"} value={null} />
+
+<PyAttribute name={"output_dir"} type={"Path"} value={null} />
+
+<PyAttribute name={"backend"} type={"'Backend'"} value={null} />
+
+<PyAttribute name={"log_store"} type={"Any"} value={null}>
+
+The same log_store the loop writes to. Callbacks can also write
+auxiliary rows (e.g. ``log_metrics(\{"debug/x": 1\}, step=...)``).
+
+</PyAttribute>
+
+<PyAttribute name={"checkpoint_mgr"} type={"'CheckpointManager'"} value={null} />
+
+<PyAttribute name={"stop_requested"} type={"bool"} value={"False"} />
+
+<PyAttribute name={"ctx"} type={"'LogContext | None'"} value={"None"}>
+
+The experiment-wide :class:`LogContext` (shared with the Experiment-scope
+hooks). ``None`` for a bare ``run_experiment`` with no Experiment driving it;
+populated when the Experiment threads callbacks into the loop.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"request_stop"} type={"(self) -> None"}>
+
+Signal the loop to break after the current step completes.
+
+Used by EarlyStoppingCallback and similar policies. The loop honours
+it at the top of the next iteration so the current step's writes
+flush cleanly first.
+
+<PySourceCode >
+
+```python
+def request_stop(self) -> None:
+    """Signal the loop to break after the current step completes.
+
+    Used by EarlyStoppingCallback and similar policies. The loop honours
+    it at the top of the next iteration so the current step's writes
+    flush cleanly first.
+    """
+    self.stop_requested = True
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"__init__"} type={"(self, step, num_steps, output_dir, backend, log_store, checkpoint_mgr, stop_requested=False, ctx=None) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"step"} type={"int"} value={null} />
+<PyParameter name={"num_steps"} type={"int"} value={null} />
+<PyParameter name={"output_dir"} type={"Path"} value={null} />
+<PyParameter name={"backend"} type={"'Backend'"} value={null} />
+<PyParameter name={"log_store"} type={"Any"} value={null} />
+<PyParameter name={"checkpoint_mgr"} type={"'CheckpointManager'"} value={null} />
+<PyParameter name={"stop_requested"} type={"bool"} value={"False"} />
+<PyParameter name={"ctx"} type={"'LogContext | None'"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

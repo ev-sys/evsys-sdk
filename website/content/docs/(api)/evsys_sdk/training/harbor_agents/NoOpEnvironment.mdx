@@ -1,0 +1,210 @@
+---
+title: NoOpEnvironment
+---
+
+Sandbox-free environment: every operation is a no-op (no container).
+
+Agents using this run in-process; there's nothing to upload/download, so the
+log-sync steps harbor logs a warning for are harmless (the agent writes
+directly onto the ``AgentContext``, which is harvested regardless).
+
+## Functions
+
+<PyFunction name={"type"} type={"() -> str"}>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def type() -> str:
+    return "noop"
+```
+
+</PySourceCode>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+<PyFunction name={"_validate_definition"} type={"(self) -> None"}>
+
+<PySourceCode >
+
+```python
+def _validate_definition(self) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"start"} type={"(self, force_build=False) -> None"}>
+
+<PySourceCode >
+
+```python
+async def start(self, force_build: bool = False) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"force_build"} type={"bool"} value={"False"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"stop"} type={"(self, delete=True) -> None"}>
+
+<PySourceCode >
+
+```python
+async def stop(self, delete: bool = True) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"delete"} type={"bool"} value={"True"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"upload_file"} type={"(self, source_path, target_path) -> None"}>
+
+<PySourceCode >
+
+```python
+async def upload_file(self, source_path, target_path) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"source_path"} type={null} value={null} />
+<PyParameter name={"target_path"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"upload_dir"} type={"(self, source_dir, target_dir) -> None"}>
+
+<PySourceCode >
+
+```python
+async def upload_dir(self, source_dir, target_dir) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"source_dir"} type={null} value={null} />
+<PyParameter name={"target_dir"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"download_file"} type={"(self, source_path, target_path) -> None"}>
+
+<PySourceCode >
+
+```python
+async def download_file(self, source_path, target_path) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"source_path"} type={null} value={null} />
+<PyParameter name={"target_path"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"download_dir"} type={"(self, source_dir, target_dir) -> None"}>
+
+<PySourceCode >
+
+```python
+async def download_dir(self, source_dir, target_dir) -> None:
+    return None
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"source_dir"} type={null} value={null} />
+<PyParameter name={"target_dir"} type={null} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"exec"} type={"(self, command, cwd=None, env=None, timeout_sec=None, user=None) -> ExecResult"}>
+
+<PySourceCode >
+
+```python
+async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None) -> ExecResult:
+    return ExecResult(stdout="", stderr="", return_code=0)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"command"} type={null} value={null} />
+<PyParameter name={"cwd"} type={null} value={"None"} />
+<PyParameter name={"env"} type={null} value={"None"} />
+<PyParameter name={"timeout_sec"} type={null} value={"None"} />
+<PyParameter name={"user"} type={null} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"harbor.environments.base.ExecResult"} />
+
+</PyFunction>

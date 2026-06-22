@@ -1,0 +1,93 @@
+---
+title: basic
+---
+
+Built-in benchmark metrics — reduce per-task rollout rewards to a scalar.
+
+A benchmark scores each task by running its verifier on ``num_samples`` rollouts,
+yielding a list of per-sample rewards per task. A **metric** reduces that
+``list[list[float]]`` (one inner list per task, holding that task's sample
+rewards) to a single number. Metrics are referenced by **string name** on a
+benchmark's ``metrics:`` list and registered with ``@register_metric``; add your
+own the same way in a project.
+
+Built-ins:
+  * ``mean_reward`` / ``avg`` — macro mean reward (mean over tasks of each task's
+    mean sample reward).
+  * ``pass_rate`` — micro pass rate (passing samples / total samples, pooled).
+  * ``pass@k`` — a task is solved if **any** of its first ``k`` samples passes.
+  * ``pass^k`` — a task is solved only if **all** of its first ``k`` samples pass
+    (consistency / "pass-hat-k").
+
+The interface is one method::
+
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float
+
+<PyAttribute name={"PASS_THRESHOLD"} type={null} value={"1.0"} />
+
+<PyAttribute name={"__all__"} type={null} value={"['MeanReward', 'Avg', 'PassRate', 'PassAt1', 'PassAt3', 'PassHat3']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"MeanReward"} href={"/docs/evsys_sdk/metrics/basic/MeanReward"} />
+<Card title={"Avg"} href={"/docs/evsys_sdk/metrics/basic/Avg"} />
+<Card title={"PassRate"} href={"/docs/evsys_sdk/metrics/basic/PassRate"} />
+<Card title={"_PassAtK"} href={"/docs/evsys_sdk/metrics/basic/_PassAtK"} />
+<Card title={"_PassHatK"} href={"/docs/evsys_sdk/metrics/basic/_PassHatK"} />
+<Card title={"PassAt1"} href={"/docs/evsys_sdk/metrics/basic/PassAt1"} />
+<Card title={"PassAt3"} href={"/docs/evsys_sdk/metrics/basic/PassAt3"} />
+<Card title={"PassHat3"} href={"/docs/evsys_sdk/metrics/basic/PassHat3"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"_passes"} type={"(reward) -> bool"}>
+
+<PySourceCode >
+
+```python
+def _passes(reward: float) -> bool:
+    return reward >= PASS_THRESHOLD
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"reward"} type={"float"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"bool"} />
+
+</PyFunction>
+<PyFunction name={"_nonempty"} type={"(task_rewards) -> list[Sequence[float]]"}>
+
+<PySourceCode >
+
+```python
+def _nonempty(task_rewards: Sequence[Sequence[float]]) -> list[Sequence[float]]:
+    return [rs for rs in task_rewards if rs]
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"task_rewards"} type={"Sequence[Sequence[float]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[typing.Sequence[float]]"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

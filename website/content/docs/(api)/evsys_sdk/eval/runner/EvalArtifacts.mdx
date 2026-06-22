@@ -1,0 +1,38 @@
+---
+title: EvalArtifacts
+---
+
+Final outputs of an eval run.
+
+## Attributes
+
+<PyAttribute name={"summary"} type={"EvalSummary"} value={null} />
+
+<PyAttribute name={"summary_strict_primary"} type={"EvalSummary | None"} value={null}>
+
+Optional strict variant (e.g. primary-only). None for plain model evals.
+
+</PyAttribute>
+
+<PyAttribute name={"per_row_results"} type={"list[dict[str, Any]]"} value={null}>
+
+Raw per-row, per-query results so downstream tooling can re-score.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, summary, summary_strict_primary, per_row_results) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"summary"} type={"EvalSummary"} value={null} />
+<PyParameter name={"summary_strict_primary"} type={"EvalSummary | None"} value={null} />
+<PyParameter name={"per_row_results"} type={"list[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

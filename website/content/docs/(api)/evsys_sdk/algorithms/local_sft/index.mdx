@@ -1,0 +1,27 @@
+---
+title: local_sft
+---
+
+LocalSFT — TRL SFTTrainer wrapper.
+
+Pre-conditions:
+  * ctx.backend.name == 'local'
+  * ctx.extras['backend_handles']['model'] / ['tokenizer'] are set
+  * ctx.extras['train_rows'] contains rows with 'messages' (chat format)
+
+<PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"LocalSFTConfig"} href={"/docs/evsys_sdk/algorithms/local_sft/LocalSFTConfig"} />
+<Card title={"LocalSFT"} href={"/docs/evsys_sdk/algorithms/local_sft/LocalSFT"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

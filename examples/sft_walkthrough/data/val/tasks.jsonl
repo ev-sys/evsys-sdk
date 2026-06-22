@@ -1,0 +1,3 @@
+{"task_id": "val_0", "instruction": "Query: schedule a meeting on my calendar\nReply with the tool slug inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>GOOGLECALENDAR_CREATE_EVENT</answer>"}}
+{"task_id": "val_1", "instruction": "Query: update a message in slack\nReply with the tool slug inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>SLACK_UPDATES_A_SLACK_MESSAGE</answer>"}}
+{"task_id": "val_2", "instruction": "Query: save a new contact in outlook\nReply with the tool slug inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>OUTLOOK_CREATE_CONTACT</answer>"}}

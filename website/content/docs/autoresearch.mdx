@@ -1,0 +1,246 @@
+---
+title: Putting it all together — Autoresearch!
+description: How a coding agent like Claude Code writes its own experiments — reads past results, launches a new run on Tinker, scores it, writes a conclusion, and goes again.
+---
+
+This page walks through the whole loop: **writing your own experiments with
+Claude Code** (or any coding agent). The agent reads what's been tried, launches
+a new training run on Tinker, scores it, records what happened, and iterates —
+toward a small model that beats frontier on your task at a fraction of the cost.
+
+Tinker-protocol infrastructure already made the hard part — GPUs, sharding, the
+training loop — someone else's problem. What's left is *research*: which **data**
+and which **recipe** win. That's the only thing the agent touches.
+
+<ExperimentFlow />
+
+## 1. Every experiment is standardised and stored
+
+For an agent to do research, it needs the **context of what's been tried**. So
+every experiment carries two things:
+
+- a **hypothesis** — why you're running it, set in `metadata.hypothesis`;
+- a **conclusion** — what happened, auto-synthesized against your
+  `success_metric` when the run finishes.
+
+Both are recorded and centralized. A Claude Code session therefore *starts* by
+pulling the hypotheses and conclusions of past experiments — it instantly knows
+what's been tried and what worked, and proposes the next hypothesis. It doesn't
+re-derive anything; it just reads the record.
+
+```yaml
+metadata:
+  hypothesis: "Adding 2k deduped tool-call examples lifts pass@1 on the val set."
+```
+
+## 2. Launch an experiment
+
+The agent assembles one `ExperimentConfig`. It only ever controls the research —
+the **data** and the **recipe** — and everything else is handled.
+
+### Custom raw data
+
+Point the config at a JSONL file; the agent curates what goes in (this is a
+**data ablation** — the first lever):
+
+```yaml
+data:
+  source_kind: jsonl
+  path: data/train.jsonl
+```
+
+### Custom transforms
+
+Raw rows become standardized **data-format rows** through an ordered list of
+`Transform`s. When the built-ins don't fit, the agent writes one — a class with
+`name` + `Config` and the `rows -> rows` contract, registered with a decorator:
+
+```python title="my_transform.py"
+from pydantic import BaseModel
+from evsys_sdk import register_transform
+
+@register_transform("dedupe")
+class Dedupe:
+    name = "dedupe"
+    class Config(BaseModel, extra="forbid"):
+        key: str = "query"
+
+    def __init__(self, **kw):
+        self.cfg = self.Config(**kw)
+
+    def __call__(self, rows):
+        seen, out = set(), []
+        for r in rows:
+            if r.get(self.cfg.key) not in seen:
+                seen.add(r.get(self.cfg.key)); out.append(r)
+        return out
+```
+
+```yaml
+data:
+  transforms:
+    - { kind: jsonl_to_chat, params: { user_template: "Query: {query}", assistant_template: "<answer>{tool_slug}</answer>" } }
+    - { kind: dedupe, params: { key: query } }   # ← the agent's new transform
+```
+
+### Custom algorithm — any algorithm under the sun
+
+The recipe is one method. `BaseAlgorithm` owns all the plumbing (backend, step &
+save cadence, evaluators, the training loop, checkpointing) and **is itself a
+StepBuilder** — a new algorithm only overrides **`build_batch()`** (and
+optionally `setup` / `step_metrics`). The loss rides on the returned
+`TrainingBatch`, so the agent writes only the heavy math — **any recipe, LoRA on
+any model**:
+
+```python title="my_algorithm.py"
+from evsys_sdk import register_algorithm
+from evsys_sdk.algorithms.sft import SFT
+
+@register_algorithm("focal_sft")
+class FocalSFT(SFT):
+    name = "focal_sft"
+
+    async def build_batch(self, step_idx):
+        batch = await super().build_batch(step_idx)
+        batch.loss_fn = my_focal_loss   # a client-side LossCallable
+        return batch
+```
+
+```yaml
+algorithm: { kind: focal_sft, params: { max_steps: 200, lora_rank: 8 } }
+```
+
+## 3. Train the model inside your harness (the agent plugin)
+
+Here's the powerful part for agentic workloads: the **rollout harness is itself
+pluggable**. By default RL rolls out with a simple chat agent, but you can
+register **any harbor `BaseAgent`** — a multi-turn, tool-using harness — and
+point the algorithm at it:
+
+```yaml
+algorithm:
+  kind: rl
+  params:
+    agent_import_path: my_project.agents.ToolUseAgent   # any harbor BaseAgent
+```
+
+The model then trains **inside that harness** — taking turns, calling your
+tools, getting rewarded on the outcome — so it **learns to use the harness
+itself**. This is exactly how Opus is trained inside the Claude Code harness:
+register your harness, and the model you train learns to operate in it. The
+agent harness is the third lever.
+
+## 4. Validation & test — scored in the loop
+
+Every run is tied to real task performance by scoring it against benchmarks
+under `metadata.benchmark`. Two **independent** knobs:
+
+- **`run_every`** decides *when* an entry is scored: `run_every: N` scores it
+  **in-loop every N steps**; omit `run_every` and it's scored **once, after
+  training**. This applies to any entry.
+- **`split`** (`val` / `test`) is just a **label** that namespaces the metrics so
+  different benchmarks' scores stay apart in the logs — it does *not* decide
+  when an entry runs. A `test` benchmark can run in-loop too; just give it a
+  `run_every`.
+
+```yaml
+metadata:
+  benchmark:
+    - { name: val,  path: data/val,  run_every: 50,  metrics: [pass@1], split: val }   # in-loop every 50 steps
+    - { name: test, path: data/test, run_every: 200, metrics: [pass@1], split: test }  # in-loop every 200 steps
+```
+
+In-loop evals run as **async rollouts** on Harbor's engine, so evaluation
+overlaps training rather than stalling it.
+
+## 5. Metrics — measure whatever you care about
+
+A benchmark's `metrics` come from the **metric registry**: score rollouts however
+*you* define success — `pass@1`, `pass@3`, `pass^3`, or the economics that come
+free from Harbor usage (**cost / time / tokens** per task).
+
+```yaml
+metrics: [pass@1, pass@3]    # plus cost / latency, or your own
+```
+
+The contract is one method — a metric receives the **per-task rewards** (one
+inner list per task, one reward per sampled rollout) and returns a single
+number. There's no `Config`; a metric takes no params:
+
+```python
+from typing import ClassVar, Sequence
+from evsys_sdk import register_metric
+
+@register_metric("pass@2")
+class PassAt2:
+    name: ClassVar[str] = "pass@2"          # the string you list in `metrics:`
+
+    def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:
+        # task_rewards[i] = the rewards for task i's samples; reward >= 1.0 = a pass
+        hits = sum(any(r >= 1.0 for r in task[:2]) for task in task_rewards)
+        return hits / len(task_rewards)
+```
+
+## 6. Logging — local and dashboard
+
+The agent *reads* its experiments through logging. Add either or both via
+`callbacks`:
+
+```yaml
+callbacks:
+  - { kind: local_logger }    # metrics.jsonl + predictions/ + summary.md + experiment.md
+  - { kind: evsys_logger }    # push everything to the EvolvingSystems dashboard
+```
+
+- **`local_logger`** writes per-step `metrics.jsonl` (train + val rows, split
+  tagged), `predictions/`, a per-run `summary.md`, **and** an experiment-level
+  **`experiment.md` containing the hypothesis and the final conclusion** — so the
+  whole research record lives on disk, no dashboard required.
+- **`evsys_logger`** pushes the same record (metrics, predictions, hypothesis,
+  conclusion) to the EvolvingSystems dashboard via `EVSYS_API_KEY` for a
+  centralized, cross-experiment history.
+
+## 7. Write the conclusion, then go again
+
+When the run finishes, the SDK scores the arms against your `success_metric`,
+picks the **`best_arm`**, and synthesizes a **conclusion** — recorded right next
+to the hypothesis (in `experiment.md` and/or the dashboard). Claude Code reads
+that conclusion, updates its hypothesis, and launches the next experiment.
+
+That's the autoresearch loop:
+
+> **read past hypotheses + conclusions → form a hypothesis → launch → score →
+> write a conclusion → repeat.**
+
+A sweep makes each step wider: declare a `matrix` and one YAML expands into many
+arms (run concurrently), so the agent searches learning rates and methods in
+parallel and keeps the best:
+
+```yaml
+matrix:
+  axes:
+    algorithm.kind: [sft, focal_sft]
+    algorithm.params.learning_rate: [1.0e-5, 1.0e-4]
+base_run: { data: {...}, model: {...}, backend: { kind: tinker } }
+```
+
+## 8. Driving it with Claude Code
+
+Load `evsys-sdk` as a **Claude Code plugin** and the agent gets skills + a
+training agent that already know this whole flow, so it launches *better*
+experiments instead of starting cold:
+
+- **`set-up-research-project`** — scaffold a repo into the standard
+  `data/ · src/ · experiments/ · .evsys/` layout.
+- **`using-the-sdk`** — author correct configs, transforms, and algorithms.
+- the **`training-decider`** agent — read prior context and materialize the next
+  experiment end-to-end.
+
+<Cards>
+  <Card title="🧩 Plugins" href="/docs/concepts/plugins/algorithms">
+    Every registry you can plug into.
+  </Card>
+  <Card title="🎯 Worked examples" href="/docs/examples/sft">
+    SFT · RL · SDFT, step by step.
+  </Card>
+</Cards>

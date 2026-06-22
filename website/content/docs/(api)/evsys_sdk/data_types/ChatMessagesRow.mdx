@@ -1,0 +1,38 @@
+---
+title: ChatMessagesRow
+---
+
+One SFT conversation — pure data, no supervision encoded.
+
+``messages`` is the full multi-turn conversation (roles: system / user /
+assistant / tool). The row deliberately carries **no** notion of which
+tokens are trained: choosing the supervised span is the *algorithm's* job
+(e.g. ``SFT`` masks assistant turns according to its ``supervise``
+config). Keeping the dataset format free of target/loss metadata lets the
+same conversation feed any SFT variant.
+
+For multimodal SFT, a message's ``content`` may be either a string OR a
+list of content blocks (mix of text + image blocks). See
+``image_url_block`` / ``image_base64_block`` helpers below.
+
+## Attributes
+
+<PyAttribute name={"messages"} type={"list[dict]"} value={null} />
+
+<PyAttribute name={"metadata"} type={"dict"} value={"field(default_factory=dict)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, messages, metadata=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"messages"} type={"list[dict]"} value={null} />
+<PyParameter name={"metadata"} type={"dict"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

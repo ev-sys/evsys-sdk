@@ -1,0 +1,30 @@
+---
+title: DatumMetadata
+---
+
+Per-Datum routing info kept on the side (not in the Datum itself —
+tinker rejects unknown keys in loss_fn_inputs).
+
+## Attributes
+
+<PyAttribute name={"group_idx"} type={"int"} value={null}>
+
+Index into the original ``trajectory_groups`` list — used for SDFT
+teacher-prompt lookup.
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, group_idx) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"group_idx"} type={"int"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

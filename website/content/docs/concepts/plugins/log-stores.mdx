@@ -1,0 +1,149 @@
+---
+title: Log stores
+description: Where metrics, hyperparameters, and artifact pointers go as training proceeds.
+---
+
+A **log store** is the sink the training loop writes to as it runs: scalar
+metrics per step, the run's hyperparameters, and pointers to artifacts
+(checkpoints, files). The default writes JSONL under the run directory. You make
+your own when you want metrics to flow somewhere specific (TensorBoard, a
+database, several places at once).
+
+## The contract
+
+The contract is `evsys_sdk.protocols.LogStore` (a `typing.Protocol`). An
+implementation declares `name` and five methods:
+
+- **`name: ClassVar[str]`** — the registry key / YAML `kind`.
+
+- **`log_scalar(self, key: str, value: float, step: int) -> None`** — record a
+  single named scalar `value` at training `step`. The one-metric convenience
+  form of `log_metrics`.
+
+- **`log_metrics(self, metrics: dict[str, float], step: int, *, split: str = "train") -> None`**
+  — record a whole dict of named metrics at `step`. The `split` argument is
+  **keyword-only** (note the `*,`) and defaults to `"train"`. It tags which
+  side of the train/val firewall the row belongs to: pass `split="val"` for
+  in-loop validation metrics so train and validation curves stay distinguishable
+  in the same log. (The JSONL store writes `split` as a field on each row; the
+  TensorBoard store ignores it because the split is already baked into the
+  metric keys like `val/loss`.)
+
+- **`log_hyperparams(self, params: dict[str, Any]) -> None`** — record the run's
+  hyperparameters once. Values can be any JSON-serializable type, not just
+  floats. The JSONL store merges repeated calls into one file.
+
+- **`log_artifact(self, name: str, path: str, *, kind: str = "file") -> None`**
+  — register a produced artifact under a logical `name` pointing at `path`. The
+  `kind` argument is **keyword-only** and defaults to `"file"` (use it to mark
+  e.g. `"checkpoint"`). Stores the pointer, not the bytes.
+
+- **`close(self) -> None`** — flush and release resources at run end. After
+  close, the JSONL store refuses further writes.
+
+## Use a built-in
+
+```yaml
+log_store:
+  kind: jsonl
+  params:
+    log_dir: ./outputs/run-001/logs
+```
+
+| Built-in | What it does / where it writes |
+|---|---|
+| `jsonl` | `JSONLLogStore` (`src/evsys_sdk/log_stores/jsonl.py`). Append-only. Under `log_dir` it writes three files: **`metrics.jsonl`** (one JSON object per `log_scalar`/`log_metrics` call, each row `{ts, step, split, metrics}`), **`hyperparams.json`** (the merged hyperparameter dict, re-read and updated on each `log_hyperparams`), and **`artifacts.json`** (a growing list of `{name, path, kind, ts}` from `log_artifact`). File names are configurable via `metrics_file` / `hyperparams_file` / `artifacts_file`. In a standard run the dir is `<run_dir>/logs/`. |
+| `tensorboard` | `TensorBoardLogStore` (`src/evsys_sdk/log_stores/tensorboard.py`). Wraps a `torch.utils.tensorboard.SummaryWriter` (optional dependency — the module raises `ImportError` at load if torch/tensorboard is missing). Metrics become `add_scalar` events; hyperparameters and artifacts become `add_text`. `log_metrics`' `split` is ignored (it's already in the keys). Constructor params: `log_dir`, `flush_secs` (default 30). |
+| `multiplex` | `MultiplexLogStore` (`src/evsys_sdk/log_stores/multiplex.py`). Fans every call out to a list of child stores. Param `children` is a list of `{kind, params}` specs it instantiates on construction (each looked up via the log-store registry). `close()` is best-effort per child (errors swallowed). Use it to write JSONL **and** TensorBoard from one run. |
+
+A multiplex config:
+
+```yaml
+log_store:
+  kind: multiplex
+  params:
+    children:
+      - kind: jsonl
+        params: { log_dir: ./logs }
+      - kind: tensorboard
+        params: { log_dir: ./tb }
+```
+
+## Create your own
+
+Implement the five methods, carry `name` + a `Config` model (`extra="forbid"`),
+and decorate with `@register_log_store("<name>")`:
+
+```python
+import time
+from typing import Any, ClassVar
+from pydantic import BaseModel, ConfigDict
+from evsys_sdk.registry import register_log_store
+
+
+class HttpLogStoreConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    endpoint: str
+    run_id: str
+
+
+@register_log_store("http")
+class HttpLogStore:
+    name: ClassVar[str] = "http"           # the YAML `kind`
+    Config: ClassVar[type] = HttpLogStoreConfig
+
+    def __init__(self, *, endpoint: str, run_id: str) -> None:
+        import requests
+        self._session = requests.Session()
+        self._endpoint = endpoint
+        self._run_id = run_id
+
+    def log_scalar(self, key: str, value: float, step: int) -> None:
+        self.log_metrics({key: value}, step)
+
+    def log_metrics(self, metrics: dict[str, float], step: int, *, split: str = "train") -> None:
+        self._session.post(f"{self._endpoint}/metrics", json={
+            "run_id": self._run_id, "step": step, "split": split,
+            "metrics": {k: float(v) for k, v in metrics.items()}, "ts": time.time(),
+        })
+
+    def log_hyperparams(self, params: dict[str, Any]) -> None:
+        self._session.post(f"{self._endpoint}/hparams", json={"run_id": self._run_id, "params": params})
+
+    def log_artifact(self, name: str, path: str, *, kind: str = "file") -> None:
+        self._session.post(f"{self._endpoint}/artifacts", json={
+            "run_id": self._run_id, "name": name, "path": path, "kind": kind,
+        })
+
+    def close(self) -> None:
+        self._session.close()
+```
+
+Then in YAML:
+
+```yaml
+log_store:
+  kind: http
+  params:
+    endpoint: https://metrics.internal
+    run_id: run-001
+```
+
+## Ship it in a package
+
+Expose it as an entry point under the group `evsys_sdk.log_stores` in your
+package's `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.log_stores"]
+http = "my_pkg.logging:HttpLogStore"
+```
+
+On import `evsys_sdk` walks that group and runs your `@register_log_store`
+decorator, so the `kind` is usable from any project with no fork.
+
+<Cards>
+  <Card title="Data stores" href="/docs/concepts/plugins/data-stores" />
+  <Card title="Callbacks" href="/docs/concepts/plugins/callbacks" />
+  <Card title="Plugins" href="/docs/concepts/plugins/algorithms" />
+</Cards>

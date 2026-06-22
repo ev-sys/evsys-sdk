@@ -1,0 +1,33 @@
+---
+title: IdentityTransform
+---
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={"'identity'"} />
+
+<PyAttribute name={"Config"} type={"type"} value={"IdentityConfig"} />
+
+## Functions
+
+<PyFunction name={"__call__"} type={"(self, rows) -> Iterable[dict[str, Any]]"}>
+
+<PySourceCode >
+
+```python
+def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    return iter(rows)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"rows"} type={"Iterable[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"typing.Iterable[dict[str, typing.Any]]"} />
+
+</PyFunction>

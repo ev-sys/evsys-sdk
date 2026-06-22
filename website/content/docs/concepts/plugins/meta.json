@@ -1,0 +1,15 @@
+{
+  "title": "Plugins",
+  "pages": [
+    "backends",
+    "algorithms",
+    "agents",
+    "transforms",
+    "verifiers",
+    "metrics",
+    "data-stores",
+    "log-stores",
+    "callbacks",
+    "inference"
+  ]
+}

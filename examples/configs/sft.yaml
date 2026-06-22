@@ -1,0 +1,43 @@
+# SFT — supervised fine-tuning.
+#
+# Data shape: ChatMessagesRow ({messages: [...]}). Here we hand the algorithm
+# raw rows and let the `jsonl_to_chat` transform build the chat conversation
+# (system/user/assistant) — the supervised span is the algorithm's job, set via
+# `supervise` below (not the dataset).
+#
+# Run:  .venv/bin/python examples/configs/run.py examples/configs/sft.yaml
+# (real training needs TINKER_API_KEY and charges a small amount.)
+
+name: example_sft
+output_dir: ./outputs
+
+run:
+  name: sft_smoke
+
+  data:
+    source_kind: in_memory
+    rows:
+      - {query: "save a contact from email", tool_slug: "OUTLOOK_CREATE_CONTACT"}
+      - {query: "edit a slack message",      tool_slug: "SLACK_UPDATES_A_SLACK_MESSAGE"}
+    transforms:
+      - kind: jsonl_to_chat
+        params:
+          user_template: "Query: {query}"
+          assistant_template: "<answer>{tool_slug}</answer>"
+
+  model:
+    name: Qwen/Qwen3.5-4B
+
+  backend:
+    kind: tinker
+
+  algorithm:
+    kind: sft
+    params:
+      learning_rate: 1.0e-4
+      max_steps: 2
+      batch_size: 1
+      lora_rank: 1
+      max_seq_len: 2048
+      supervise: all_assistant
+      save_at_fractions: [1.0]

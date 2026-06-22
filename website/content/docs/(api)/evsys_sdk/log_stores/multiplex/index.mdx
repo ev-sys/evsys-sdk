@@ -1,0 +1,31 @@
+---
+title: multiplex
+---
+
+MultiplexLogStore — fan out to several log stores at once.
+
+Useful for ``log_store.kind: multiplex`` configs:
+
+    log_store:
+      kind: multiplex
+      params:
+        children:
+          - kind: jsonl
+            params: \{ log_dir: ./logs \}
+          - kind: tensorboard
+            params: \{ log_dir: ./tb \}
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"MultiplexLogStoreConfig"} href={"/docs/evsys_sdk/log_stores/multiplex/MultiplexLogStoreConfig"} />
+<Card title={"MultiplexLogStore"} href={"/docs/evsys_sdk/log_stores/multiplex/MultiplexLogStore"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>

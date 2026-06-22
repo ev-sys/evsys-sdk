@@ -1,0 +1,4 @@
+{"task_id": "t0", "instruction": "What is 2 + 2? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>4</answer>"}}
+{"task_id": "t1", "instruction": "What is 3 + 5? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>8</answer>"}}
+{"task_id": "t2", "instruction": "What is 7 + 6? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>13</answer>"}}
+{"task_id": "t3", "instruction": "What is 9 + 4? Put the final answer inside <answer></answer>.", "verifier": {"kind": "in_process", "fn_name": "contains", "expected": "<answer>13</answer>"}}

@@ -1,0 +1,334 @@
+---
+title: LocalExperimentStore
+---
+
+Thread-safe filesystem mirror for experiments and generations.
+
+## Attributes
+
+<PyAttribute name={"root"} type={null} value={"resolve_log_dir(log_dir)"} />
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, log_dir=None) -> None"}>
+
+<PySourceCode >
+
+```python
+def __init__(self, log_dir: str | None = None) -> None:
+    self.root = resolve_log_dir(log_dir)
+    self._lock = threading.Lock()
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"log_dir"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_exp_dir"} type={"(self, experiment_id) -> Path"}>
+
+<PySourceCode >
+
+```python
+def _exp_dir(self, experiment_id: str) -> Path:
+    return self.root / "experiments" / str(experiment_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"pathlib.Path"} />
+
+</PyFunction>
+
+<PyFunction name={"_gen_dir"} type={"(self, generation_id) -> Path"}>
+
+<PySourceCode >
+
+```python
+def _gen_dir(self, generation_id: str) -> Path:
+    return self.root / "generations" / str(generation_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"generation_id"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"pathlib.Path"} />
+
+</PyFunction>
+
+<PyFunction name={"_write_json"} type={"(path, payload) -> None"}>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, default=str))
+    tmp.replace(path)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"Path"} value={null} />
+<PyParameter name={"payload"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_merge_json"} type={"(path, patch) -> None"}>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _merge_json(path: Path, patch: dict[str, Any]) -> None:
+    existing: dict[str, Any] = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except Exception:
+            existing = {}
+    existing.update(patch)
+    existing["_updated_at"] = time.time()
+    LocalExperimentStore._write_json(path, existing)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"Path"} value={null} />
+<PyParameter name={"patch"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"_append_jsonl"} type={"(path, row) -> None"}>
+
+<PySourceCode >
+
+```python
+@staticmethod
+def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(row, default=str) + "\n")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"Path"} value={null} />
+<PyParameter name={"row"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"create_experiment"} type={"(self, experiment_id, payload) -> None"}>
+
+<PySourceCode >
+
+```python
+def create_experiment(self, experiment_id: str, payload: dict[str, Any]) -> None:
+    with self._lock:
+        row = {"id": experiment_id, "_created_at": time.time(), **payload}
+        self._write_json(self._exp_dir(experiment_id) / LOCAL_EXPERIMENT_FILE, row)
+    log.debug("local: wrote experiment %s", experiment_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str"} value={null} />
+<PyParameter name={"payload"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"update_experiment"} type={"(self, experiment_id, patch) -> None"}>
+
+<PySourceCode >
+
+```python
+def update_experiment(self, experiment_id: str, patch: dict[str, Any]) -> None:
+    with self._lock:
+        self._merge_json(self._exp_dir(experiment_id) / LOCAL_EXPERIMENT_FILE, patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"experiment_id"} type={"str"} value={null} />
+<PyParameter name={"patch"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"create_run"} type={"(self, run_id, payload) -> None"}>
+
+<PySourceCode >
+
+```python
+def create_run(self, run_id: str, payload: dict[str, Any]) -> None:
+    with self._lock:
+        row = {"id": run_id, "_created_at": time.time(), **payload}
+        self._write_json(self._gen_dir(run_id) / LOCAL_GENERATION_FILE, row)
+    log.debug("local: wrote run %s", run_id)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str"} value={null} />
+<PyParameter name={"payload"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"update_run"} type={"(self, run_id, patch) -> None"}>
+
+<PySourceCode >
+
+```python
+def update_run(self, run_id: str, patch: dict[str, Any]) -> None:
+    with self._lock:
+        self._merge_json(self._gen_dir(run_id) / LOCAL_GENERATION_FILE, patch)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"run_id"} type={"str"} value={null} />
+<PyParameter name={"patch"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_step"} type={"(self, generation_id, body) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_step(self, generation_id: str, body: dict[str, Any]) -> None:
+    with self._lock:
+        self._append_jsonl(self._gen_dir(generation_id) / LOCAL_METRICS_FILE, body)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"generation_id"} type={"str"} value={null} />
+<PyParameter name={"body"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_eval"} type={"(self, generation_id, body) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_eval(self, generation_id: str, body: dict[str, Any]) -> None:
+    with self._lock:
+        self._append_jsonl(self._gen_dir(generation_id) / LOCAL_EVALS_FILE, body)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"generation_id"} type={"str"} value={null} />
+<PyParameter name={"body"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+<PyFunction name={"log_predictions"} type={"(self, generation_id, predictions) -> None"}>
+
+<PySourceCode >
+
+```python
+def log_predictions(self, generation_id: str, predictions: list[dict[str, Any]]) -> None:
+    with self._lock:
+        path = self._gen_dir(generation_id) / LOCAL_PREDICTIONS_FILE
+        for p in predictions:
+            self._append_jsonl(path, p)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"generation_id"} type={"str"} value={null} />
+<PyParameter name={"predictions"} type={"list[dict[str, Any]]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

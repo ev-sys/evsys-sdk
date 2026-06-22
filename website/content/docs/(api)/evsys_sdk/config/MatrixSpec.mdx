@@ -1,0 +1,26 @@
+---
+title: MatrixSpec
+---
+
+Cartesian-product expansion of a base run.
+
+Example:
+    matrix:
+      base_run:
+        ...                # full RunConfig template
+      axes:
+        algorithm.params.lora_rank: [1, 8]
+        algorithm.params.learning_rate: [1e-4, 5e-5]
+      name_template: "\{base\}__rank\{algorithm.params.lora_rank\}__lr\{algorithm.params.learning_rate\}"
+
+## Attributes
+
+<PyAttribute name={"base_run"} type={"RunConfig"} value={null} />
+
+<PyAttribute name={"axes"} type={"dict[str, list[Any]]"} value={"Field(default_factory=dict)"} />
+
+<PyAttribute name={"name_template"} type={"str | None"} value={"None"}>
+
+Optional template for run names. Uses \{key\} for axis values + \{base\}.
+
+</PyAttribute>

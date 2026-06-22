@@ -1,0 +1,232 @@
+---
+title: sweep
+---
+
+Sweep — declarative axes over a single `RunConfig`.
+
+A ``Sweep`` is the OOP way to describe what YAML's ``matrix:`` block describes:
+one ``base_run`` template + per-axis lists of values, expanded by cartesian
+product into N concrete ``RunConfig`` rows.
+
+This is what an experiment script reaches for instead of writing a per-axis
+``for`` loop. Sweep + Experiment together let ``run.py`` stay declarative:
+
+    sweep = Sweep(base_run, \{"algorithm.params.lora_rank": [1, 4, 16]\})
+    for run in sweep.expand():
+        ...
+
+Or, more commonly, from a YAML matrix block already parsed into
+``MatrixSpec`` — round-trip with ``Sweep.from_matrix`` / ``.to_matrix``.
+
+The expansion is the single source of truth for both the YAML ``matrix:``
+loader and programmatic builds (the legacy ``_expand_matrix`` delegates here).
+
+<PyAttribute name={"__all__"} type={null} value={"['Sweep', 'expand_runs']"} />
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"Sweep"} href={"/docs/evsys_sdk/sweep/Sweep"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"expand_runs"} type={"(base_run, axes, name_template=None) -> list[RunConfig]"}>
+
+Cartesian product of ``axes`` over ``base_run``.
+
+Single source of truth for matrix expansion — both ``Sweep.expand`` and
+the YAML loader's ``_expand_matrix`` route through here. Empty ``axes``
+returns ``[base_run]`` unchanged.
+
+<PySourceCode >
+
+```python
+def expand_runs(
+    base_run: RunConfig,
+    axes: dict[str, list[Any]],
+    name_template: str | None = None,
+) -> list[RunConfig]:
+    """Cartesian product of ``axes`` over ``base_run``.
+
+    Single source of truth for matrix expansion — both ``Sweep.expand`` and
+    the YAML loader's ``_expand_matrix`` route through here. Empty ``axes``
+    returns ``[base_run]`` unchanged.
+    """
+    if not axes:
+        return [base_run.model_copy(deep=True)]
+
+    axis_names = list(axes.keys())
+    axis_values = [axes[a] for a in axis_names]
+
+    runs: list[RunConfig] = []
+    for combo in product(*axis_values):
+        new_dict = base_run.model_dump()
+        binding: dict[str, str] = {"base": base_run.name}
+        for axis, value in zip(axis_names, combo):
+            _set_dotted(new_dict, axis, value)
+            binding[axis] = _format_value_for_name(value)
+
+        new_run = RunConfig.model_validate(new_dict)
+        new_run.name = _render_name(name_template, binding, axis_names, combo, base_run.name)
+        runs.append(new_run)
+    return runs
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"base_run"} type={"RunConfig"} value={null} />
+<PyParameter name={"axes"} type={"dict[str, list[Any]]"} value={null} />
+<PyParameter name={"name_template"} type={"str | None"} value={"None"} />
+
+</div>
+
+<PyFunctionReturn type={"list[evsys_sdk.config.RunConfig]"} />
+
+</PyFunction>
+<PyFunction name={"_render_name"} type={"(template, binding, axis_names, combo, base_name) -> str"}>
+
+<PySourceCode >
+
+```python
+def _render_name(
+    template: str | None,
+    binding: dict[str, str],
+    axis_names: list[str],
+    combo: tuple[Any, ...],
+    base_name: str,
+) -> str:
+    if template is not None:
+        return _render_name_template(template, binding)
+    suffix = "_".join(
+        f"{axis.split('.')[-1]}{_format_value_for_name(value)}"
+        for axis, value in zip(axis_names, combo)
+    )
+    return f"{base_name}__{suffix}" if suffix else base_name
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"template"} type={"str | None"} value={null} />
+<PyParameter name={"binding"} type={"dict[str, str]"} value={null} />
+<PyParameter name={"axis_names"} type={"list[str]"} value={null} />
+<PyParameter name={"combo"} type={"tuple[Any, ...]"} value={null} />
+<PyParameter name={"base_name"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+<PyFunction name={"_render_name_template"} type={"(template, binding) -> str"}>
+
+Substitute ``\{dotted.key\}`` placeholders without going through str.format.
+
+``str.format`` treats dots as attribute access; we just want literal
+dotted keys.
+
+<PySourceCode >
+
+```python
+def _render_name_template(template: str, binding: dict[str, str]) -> str:
+    """Substitute ``{dotted.key}`` placeholders without going through str.format.
+
+    ``str.format`` treats dots as attribute access; we just want literal
+    dotted keys.
+    """
+
+    def repl(m: re.Match[str]) -> str:
+        key = m.group(1)
+        if key not in binding:
+            raise ValueError(f"name_template references unknown key '{key}'")
+        return binding[key]
+
+    return _TEMPLATE_RE.sub(repl, template)
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"template"} type={"str"} value={null} />
+<PyParameter name={"binding"} type={"dict[str, str]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+<PyFunction name={"_set_dotted"} type={"(obj, path, value) -> None"}>
+
+Walk a dotted path into a nested-dict tree and set the leaf value.
+
+Always called on a ``RunConfig.model_dump()`` result, so every node is a
+dict; intermediate keys missing on params-style dicts are auto-created
+(with ``setdefault``), and a typo in a strict path is caught later by
+``RunConfig.model_validate``.
+
+<PySourceCode >
+
+```python
+def _set_dotted(obj: dict, path: str, value: Any) -> None:
+    """Walk a dotted path into a nested-dict tree and set the leaf value.
+
+    Always called on a ``RunConfig.model_dump()`` result, so every node is a
+    dict; intermediate keys missing on params-style dicts are auto-created
+    (with ``setdefault``), and a typo in a strict path is caught later by
+    ``RunConfig.model_validate``.
+    """
+    parts = path.split(".")
+    for p in parts[:-1]:
+        obj = obj.setdefault(p, {})
+    obj[parts[-1]] = value
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"obj"} type={"dict"} value={null} />
+<PyParameter name={"path"} type={"str"} value={null} />
+<PyParameter name={"value"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+<PyFunction name={"_format_value_for_name"} type={"(v) -> str"}>
+
+<PySourceCode >
+
+```python
+def _format_value_for_name(v: Any) -> str:
+    if isinstance(v, float):
+        return f"{v:g}".replace("+", "").replace(".", "p")
+    return str(v).replace("/", "_")
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"v"} type={"Any"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"str"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

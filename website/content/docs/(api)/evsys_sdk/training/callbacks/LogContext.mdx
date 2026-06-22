@@ -1,0 +1,69 @@
+---
+title: LogContext
+---
+
+Mutable context threaded to every callback hook, in BOTH the
+Experiment scope (lifecycle / benchmark eval) and the TrainingLoop scope
+(per-step / checkpoint). Logger callbacks *create* the dashboard ids and
+write them onto :attr:`ids`; later hooks read them back.
+
+The framework owns only :attr:`run_key` (the local output-dir name). All
+dashboard ids (``experiment_id`` / ``group:\<name>`` / ``run_id``) are
+callback-owned and accumulate on :attr:`ids` as the ``create_*`` hooks
+fire. Arms run sequentially, so ``ids["run_id"]`` is the current arm's.
+
+## Attributes
+
+<PyAttribute name={"output_dir"} type={"Path"} value={null} />
+
+<PyAttribute name={"config"} type={"'ExperimentConfig | None'"} value={"None"} />
+
+<PyAttribute name={"store"} type={"Any"} value={"None"}>
+
+Resolved store handle (EvsysStore / LocalStore / DashboardClient) or
+None when no store is configured.
+
+</PyAttribute>
+
+<PyAttribute name={"run_key"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"run_config"} type={"'RunConfig | None'"} value={"None"} />
+
+<PyAttribute name={"group_name"} type={"str | None"} value={"None"} />
+
+<PyAttribute name={"ids"} type={"dict[str, str]"} value={"field(default_factory=dict)"}>
+
+Callback-populated dashboard ids: ``experiment_id``, ``group:\<name>``,
+``run_id``. Read parents here to link children (e.g. create_run reads
+``ids['experiment_id']``).
+
+</PyAttribute>
+
+<PyAttribute name={"extras"} type={"dict[str, Any]"} value={"field(default_factory=dict)"}>
+
+Scratch for passing values between callbacks within a run (e.g.
+``wandb_url`` set by wandb_logger, read by evsys_logger's create_run).
+
+</PyAttribute>
+
+## Functions
+
+<PyFunction name={"__init__"} type={"(self, output_dir, config=None, store=None, run_key=None, run_config=None, group_name=None, ids=dict(), extras=dict()) -> None"}>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"output_dir"} type={"Path"} value={null} />
+<PyParameter name={"config"} type={"'ExperimentConfig | None'"} value={"None"} />
+<PyParameter name={"store"} type={"Any"} value={"None"} />
+<PyParameter name={"run_key"} type={"str | None"} value={"None"} />
+<PyParameter name={"run_config"} type={"'RunConfig | None'"} value={"None"} />
+<PyParameter name={"group_name"} type={"str | None"} value={"None"} />
+<PyParameter name={"ids"} type={"dict[str, str]"} value={"dict()"} />
+<PyParameter name={"extras"} type={"dict[str, Any]"} value={"dict()"} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

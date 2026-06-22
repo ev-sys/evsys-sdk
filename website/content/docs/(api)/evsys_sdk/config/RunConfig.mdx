@@ -1,0 +1,25 @@
+---
+title: RunConfig
+---
+
+A single training run (one cell in a campaign matrix).
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null}>
+
+Human-readable name; unique within the experiment.
+
+</PyAttribute>
+
+<PyAttribute name={"data"} type={"DataConfig"} value={null} />
+
+<PyAttribute name={"model"} type={"ModelConfig"} value={null} />
+
+<PyAttribute name={"algorithm"} type={"AlgorithmConfig"} value={null} />
+
+<PyAttribute name={"backend"} type={"BackendConfig"} value={"Field(default_factory=BackendConfig)"} />
+
+<PyAttribute name={"seed"} type={"int"} value={"42"} />
+
+<PyAttribute name={"tags"} type={"list[str]"} value={"Field(default_factory=list)"} />

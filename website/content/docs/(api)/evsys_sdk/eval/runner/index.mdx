@@ -1,0 +1,155 @@
+---
+title: runner
+---
+
+High-level eval runner: loads dataset, runs model eval, computes summary.
+
+Generic, domain-agnostic. Project-specific eval harnesses (e.g. an API search
+eval) live in their own repos and reuse this infra (`score_rows`, `AliasMatcher`,
+`load_eval_dataset`, …).
+
+<Tabs items={["Class","Functions"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"EvalArtifacts"} href={"/docs/evsys_sdk/eval/runner/EvalArtifacts"} />
+
+</Cards>
+
+</Tab>
+<Tab value={"Functions"}>
+
+<PyFunction name={"load_eval_dataset"} type={"(path) -> list[dict[str, Any]]"}>
+
+Load an eval JSON file. Supports both:
+* list of rows `[\{tool_slug, toolkit, queries\}, ...]` (v2 shape), or
+* dict with `results: [...]` (older 3-query shape).
+
+<PySourceCode >
+
+```python
+def load_eval_dataset(path: str | Path) -> list[dict[str, Any]]:
+    """Load an eval JSON file. Supports both:
+      * list of rows `[{tool_slug, toolkit, queries}, ...]` (v2 shape), or
+      * dict with `results: [...]` (older 3-query shape)."""
+    data = json.loads(Path(path).read_text())
+    if isinstance(data, dict) and "results" in data:
+        return [
+            {
+                "tool_slug": r.get("tool_slug"),
+                "toolkit": r.get("toolkit"),
+                "queries": [q.get("query") for q in r.get("queries", [])],
+            }
+            for r in data["results"]
+        ]
+    return data
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"path"} type={"str | Path"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"list[dict[str, typing.Any]]"} />
+
+</PyFunction>
+<PyFunction name={"evaluate_model"} type={"(*, dataset_path, aliases_path, client, secondary_aliases_path=None, config=None, output_dir=None, progress=True) -> EvalArtifacts"}>
+
+<PySourceCode >
+
+```python
+def evaluate_model(
+    *,
+    dataset_path: str | Path,
+    aliases_path: str | Path,
+    client: InferenceClient,
+    secondary_aliases_path: str | Path | None = None,
+    config: ModelEvalConfig | None = None,
+    output_dir: str | Path | None = None,
+    progress: bool = True,
+) -> EvalArtifacts:
+    rows = load_eval_dataset(dataset_path)
+    matcher = AliasMatcher.from_files(aliases_path, secondary_aliases_path)
+    result: ModelEvalResult = run_model_eval(
+        rows, client=client, config=config, progress=progress
+    )
+
+    summary = score_rows(
+        result.rows,
+        matcher=matcher,
+        query_found_fn=model_query_found,
+        retry_report=result.retry_report,
+    )
+    artifacts = EvalArtifacts(
+        summary=summary,
+        summary_strict_primary=None,
+        per_row_results=result.rows,
+    )
+
+    if output_dir is not None:
+        _write_artifacts(artifacts, output_dir, kind="model")
+    return artifacts
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"dataset_path"} type={"str | Path"} value={null} />
+<PyParameter name={"aliases_path"} type={"str | Path"} value={null} />
+<PyParameter name={"client"} type={"InferenceClient"} value={null} />
+<PyParameter name={"secondary_aliases_path"} type={"str | Path | None"} value={"None"} />
+<PyParameter name={"config"} type={"ModelEvalConfig | None"} value={"None"} />
+<PyParameter name={"output_dir"} type={"str | Path | None"} value={"None"} />
+<PyParameter name={"progress"} type={"bool"} value={"True"} />
+
+</div>
+
+<PyFunctionReturn type={"evsys_sdk.eval.runner.EvalArtifacts"} />
+
+</PyFunction>
+<PyFunction name={"_write_artifacts"} type={"(artifacts, output_dir, *, kind) -> None"}>
+
+<PySourceCode >
+
+```python
+def _write_artifacts(artifacts: EvalArtifacts, output_dir: str | Path, *, kind: str) -> None:
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    summary_path = out / f"{kind}_summary.json"
+    summary_path.write_text(json.dumps(artifacts.summary.as_dict(), indent=2))
+
+    md_path = out / f"{kind}_summary.md"
+    md_path.write_text(format_summary_markdown(artifacts.summary, title=f"{kind} eval"))
+
+    rows_path = out / f"{kind}_per_row.json"
+    rows_path.write_text(json.dumps(artifacts.per_row_results, indent=2))
+
+    if artifacts.summary_strict_primary:
+        strict_path = out / f"{kind}_summary_strict_primary.json"
+        strict_path.write_text(json.dumps(artifacts.summary_strict_primary.as_dict(), indent=2))
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"artifacts"} type={"EvalArtifacts"} value={null} />
+<PyParameter name={"output_dir"} type={"str | Path"} value={null} />
+<PyParameter name={"kind"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>
+
+</Tab>
+
+</Tabs>

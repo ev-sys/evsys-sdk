@@ -1,0 +1,53 @@
+---
+title: LocalSFTConfig
+---
+
+## Attributes
+
+<PyAttribute name={"model_config"} type={null} value={"ConfigDict(extra='forbid')"} />
+
+<PyAttribute name={"learning_rate"} type={"float"} value={"0.0002"} />
+
+<PyAttribute name={"num_epochs"} type={"int"} value={"3"} />
+
+<PyAttribute name={"max_steps"} type={"int | None"} value={"None"}>
+
+If set, overrides num_epochs — training stops after this many steps.
+
+</PyAttribute>
+
+<PyAttribute name={"per_device_train_batch_size"} type={"int"} value={"1"} />
+
+<PyAttribute name={"gradient_accumulation_steps"} type={"int"} value={"16"} />
+
+<PyAttribute name={"warmup_steps"} type={"int"} value={"20"} />
+
+<PyAttribute name={"max_seq_len"} type={"int"} value={"512"} />
+
+<PyAttribute name={"logging_steps"} type={"int"} value={"10"} />
+
+<PyAttribute name={"save_steps"} type={"int"} value={"100"} />
+
+<PyAttribute name={"save_total_limit"} type={"int"} value={"5"} />
+
+<PyAttribute name={"bf16"} type={"bool"} value={"False"}>
+
+Enable only on CUDA GPUs that support bfloat16 (Ampere+). Crashes on CPU/MPS.
+
+</PyAttribute>
+
+<PyAttribute name={"fp16"} type={"bool"} value={"False"}>
+
+Enable only on CUDA GPUs. Crashes on CPU/MPS.
+
+</PyAttribute>
+
+<PyAttribute name={"seed"} type={"int"} value={"42"} />
+
+<PyAttribute name={"lora_rank"} type={"int"} value={"16"} />
+
+<PyAttribute name={"lora_alpha"} type={"int"} value={"32"} />
+
+<PyAttribute name={"lora_dropout"} type={"float"} value={"0.05"} />
+
+<PyAttribute name={"lora_target_modules"} type={"list[str]"} value={"Field(default_factory=(lambda: ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']))"} />

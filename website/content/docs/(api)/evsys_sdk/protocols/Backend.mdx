@@ -1,0 +1,70 @@
+---
+title: Backend
+---
+
+Compute backend.
+
+A backend's job is to materialise a model + training resources and hand
+them to whichever algorithm runs. The Algorithm protocol is intentionally
+NOT parameterised by Backend: instead, the registry routes (recipe.kind,
+backend.kind) to a specific Algorithm implementation.
+
+## Attributes
+
+<PyAttribute name={"name"} type={"str"} value={null} />
+
+## Functions
+
+<PyFunction name={"prepare"} type={"(self, *, model, run_dir) -> dict[str, Any]"}>
+
+Return a dict of backend-specific handles attached to ctx.extras.
+
+e.g. for TinkerBackend: \{'service_client': ..., 'training_client': ...,
+'tokenizer': ..., 'model_name': ...\}.
+
+<PySourceCode >
+
+```python
+def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
+    """Return a dict of backend-specific handles attached to ctx.extras.
+
+    e.g. for TinkerBackend: {'service_client': ..., 'training_client': ...,
+    'tokenizer': ..., 'model_name': ...}.
+    """
+    ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"model"} type={"dict[str, Any]"} value={null} />
+<PyParameter name={"run_dir"} type={"str"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"dict[str, typing.Any]"} />
+
+</PyFunction>
+
+<PyFunction name={"teardown"} type={"(self, handles) -> None"}>
+
+<PySourceCode >
+
+```python
+def teardown(self, handles: dict[str, Any]) -> None: ...
+```
+
+</PySourceCode>
+
+<div >
+
+<PyParameter name={"self"} type={null} value={null} />
+<PyParameter name={"handles"} type={"dict[str, Any]"} value={null} />
+
+</div>
+
+<PyFunctionReturn type={"None"} />
+
+</PyFunction>

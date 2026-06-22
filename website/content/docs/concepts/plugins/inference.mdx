@@ -1,0 +1,126 @@
+---
+title: Inference clients
+description: How evaluation and RL query a model to generate text.
+---
+
+An **inference client** is the thing that turns a prompt into generated text.
+Evaluators call it to produce predictions; RL rollouts call it to sample
+completions. The SDK ships clients for local HF models, Tinker, and the
+frontier APIs (Claude, OpenAI, Gemini). You make your own to wrap any model or
+endpoint behind the same one-method contract.
+
+## The contract
+
+The contract is `evsys_sdk.protocols.InferenceClient` (a `typing.Protocol`). It
+declares one ClassVar and one method:
+
+- **`name: ClassVar[str]`** — the registry key / YAML `kind`.
+
+- **`generate(self, *, prompt: str, max_tokens: int = 256, temperature: float = 0.0, stop: list[str] | None = None) -> str`**
+  — synchronously generate text and return it as a string. **All arguments are
+  keyword-only** (note the leading `*`):
+  - `prompt` — the input text to generate from.
+  - `max_tokens` — cap on generated tokens (default `256`).
+  - `temperature` — sampling temperature; `0.0` (default) means greedy/deterministic.
+  - `stop` — optional list of stop strings; generation is truncated at the first
+    one that appears (`None` = no stop strings).
+
+  The return is the generated completion as a plain `str`.
+
+## Use a built-in
+
+```yaml
+benchmark:
+  inference:
+    kind: mock
+```
+
+Or a real API client:
+
+```yaml
+benchmark:
+  inference:
+    kind: claude
+    params:
+      model: claude-sonnet-4-6
+```
+
+| Built-in | What it does / where it writes |
+|---|---|
+| `mock` | `MockInference` (`src/evsys_sdk/inference/mock.py`). Returns a fixed `template` for every call (the `{prompt}` placeholder is filled in), honoring `stop`. Deterministic; for tests. Default template is `<think>mock thinking</think>\n<answer>MOCK_ANSWER</answer>`. |
+| `local` | `LocalInference` (`src/evsys_sdk/inference/local.py`). Generates from a local HuggingFace causal LM (`transformers`/`torch`). Params: `model_name`, optional `adapter_path` (PEFT/LoRA), `dtype` (`bfloat16`/`float16`/`float32`), `device`. Sampling on when `temperature > 0`. |
+| `tinker` | `TinkerInference` (`src/evsys_sdk/inference/tinker.py`). Generates via the Tinker sampling client. Optional dep — registers only if `tinker` is importable. |
+| `claude` | `ClaudeInference` (`src/evsys_sdk/inference/claude.py`). Anthropic Messages API; needs the `anthropic` package and an API key from `ANTHROPIC_API_KEY` (env var name configurable). Sends `prompt` as one user message; optional `system_prompt`. Params include `model`, `base_url`, `default_max_tokens`, `timeout_s`, `extra_headers`. |
+| `openai` | `OpenAIInference` (`src/evsys_sdk/inference/openai.py`). OpenAI Chat Completions; needs `openai` and `OPENAI_API_KEY`. `base_url` can point at any compatible endpoint (vLLM, Together). Params: `model`, `organization`, `system_prompt`, `timeout_s`. |
+| `gemini` | `GeminiInference` (`src/evsys_sdk/inference/gemini.py`). Google `google-genai` SDK; key from `GEMINI_API_KEY` (falls back to `GOOGLE_API_KEY`). Params: `model`, `system_instruction`. |
+| `chat_templated` | `ChatTemplatedInference` (`src/evsys_sdk/inference/chat_templated.py`). A **wrapper**, not a standalone client: it rebuilds a (system + user) chat template around the raw prompt before forwarding to a base client, so eval-time inputs match the chat-templated distribution a model was SFT'd on. Requires the base client to expose a `_tokenizer`. Not registered as a `kind`. |
+
+## Create your own
+
+Implement `generate` with the exact keyword-only signature, carry `name` +
+`Config` (`extra="forbid"`), and decorate with `@register_inference("<name>")`:
+
+```python
+from typing import ClassVar
+from pydantic import BaseModel, ConfigDict
+from evsys_sdk.registry import register_inference
+
+
+class EchoInferenceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prefix: str = ""
+
+
+@register_inference("echo")
+class EchoInference:
+    name: ClassVar[str] = "echo"             # the YAML `kind`
+    Config: ClassVar[type] = EchoInferenceConfig
+
+    def __init__(self, *, prefix: str = "") -> None:
+        self.prefix = prefix
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        max_tokens: int = 256,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+    ) -> str:
+        out = (self.prefix + prompt)[:max_tokens]
+        if stop:
+            for s in stop:
+                i = out.find(s)
+                if i >= 0:
+                    out = out[:i]
+        return out
+```
+
+Then reference it by `kind`:
+
+```yaml
+benchmark:
+  inference:
+    kind: echo
+    params:
+      prefix: "ECHO: "
+```
+
+## Ship it in a package
+
+Expose it as an entry point under the group `evsys_sdk.inference` in your
+package's `pyproject.toml`:
+
+```toml
+[project.entry-points."evsys_sdk.inference"]
+echo = "my_pkg.inference:EchoInference"
+```
+
+On import `evsys_sdk` walks that group and runs your `@register_inference`
+decorator, so the `kind` is available from any project with no fork.
+
+<Cards>
+  <Card title="Data stores" href="/docs/concepts/plugins/data-stores" />
+  <Card title="Callbacks" href="/docs/concepts/plugins/callbacks" />
+  <Card title="Plugins" href="/docs/concepts/plugins/algorithms" />
+</Cards>

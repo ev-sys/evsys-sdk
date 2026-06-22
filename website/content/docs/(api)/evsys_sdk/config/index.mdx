@@ -1,0 +1,40 @@
+---
+title: config
+---
+
+Pydantic config models — the canonical YAML schema.
+
+The full experiment is described by ExperimentConfig, which is what gets
+serialized to and from YAML. Each block uses a `kind:` discriminator that
+selects the matching registry entry; the registered class's `.Config` model
+validates the rest of that block.
+
+`extra='forbid'` is set everywhere so an evolutionary algorithm can't drop a
+key by typoing it — the YAML loader will reject unknown fields loudly.
+
+<Tabs items={["Class"]}>
+
+<Tab value={"Class"}>
+
+<Cards >
+
+<Card title={"_Strict"} href={"/docs/evsys_sdk/config/_Strict"} />
+<Card title={"AlgorithmConfig"} href={"/docs/evsys_sdk/config/AlgorithmConfig"} />
+<Card title={"VerifierSpec"} href={"/docs/evsys_sdk/config/VerifierSpec"} />
+<Card title={"TransformSpec"} href={"/docs/evsys_sdk/config/TransformSpec"} />
+<Card title={"CallbackSpec"} href={"/docs/evsys_sdk/config/CallbackSpec"} />
+<Card title={"DataStoreSpec"} href={"/docs/evsys_sdk/config/DataStoreSpec"} />
+<Card title={"LogStoreSpec"} href={"/docs/evsys_sdk/config/LogStoreSpec"} />
+<Card title={"DataConfig"} href={"/docs/evsys_sdk/config/DataConfig"} />
+<Card title={"ModelConfig"} href={"/docs/evsys_sdk/config/ModelConfig"} />
+<Card title={"BackendConfig"} href={"/docs/evsys_sdk/config/BackendConfig"} />
+<Card title={"RunConfig"} href={"/docs/evsys_sdk/config/RunConfig"} />
+<Card title={"ExperimentConfig"} href={"/docs/evsys_sdk/config/ExperimentConfig"} />
+<Card title={"MatrixSpec"} href={"/docs/evsys_sdk/config/MatrixSpec"} />
+<Card title={"ContinualConfig"} href={"/docs/evsys_sdk/config/ContinualConfig"} />
+
+</Cards>
+
+</Tab>
+
+</Tabs>
