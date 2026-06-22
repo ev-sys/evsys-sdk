@@ -22,3 +22,8 @@ outputs/
 
 # Skill-generated configs (created by /train-local, not hand-authored)
 examples/configs/generated_*.yaml
+
+# LaTeX whitepaper build artifacts
+docs/whitepaper/*.pdf
+docs/whitepaper/*.aux
+docs/whitepaper/*.log

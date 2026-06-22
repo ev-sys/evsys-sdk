@@ -90,7 +90,7 @@ export default function HomePage() {
       {/* Hero — the vision / motto */}
       <section className="flex flex-col items-center text-center">
         <span className="mb-5 rounded-full border px-3 py-1 text-xs font-medium text-fd-muted-foreground">
-          evsys-sdk · the continual-learning training SDK
+          evsys-sdk
         </span>
         <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-6xl">
           Not a few models.{' '}
@@ -168,7 +168,7 @@ export default function HomePage() {
             A test/validation firewall: <code>Benchmark</code> (once) vs{' '}
             <code>Validation</code> (in-loop), scored by metrics &amp; verifiers.
           </ComponentCard>
-          <ComponentCard index="⑤" title="Extensibility" href="/docs/concepts/extensibility">
+          <ComponentCard index="⑤" title="Plugins" href="/docs/concepts/plugins/algorithms">
             Eight registries — implement a protocol, register a{' '}
             <code>kind</code>, reference it in YAML.
           </ComponentCard>
@@ -238,7 +238,7 @@ export default function HomePage() {
         </div>
         <div className="mt-6">
           <Link
-            href="/docs/concepts/extensibility"
+            href="/docs/concepts/plugins/algorithms"
             className="text-sm font-medium text-fd-primary hover:underline"
           >
             Read how the registry pattern works →
