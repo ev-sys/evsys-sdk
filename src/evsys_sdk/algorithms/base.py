@@ -37,6 +37,7 @@ import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import CallbackSpec
+from ..log_stores.null import NullLogStore
 from ..protocols import RunContext, RunResult
 from ..training.callbacks import build_callbacks
 from ..training.evaluators import build_in_loop_evaluators
@@ -190,13 +191,27 @@ class BaseAlgorithm:
             tokenizer=backend.get_tokenizer(),
             store=getattr(ctx, "store", None) or ctx.extras.get("store"),
             model_name=model_name,
-            workspace_dir=Path(ctx.output_dir) / "harbor_val",
+            workspace_dir=Path(ctx.output_dir) / ".harbor" / "val",
             run_id=ctx.extras.get("dashboard_run_id"),
         )
+        # Algorithm's own loop-only callbacks (e.g. early_stopping) PLUS the
+        # experiment's shared logger instances threaded down via extras, so one
+        # logger sees both the loop-scope and experiment-scope hooks.
+        callbacks = build_callbacks(self.cfg.callbacks) + list(
+            ctx.extras.get("callbacks") or []
+        )
+
+        # Surface the final training data (post-transform / chat-template rows)
+        # to loggers so they can persist exactly what went into the model.
+        self._dispatch_train_data(ctx, callbacks)
+
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
-            log_store=ctx.log_store,
+            # No-op store on the loop path: per-step / eval metrics flow ONLY
+            # through the callbacks (-> local_logger), so there is one local
+            # metrics writer and no duplicate metrics.jsonl.
+            log_store=NullLogStore(),
             output_dir=Path(ctx.output_dir),
             adam_params=tinker.AdamParams(
                 learning_rate=self.cfg.learning_rate,
@@ -206,12 +221,9 @@ class BaseAlgorithm:
             ),
             save_every=save_every,
             evaluators=evaluators,
-            # Algorithm's own loop-only callbacks (e.g. early_stopping) PLUS the
-            # experiment's shared logger instances threaded down via extras, so
-            # one logger sees both the loop-scope and experiment-scope hooks.
-            callbacks=build_callbacks(self.cfg.callbacks)
-            + list(ctx.extras.get("callbacks") or []),
+            callbacks=callbacks,
             log_context=ctx.extras.get("log_context"),
+            log_rollouts=bool(ctx.extras.get("log_rollouts")),
         )
         artifacts = await loop.run(num_steps=total_steps)
 
@@ -230,6 +242,36 @@ class BaseAlgorithm:
         )
 
     # --- hooks / helpers ---------------------------------------------------
+
+    def _train_data_rows(self, ctx: RunContext) -> list[dict[str, Any]]:
+        """Best-effort: the final examples fed to the model (post-transform /
+        chat-template rows). Default returns ``ctx.extras['train_rows']`` coerced
+        to dicts — which for SFT are the standardized chat-message rows. Override
+        for algorithm-specific shapes."""
+        rows = ctx.extras.get("train_rows") or []
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if isinstance(r, dict):
+                out.append(r)
+            elif hasattr(r, "model_dump"):
+                out.append(r.model_dump())
+            else:
+                out.append({"value": str(r)})
+        return out
+
+    def _dispatch_train_data(self, ctx: RunContext, callbacks: list[Any]) -> None:
+        """Fire ``on_train_data`` on each callback with the final training rows.
+        Never raises — logging must not break training."""
+        log_ctx = ctx.extras.get("log_context")
+        try:
+            rows = self._train_data_rows(ctx)
+        except Exception:  # pragma: no cover
+            return
+        for cb in callbacks:
+            try:
+                cb.on_train_data(log_ctx, rows)
+            except Exception:  # pragma: no cover
+                pass
 
     def _check_inputs(self, ctx: RunContext) -> None:
         """Validate ``ctx.extras`` before the backend is allocated. Override to

@@ -62,6 +62,10 @@ class TrainingBatch:
     metrics: dict[str, float] = field(default_factory=dict)
     """Algorithm-precomputed per-step metrics (e.g. teacher entropy,
     reward stats). Merged into the per-step log row."""
+    rollouts: list[Any] | None = None
+    """Optional on-policy rollouts the algorithm produced this step (RL/SDFT set
+    this to their ``TrajectoryGroup``s; SFT leaves it ``None``). Logged via the
+    ``on_rollout`` hook only when ``log_rollouts`` is on (e.g. a ``--dry`` run)."""
 
 
 @runtime_checkable
@@ -200,6 +204,7 @@ class TrainingLoop:
         callbacks: list[Callback] | None = None,
         log_context: Any = None,
         log_prefix: str = "",
+        log_rollouts: bool = False,
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
         self.backend = backend
@@ -215,6 +220,7 @@ class TrainingLoop:
         # threaded onto LoopState so loop-scope logger hooks reach ctx.ids/store.
         self.log_context = log_context
         self.log_prefix = log_prefix
+        self.log_rollouts = log_rollouts
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
             log_path=self.output_dir, save_every=save_every
@@ -274,6 +280,11 @@ class TrainingLoop:
         t0 = time.time()
 
         batch = await self.step_builder.build_batch(step)
+
+        # Surface on-policy rollouts (RL/SDFT set batch.rollouts) to loggers when
+        # rollout logging is on (e.g. a --dry run). SFT leaves rollouts None.
+        if self.log_rollouts and batch.rollouts and state is not None:
+            self._dispatch("on_rollout", state, step, batch.rollouts)
 
         # A step can legitimately yield no trainable data — e.g. RL with
         # ``drop_constant_reward`` when every sampled group has identical reward

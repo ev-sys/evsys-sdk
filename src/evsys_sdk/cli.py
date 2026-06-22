@@ -21,9 +21,19 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from .runner import run_experiment
+    if getattr(args, "dry", False):
+        # Dry run: cap steps + log rollouts, and go through Experiment so the
+        # default local_logger + lifecycle hooks fire (per-run logs/).
+        from .experiment import Experiment
+        from .yaml_loader import apply_dry_run, load_yaml
 
-    results = run_experiment(args.path)
+        cfg = apply_dry_run(load_yaml(args.path), steps=args.steps)
+        exp_result = Experiment(cfg).run()
+        results = [a.run_result for a in exp_result.arms if a.run_result is not None]
+    else:
+        from .runner import run_experiment
+
+        results = run_experiment(args.path)
     summary = []
     for r in results:
         summary.append(
@@ -211,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="Run an experiment.")
     p_run.add_argument("path")
     p_run.add_argument("--output", "-o", default=None, help="Where to write the run summary JSON.")
+    p_run.add_argument("--dry", action="store_true",
+                       help="Quick dry run: cap each arm to --steps and log training rollouts.")
+    p_run.add_argument("--steps", type=int, default=5, help="Steps per arm in --dry mode (default 5).")
     p_run.set_defaults(func=_cmd_run)
 
     p_list = sub.add_parser("list", help="List registered extensions.")

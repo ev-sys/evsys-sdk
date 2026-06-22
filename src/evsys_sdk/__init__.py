@@ -15,7 +15,7 @@ For everything else:
         ExperimentConfig, RunConfig, AlgorithmConfig, DataConfig, ModelConfig,
         BackendConfig, VerifierSpec,
         # YAML
-        load_yaml, dump_yaml, validate_yaml,
+        load_yaml, dump_yaml, validate_yaml, apply_dry_run,
         # Registries (decorators for extensions)
         register_algorithm, register_verifier, register_metric,
         register_backend, register_data_store, register_log_store,
@@ -91,7 +91,7 @@ from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
 from .step_metrics import forward_step_metrics
 from .sweep import Sweep, expand_runs
-from .yaml_loader import dump_yaml, load_yaml, validate_yaml
+from .yaml_loader import apply_dry_run, dump_yaml, load_yaml, validate_yaml
 from .dashboard_client import (
     DashboardClient,
     DashboardClientError,
@@ -196,6 +196,7 @@ __all__ = [
     # YAML
     "dump_yaml",
     "load_yaml",
+    "apply_dry_run",
     "validate_yaml",
     # Harbor data shapes (data interchange with internal stack + dashboards)
     "TargetFormat",

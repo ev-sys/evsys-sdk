@@ -111,7 +111,7 @@ class SDFT(BaseAlgorithm):
         ).get("renderer_name")
         # Rollouts persist under the run's workspace on disk; training rollouts
         # are NOT uploaded to the dashboard (only eval rollouts are).
-        self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+        self._workspace = Path(ctx.output_dir) / ".harbor" / "train"
 
         self._steps_per_epoch = max(1, len(self._dataset))
 
@@ -201,6 +201,7 @@ class SDFT(BaseAlgorithm):
             data=ce_datums,
             loss_fn="cross_entropy",
             metrics=sdft_metrics,
+            rollouts=groups,
         )
 
     def step_metrics(
