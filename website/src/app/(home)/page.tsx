@@ -87,24 +87,14 @@ function ComponentCard({
 export default function HomePage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-16">
-      {/* Hero — the vision / motto */}
+      {/* Hero */}
       <section className="flex flex-col items-center text-center">
-        <span className="mb-5 rounded-full border px-3 py-1 text-xs font-medium text-fd-muted-foreground">
+        <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
           evsys-sdk
-        </span>
-        <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight sm:text-6xl">
-          Not a few models.{' '}
-          <span className="text-fd-primary">Thousands</span> — continually
-          learning.
         </h1>
-        <p className="mt-7 max-w-3xl text-balance text-lg leading-relaxed text-fd-muted-foreground">
-          We believe there will not be a few generally intelligent models that
-          everyone uses, but <strong className="text-fd-foreground">thousands
-          of models adapted for every task</strong>, continually learning from
-          every interaction. To enable this we need infrastructure that lets{' '}
-          <strong className="text-fd-foreground">coding agents launch
-          experiments, learn from them, and train models that learn
-          continuously</strong>. This SDK is the first step toward that.
+        <p className="mt-6 max-w-3xl text-balance text-lg leading-relaxed text-fd-muted-foreground">
+          Infrastructure for thousands of task-specialised models that learn
+          continuously from every interaction.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
