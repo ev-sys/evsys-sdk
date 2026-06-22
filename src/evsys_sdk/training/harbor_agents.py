@@ -220,7 +220,7 @@ class BasicLoopAgent(BaseAgent):
         logs_dir = getattr(self, "logs_dir", None)
         if logs_dir is not None:
             Path(logs_dir).mkdir(parents=True, exist_ok=True)
-            (Path(logs_dir) / _COMPLETION_FILE).write_text(resp.content or "")
+            (Path(logs_dir) / _COMPLETION_FILE).write_text(_content_to_str(resp.content))
 
 
 class EvsysVerifier(BaseVerifier):
@@ -258,6 +258,26 @@ def _read_json(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text()) if path.exists() else {}
     except Exception:  # pragma: no cover - defensive
         return {}
+
+
+def _content_to_str(content: Any) -> str:
+    """Coerce an LLM response's ``content`` to text for ``write_text``.
+
+    Harbor's ``Chat`` returns ``content`` as a plain ``str`` for simple replies,
+    but as a **list of content blocks** when the model emits structured output
+    (e.g. a thinking model that finishes its ``<think>`` block) — and
+    ``Path.write_text`` raises ``TypeError: data must be str, not list`` on a
+    non-str argument. Flatten any block list to its text so the completion file
+    (read by the host-side EvsysVerifier) is always a string."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+        )
+    return str(content)
 
 
 __all__ = ["BasicLoopAgent", "EvsysVerifier", "NoOpEnvironment"]
