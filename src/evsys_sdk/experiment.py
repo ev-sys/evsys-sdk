@@ -284,6 +284,8 @@ class Experiment:
 
         if self.config.continual is not None:
             arms = self._run_continual(experiment_id, benchmarks, meta)
+        elif self.config.stages is not None:
+            arms = self._run_stages(experiment_id, benchmarks, meta)
         else:
             arms = []
             for primary in primaries:
@@ -777,6 +779,86 @@ class Experiment:
                 if prev_ckpt is None and i + 1 < len(cont.datasets):
                     logger.warning(
                         "continual: stage %d (seed=%s) produced no resumable state "
+                        "checkpoint; stage %d will start from the base model",
+                        i, seed, i + 1,
+                    )
+        return arms
+
+    # -- multi-stage recipes (e.g. SFT → RL) --------------------------------
+
+    def _run_stages(
+        self,
+        experiment_id: str | None,
+        benchmarks: list[tuple[Benchmark, dict]],
+        meta: dict,
+    ) -> list[ArmResult]:
+        """Train the base ``run`` once per :class:`~evsys_sdk.config.StageSpec` in
+        ``stages.stages``, in order — each stage with its OWN algorithm + data —
+        chaining the previous stage's final weights (fresh optimizer) into the
+        next. One arm per stage, each scored on every benchmark; the chain stops
+        at the first stage that doesn't complete. With ``n_repeats > 1`` the whole
+        chain is replicated per seed, stage *i* grouped across repeats.
+
+        This is the multi-algorithm sibling of :meth:`_run_continual` (which swaps
+        data only): here a stage swaps ``algorithm`` + ``data``, so SFT → RL is one
+        config that expands to two arms with the weights chained between them.
+        """
+        spec = self.config.stages
+        base = self.config.run
+        assert spec is not None and base is not None  # guaranteed by config validator
+        template = spec.name_template or "{base}_stage{i}_{kind}"
+        n = self.config.n_repeats
+        base_seed = self.config.base_seed if self.config.base_seed is not None else base.seed
+        seeds = [base_seed + r for r in range(n)]
+
+        def _label(i: int, st: Any) -> str:
+            return st.name or template.format(base=base.name, i=i, kind=st.algorithm.kind)
+
+        stage_group_ids: list[str | None] = [None] * len(spec.stages)
+        if n > 1:
+            stage_group_ids = [
+                self._create_group(experiment_id, _label(i, st))
+                for i, st in enumerate(spec.stages)
+            ]
+
+        arms: list[ArmResult] = []
+        for seed in seeds:
+            prev_ckpt: str | None = None
+            for i, st in enumerate(spec.stages):
+                model = base.model
+                if prev_ckpt is not None:
+                    model = model.model_copy(update={"init_from_checkpoint": prev_ckpt})
+                stage_label = _label(i, st)
+                name = f"{stage_label}__s{seed}" if n > 1 else stage_label
+                tags = [*base.tags, "stages", f"stage:{i}", f"algo:{st.algorithm.kind}"]
+                if n > 1:
+                    tags.append(f"seed:{seed}")
+                stage_run = base.model_copy(update={
+                    "name": name,
+                    "algorithm": st.algorithm,
+                    "data": st.data,
+                    "model": model,
+                    "seed": seed,
+                    "tags": tags,
+                })
+                arm = self._execute_arm(
+                    experiment_id, stage_run, benchmarks, meta,
+                    group_id=stage_group_ids[i],
+                    group_name=(stage_label if n > 1 else None),
+                    # Closed/API-model benchmarks have fixed weights → score once.
+                    score_api_models=(i == 0),
+                )
+                arms.append(arm)
+                if arm.status != "completed":
+                    logger.warning(
+                        "stages: chain (seed=%s) stopped at stage %d (%s, status=%s)",
+                        seed, i, st.algorithm.kind, arm.status,
+                    )
+                    break
+                prev_ckpt = self._final_state_checkpoint(arm)
+                if prev_ckpt is None and i + 1 < len(spec.stages):
+                    logger.warning(
+                        "stages: stage %d (seed=%s) produced no resumable state "
                         "checkpoint; stage %d will start from the base model",
                         i, seed, i + 1,
                     )
