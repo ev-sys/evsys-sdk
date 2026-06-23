@@ -33,7 +33,6 @@ from .registry import (
     get_algorithm,
     get_backend,
     get_data_store,
-    get_log_store,
     get_transform,
 )
 
@@ -125,26 +124,8 @@ def _execute_run(
     run_dir = base_output_dir / safe_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build stores. Log store gets log_dir wired in from run_dir if not provided.
     ds_cls = get_data_store(cfg.data_store.kind)
     data_store = ds_cls(**(cfg.data_store.params or {}))
-
-    log_params = dict(cfg.log_store.params or {})
-    if cfg.log_store.kind == "multiplex":
-        # Auto-fill log_dir for any jsonl/tensorboard child that didn't set one,
-        # rooting under <run_dir>/logs/<kind>.
-        new_children = []
-        for child in log_params.get("children") or []:
-            ck = child.get("kind")
-            cp = dict(child.get("params") or {})
-            if ck in {"jsonl", "tensorboard"} and "log_dir" not in cp:
-                cp["log_dir"] = str(run_dir / "logs" / ck)
-            new_children.append({"kind": ck, "params": cp})
-        log_params["children"] = new_children
-    elif cfg.log_store.kind in {"jsonl", "tensorboard"} and "log_dir" not in log_params:
-        log_params["log_dir"] = str(run_dir / "logs")
-    log_cls = get_log_store(cfg.log_store.kind)
-    log_store = log_cls(**log_params)
 
     # Backend.
     backend = _build_from_spec(get_backend, run.backend)
@@ -170,7 +151,6 @@ def _execute_run(
     except Exception as e:
         logger.exception("backend.prepare raised")
         result = RunResult(run_id=safe_name, status="failed", error=str(e))
-        log_store.close()
         _persist_result(run_dir, result, hparams=run.model_dump())
         return result
 
@@ -186,24 +166,27 @@ def _execute_run(
     if extra_context:
         extras.update(extra_context)
 
+    # Logger callbacks own ALL logging. When run bare (no Experiment threading
+    # callbacks in), default to a local_logger so per-step metrics + predictions
+    # still land under <run_dir>/logs/. The runner then drives the run-scoped
+    # hooks itself (Experiment does this for the threaded path).
+    bare_logging = "callbacks" not in extras
+    if bare_logging:
+        from .config import CallbackSpec
+        from .training.callbacks import LogContext, build_callbacks, dispatch
+        extras["callbacks"] = build_callbacks([CallbackSpec(kind="local_logger")])
+        extras["log_context"] = LogContext(
+            output_dir=base_output_dir, config=cfg, run_key=safe_name,
+        )
+        dispatch(extras["callbacks"], "on_run_start", extras["log_context"])
+
     ctx = RunContext(
         run_id=safe_name,
         output_dir=str(run_dir),
         config=cfg,
         data_store=data_store,
-        log_store=log_store,
         backend=backend,
         extras=extras,
-    )
-
-    log_store.log_hyperparams(
-        {
-            "experiment_name": cfg.name,
-            "run_name": run.name,
-            "model": run.model.model_dump(),
-            "backend": run.backend.model_dump(),
-            "tags": run.tags,
-        }
     )
 
     try:
@@ -217,7 +200,9 @@ def _execute_run(
         except Exception:
             logger.exception("backend.teardown raised")
 
-    log_store.close()
+    if bare_logging:
+        from .training.callbacks import dispatch
+        dispatch(extras["callbacks"], "on_run_end", extras["log_context"], result, None)
     _persist_result(run_dir, result, hparams=run.model_dump())
     return result
 

@@ -57,7 +57,6 @@ def _cmd_list(args: argparse.Namespace) -> int:
         list_backends,
         list_data_stores,
         list_inferences,
-        list_log_stores,
         list_metrics,
         list_transforms,
         list_verifiers,
@@ -70,7 +69,6 @@ def _cmd_list(args: argparse.Namespace) -> int:
         ("metrics", list_metrics),
         ("transforms", list_transforms),
         ("data_stores", list_data_stores),
-        ("log_stores", list_log_stores),
         ("inference", list_inferences),
     ]:
         items = fn()
@@ -231,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     p_list.set_defaults(func=_cmd_list)
 
     p_sch = sub.add_parser("schema", help="Print JSON schema for a registered extension.")
-    p_sch.add_argument("kind", help="One of: algorithm, backend, verifier, metric, transform, data_store, log_store, inference_client")
+    p_sch.add_argument("kind", help="One of: algorithm, backend, verifier, metric, transform, data_store, inference_client")
     p_sch.add_argument("name")
     p_sch.set_defaults(func=_cmd_schema)
 

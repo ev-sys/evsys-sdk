@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
+from ..training.callbacks import dispatch, make_loop_state
 
 # Raise ImportError if TRL is missing
 from trl import SFTConfig, SFTTrainer  # noqa: E402
@@ -76,8 +77,6 @@ class LocalSFT:
         out = Path(ctx.output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
-
         train_ds = Dataset.from_list([{"messages": r["messages"]} for r in rows])
         lora_config = LoraConfig(
             r=self.cfg.lora_rank,
@@ -127,18 +126,18 @@ class LocalSFT:
         trainer.save_model(str(final))
         tokenizer.save_pretrained(str(final))
 
-        # Drain TRL log history into our log store.
+        # Drain TRL log history through the logger callbacks.
+        cbs, state = make_loop_state(ctx)
         for entry in getattr(trainer.state, "log_history", []):
             step = int(entry.get("step", 0) or 0)
             metrics = {k: float(v) for k, v in entry.items() if isinstance(v, (int, float)) and k != "step"}
             if metrics:
-                ctx.log_store.log_metrics(metrics, step=step)
+                state.step = step
+                dispatch(cbs, "on_step_end", state, step, None, metrics)
 
         artifacts = {"final_checkpoint": str(final)}
         for ckpt in sorted(out.glob("checkpoint-*")):
             artifacts[ckpt.name] = str(ckpt)
-        for k, v in artifacts.items():
-            ctx.log_store.log_artifact(k, v, kind="checkpoint")
 
         loss_entries = [e for e in getattr(trainer.state, "log_history", []) if "loss" in e]
         final_loss = float(loss_entries[-1]["loss"]) if loss_entries else 0.0

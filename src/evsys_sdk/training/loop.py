@@ -196,7 +196,6 @@ class TrainingLoop:
         *,
         backend: Backend,
         step_builder: StepBuilder,
-        log_store: Any,
         output_dir: str | Path,
         adam_params: tinker.AdamParams,
         save_every: int,
@@ -209,7 +208,6 @@ class TrainingLoop:
     ) -> None:
         self.backend = backend
         self.step_builder = step_builder
-        self.log_store = log_store
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.adam_params = adam_params
@@ -241,7 +239,6 @@ class TrainingLoop:
             num_steps=num_steps,
             output_dir=self.output_dir,
             backend=self.backend,
-            log_store=self.log_store,
             checkpoint_mgr=self.checkpoint_mgr,
             ctx=self.log_context,
         )
@@ -302,7 +299,6 @@ class TrainingLoop:
                 "train/skipped_empty_batch": 1.0,
             }
             skip_metrics.update(batch.metrics)
-            self.log_store.log_metrics(skip_metrics, step=step)
             if state is not None:
                 self._dispatch("on_step_end", state, step, batch, skip_metrics)
             due = [ev for ev in self.evaluators if self._is_due(ev, step)]
@@ -346,7 +342,6 @@ class TrainingLoop:
         metrics.update(batch.metrics)
         metrics[self._keys.finish_batch] = time.time() - t0
 
-        self.log_store.log_metrics(metrics, step=step)
         if state is not None:
             self._dispatch("on_step_end", state, step, batch, metrics)
 
@@ -398,12 +393,6 @@ class TrainingLoop:
                     "evaluator %r raised at step %d; continuing", ev.name, step
                 )
                 continue
-            split = getattr(ev, "split", "val")
-            self.log_store.log_metrics(
-                {f"{split}/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
-                step=step + 1,
-                split=split,
-            )
             if state is not None:
                 self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))
 

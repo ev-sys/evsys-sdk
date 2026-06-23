@@ -37,7 +37,6 @@ import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import CallbackSpec
-from ..log_stores.null import NullLogStore
 from ..protocols import RunContext, RunResult
 from ..training.callbacks import build_callbacks
 from ..training.evaluators import build_in_loop_evaluators
@@ -175,16 +174,6 @@ class BaseAlgorithm:
         total_steps = self._resolve_total_steps()
         save_every = self._resolve_save_every(total_steps)
 
-        # 4. log hyperparams once so the experiment record carries them
-        ctx.log_store.log_hyperparams({
-            "algorithm": self.name,
-            **self.cfg.model_dump(),
-            "model_name": model_name,
-            "total_steps": total_steps,
-            "save_every": save_every,
-            **self._hyperparams_extra(),
-        })
-
         # 5. compose the loop (self IS the StepBuilder) and run
         evaluators = build_in_loop_evaluators(
             ctx.config.metadata if hasattr(ctx, "config") else None,
@@ -208,10 +197,8 @@ class BaseAlgorithm:
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
-            # No-op store on the loop path: per-step / eval metrics flow ONLY
-            # through the callbacks (-> local_logger), so there is one local
-            # metrics writer and no duplicate metrics.jsonl.
-            log_store=NullLogStore(),
+            # Per-step / eval metrics flow ONLY through the callbacks
+            # (-> local_logger): there is no log_store on the loop path.
             output_dir=Path(ctx.output_dir),
             adam_params=tinker.AdamParams(
                 learning_rate=self.cfg.learning_rate,
@@ -230,9 +217,9 @@ class BaseAlgorithm:
         # 6. record run_dir + per-checkpoint sampler URIs so downstream
         # consumers (TinkerInference.from_run_result, Experiment._eval_arm)
         # keep working unchanged.
+        # Checkpoint URIs ride out on RunResult.artifacts (consumed by
+        # TinkerInference.from_run_result, Experiment._eval_arm).
         artifacts_dict = artifacts.as_dict()
-        for key, value in artifacts_dict.items():
-            ctx.log_store.log_artifact(key, value, kind="checkpoint")
 
         return RunResult(
             run_id=ctx.run_id,

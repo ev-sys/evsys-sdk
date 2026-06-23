@@ -62,12 +62,6 @@ class ComboAlgorithm:
         out_root = Path(ctx.output_dir)
         out_root.mkdir(parents=True, exist_ok=True)
 
-        ctx.log_store.log_hyperparams({
-            "algorithm": self.name,
-            "n_phases":  len(self.cfg.phases),
-            "phases":    [p.kind for p in self.cfg.phases],
-        })
-
         last_artifacts: dict[str, str] = {}
         last_metrics: dict[str, float] = {}
         last_result: RunResult | None = None

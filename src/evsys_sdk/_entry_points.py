@@ -25,7 +25,6 @@ _GROUPS = (
     "evsys_sdk.verifiers",
     "evsys_sdk.metrics",
     "evsys_sdk.data_stores",
-    "evsys_sdk.log_stores",
     "evsys_sdk.backends",
     "evsys_sdk.inference",
     "evsys_sdk.transforms",

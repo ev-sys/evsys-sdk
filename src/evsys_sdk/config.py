@@ -67,12 +67,6 @@ class DataStoreSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class LogStoreSpec(_Strict):
-    kind: str = "jsonl"
-    """e.g. 'jsonl', 'tensorboard', 'multiplex', 'supabase'."""
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
 # ---------------------------------------------------------------------------
 # Data, Model, Backend, Eval
 # ---------------------------------------------------------------------------
@@ -170,7 +164,6 @@ class ExperimentConfig(_Strict):
     """When true, on-policy training rollouts (RL/SDFT) are logged via the
     ``on_rollout`` hook. A ``--dry`` run turns this on (and caps steps)."""
     data_store: DataStoreSpec = Field(default_factory=DataStoreSpec)
-    log_store: LogStoreSpec = Field(default_factory=LogStoreSpec)
 
     # Logger callbacks ({kind, params}) built ONCE per experiment and shared
     # across all arms + their training loops. Each subscribes to the full

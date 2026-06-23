@@ -18,7 +18,7 @@ For everything else:
         load_yaml, dump_yaml, validate_yaml, apply_dry_run,
         # Registries (decorators for extensions)
         register_algorithm, register_verifier, register_metric,
-        register_backend, register_data_store, register_log_store,
+        register_backend, register_data_store,
         register_inference, register_transform,
         get_algorithm, get_verifier, get_metric,
         # Imperative runner (kept for advanced use; Experiment is the default)
@@ -37,7 +37,6 @@ from .config import (
     DataConfig,
     DataStoreSpec,
     ExperimentConfig,
-    LogStoreSpec,
     ModelConfig,
     RunConfig,
     TransformSpec,
@@ -48,7 +47,6 @@ from .protocols import (
     Backend,
     DataStore,
     InferenceClient,
-    LogStore,
     Metric,
     RunContext,
     RunResult,
@@ -61,7 +59,6 @@ from .registry import (
     get_callback,
     get_data_store,
     get_inference,
-    get_log_store,
     get_metric,
     get_transform,
     get_verifier,
@@ -70,7 +67,6 @@ from .registry import (
     list_callbacks,
     list_data_stores,
     list_inferences,
-    list_log_stores,
     list_metrics,
     list_transforms,
     list_verifiers,
@@ -79,7 +75,6 @@ from .registry import (
     register_callback,
     register_data_store,
     register_inference,
-    register_log_store,
     register_metric,
     register_transform,
     register_verifier,
@@ -89,7 +84,6 @@ from .benchmark_run import run_benchmark
 from .checkpoint import Checkpoint, find_manifest, read_manifest
 from .experiment import ArmResult, EvalResult, Experiment, ExperimentResult
 from .runner import run_experiment
-from .step_metrics import forward_step_metrics
 from .sweep import Sweep, expand_runs
 from .yaml_loader import apply_dry_run, dump_yaml, load_yaml, validate_yaml
 from .dashboard_client import (
@@ -130,7 +124,6 @@ from . import algorithms as _algorithms  # noqa: F401
 from . import backends as _backends  # noqa: F401
 from . import data_stores as _data_stores  # noqa: F401
 from . import inference as _inference  # noqa: F401
-from . import log_stores as _log_stores  # noqa: F401
 from . import metrics as _metrics  # noqa: F401
 from . import transforms as _transforms  # noqa: F401
 from . import verifiers as _verifiers  # noqa: F401
@@ -147,7 +140,6 @@ __all__ = [
     "DataStoreSpec",
     "CallbackSpec",
     "ExperimentConfig",
-    "LogStoreSpec",
     "ModelConfig",
     "RunConfig",
     "TransformSpec",
@@ -157,7 +149,6 @@ __all__ = [
     "Backend",
     "DataStore",
     "InferenceClient",
-    "LogStore",
     "Metric",
     "RunContext",
     "RunResult",
@@ -169,7 +160,6 @@ __all__ = [
     "get_callback",
     "get_data_store",
     "get_inference",
-    "get_log_store",
     "get_metric",
     "get_transform",
     "get_verifier",
@@ -178,7 +168,6 @@ __all__ = [
     "list_callbacks",
     "list_data_stores",
     "list_inferences",
-    "list_log_stores",
     "list_metrics",
     "list_transforms",
     "list_verifiers",
@@ -187,7 +176,6 @@ __all__ = [
     "register_callback",
     "register_data_store",
     "register_inference",
-    "register_log_store",
     "register_metric",
     "register_transform",
     "register_verifier",
@@ -248,6 +236,5 @@ __all__ = [
     "Sweep",
     "expand_runs",
     "find_manifest",
-    "forward_step_metrics",
     "read_manifest",
 ]

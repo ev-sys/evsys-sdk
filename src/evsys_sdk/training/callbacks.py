@@ -104,12 +104,9 @@ class LoopState:
     step: int
     """Current step index (0-based). Advances per iteration."""
     num_steps: int
-    output_dir: Path
-    backend: "Backend"
-    log_store: Any
-    """The same log_store the loop writes to. Callbacks can also write
-    auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
-    checkpoint_mgr: "CheckpointManager"
+    output_dir: "Path | None" = None
+    backend: "Backend | None" = None
+    checkpoint_mgr: "CheckpointManager | None" = None
     stop_requested: bool = False
     ctx: "LogContext | None" = None
     """The experiment-wide :class:`LogContext` (shared with the Experiment-scope
@@ -263,6 +260,24 @@ def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) ->
             logger.exception(
                 "callback %s.%s raised; continuing", type(cb).__name__, hook,
             )
+
+
+def make_loop_state(ctx: Any, *, num_steps: int = 0) -> tuple[list["Callback"], "LoopState"]:
+    """For algorithms that DON'T drive a :class:`TrainingLoop` (mock/local/gepa):
+    pull the threaded logger callbacks off ``ctx.extras`` and build a minimal
+    :class:`LoopState` so they can dispatch loop-scope hooks (``on_step_end`` /
+    ``on_checkpoint``). Mutate ``state.step`` before each dispatch. Returns
+    ``([], state)`` when no callbacks were threaded (bare run), so dispatching is
+    a safe no-op."""
+    extras = getattr(ctx, "extras", {}) or {}
+    cbs = list(extras.get("callbacks") or [])
+    state = LoopState(
+        step=0,
+        num_steps=num_steps,
+        output_dir=Path(str(getattr(ctx, "output_dir", "."))),
+        ctx=extras.get("log_context"),
+    )
+    return cbs, state
 
 
 # ---------------------------------------------------------------------------
