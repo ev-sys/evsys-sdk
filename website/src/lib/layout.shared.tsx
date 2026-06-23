@@ -13,9 +13,9 @@ export function baseOptions(): BaseLayoutProps {
           <img
             src={`${basePath}/logo.png`}
             alt=""
-            width={22}
-            height={22}
-            style={{ borderRadius: 5 }}
+            width={28}
+            height={28}
+            style={{ borderRadius: 6 }}
           />
           {appName}
         </>

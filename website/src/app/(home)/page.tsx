@@ -93,8 +93,8 @@ export default function HomePage() {
         <img
           src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/logo.png`}
           alt=""
-          width={88}
-          height={88}
+          width={132}
+          height={132}
           className="mb-6 rounded-2xl"
         />
         <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
