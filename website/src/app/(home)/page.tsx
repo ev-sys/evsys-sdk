@@ -91,16 +91,17 @@ export default function HomePage() {
       <section className="flex flex-col items-center text-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/logo.png`}
-          alt=""
-          width={132}
-          height={132}
-          className="mb-6 rounded-2xl"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/logo.svg`}
+          alt="EvSys"
+          className="mb-7 h-20 w-auto dark:hidden"
         />
-        <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
-          evsys-sdk
-        </h1>
-        <p className="mt-6 max-w-3xl text-balance text-lg leading-relaxed text-fd-muted-foreground">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/logo-dark.svg`}
+          alt="EvSys"
+          className="mb-7 hidden h-20 w-auto dark:block"
+        />
+        <p className="mt-2 max-w-3xl text-balance text-lg leading-relaxed text-fd-muted-foreground">
           Infrastructure for thousands of task-specialised models that learn
           continuously from every interaction.
         </p>

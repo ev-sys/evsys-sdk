@@ -1,23 +1,19 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
-import { appName, gitConfig } from './shared';
+import { gitConfig } from './shared';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      // JSX supported - logo + wordmark.
+      // EvSys wordmark. Theme-aware: the near-black variant would vanish on a
+      // dark nav, so swap to the light variant under `.dark`.
       title: (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`${basePath}/logo.png`}
-            alt=""
-            width={28}
-            height={28}
-            style={{ borderRadius: 6 }}
-          />
-          {appName}
+          <img src={`${basePath}/logo.svg`} alt="EvSys" className="h-5 w-auto dark:hidden" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`${basePath}/logo-dark.svg`} alt="EvSys" className="hidden h-5 w-auto dark:block" />
         </>
       ),
     },
