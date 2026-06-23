@@ -119,6 +119,12 @@ export default function HomePage() {
             How it works
           </Link>
           <Link
+            href="/docs/roadmap"
+            className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
+          >
+            Roadmap
+          </Link>
+          <Link
             href="/whitepaper"
             className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
           >
