@@ -2,7 +2,7 @@
 title: runner
 ---
 
-run_experiment — orchestrates a single ExperimentConfig end-to-end.
+run_experiment - orchestrates a single ExperimentConfig end-to-end.
 
 Sequence per RunConfig:
   1. Build data store + log store from ExperimentConfig top-level specs.
@@ -285,7 +285,7 @@ def _execute_run(
 
 Run an experiment from a parsed config or YAML file.
 
-``extra_context`` is merged into each run's ``RunContext.extras`` — used by
+``extra_context`` is merged into each run's ``RunContext.extras`` - used by
 ``Experiment`` to pass the dashboard ``store`` + ``dashboard_run_id`` so
 in-loop validation can upload its rollouts.
 
@@ -295,7 +295,7 @@ in-loop validation can upload its rollouts.
 def run_experiment(cfg_or_path, *, extra_context: dict[str, Any] | None = None) -> list[RunResult]:
     """Run an experiment from a parsed config or YAML file.
 
-    ``extra_context`` is merged into each run's ``RunContext.extras`` — used by
+    ``extra_context`` is merged into each run's ``RunContext.extras`` - used by
     ``Experiment`` to pass the dashboard ``store`` + ``dashboard_run_id`` so
     in-loop validation can upload its rollouts.
     """
@@ -313,7 +313,7 @@ def run_experiment(cfg_or_path, *, extra_context: dict[str, Any] | None = None) 
         runs = [cfg.run]
     elif cfg.runs is not None:
         runs = list(cfg.runs)
-    else:  # pragma: no cover — caught earlier in config validator
+    else:  # pragma: no cover - caught earlier in config validator
         raise RuntimeError("ExperimentConfig has no runs (matrix not expanded?)")
 
     results: list[RunResult] = []

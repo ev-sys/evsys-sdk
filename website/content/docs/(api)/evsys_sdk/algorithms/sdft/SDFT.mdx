@@ -64,7 +64,7 @@ async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
     # (base.py): the algorithm config first, then the model's renderer from
     # backend handles. Without this fallback the student rollout would pass
     # ``None`` and harbor would default to the thinking-enabled base
-    # renderer — mismatching a no-thinking ``model.renderer_name``.
+    # renderer - mismatching a no-thinking ``model.renderer_name``.
     self._renderer_name = self.cfg.renderer_name or ctx.extras.get(
         "backend_handles", {}
     ).get("renderer_name")

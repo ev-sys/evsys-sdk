@@ -5,8 +5,8 @@ title: Algorithm
 A training recipe.
 
 Implementations must declare:
-  * ``name`` (class var) — registry key, also used as the YAML ``kind``.
-  * ``Config`` (class var) — Pydantic model for the recipe's parameters.
+  * ``name`` (class var) - registry key, also used as the YAML ``kind``.
+  * ``Config`` (class var) - Pydantic model for the recipe's parameters.
 
 And implement:
   * ``train(ctx: RunContext) -> RunResult``

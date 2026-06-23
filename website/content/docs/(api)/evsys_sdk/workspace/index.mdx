@@ -2,7 +2,7 @@
 title: workspace
 ---
 
-Workspace — local cache for remote datasets/benchmarks.
+Workspace - local cache for remote datasets/benchmarks.
 
 Remote-first: datasets live in the backend (D20, accessed via ``EvsysStore``
 over the gateway). Streaming every row over HTTP during training is slow, so the
@@ -11,7 +11,7 @@ file. On ``pull_dataset`` the local copy is reused if present and complete;
 otherwise it's fetched from remote, written, and cached.
 
 Safe to cache: datasets are versioned and immutable per version, so a given
-``dataset_id`` never changes — the only risk is a partial pull, guarded by a
+``dataset_id`` never changes - the only risk is a partial pull, guarded by a
 ``.meta.json`` manifest (atomic rename + ``complete`` flag + n_rows match).
 
 The workspace root (``$EVSYS_WORKSPACE`` or ``./.evsys``) writes a

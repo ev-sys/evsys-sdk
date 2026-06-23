@@ -1,43 +1,43 @@
 ---
 title: Data stores
-description: The read/write layer — where the SDK reads inputs from and writes outputs to.
+description: The read/write layer - where the SDK reads inputs from and writes outputs to.
 ---
 
 A **data store** is the SDK's abstract file layer: every time an algorithm reads
 a dataset or writes rendered rows / predictions, it goes through a `DataStore`.
-The default is your local filesystem, so you rarely think about it — you make
+The default is your local filesystem, so you rarely think about it - you make
 your own when data lives somewhere else (a database, object storage, an
 in-process cache for tests).
 
 ## The contract
 
 The contract is `evsys_sdk.protocols.DataStore` (a `typing.Protocol`, so you
-satisfy it by implementing the methods — no subclassing). An implementation
+satisfy it by implementing the methods - no subclassing). An implementation
 declares one ClassVar and six methods:
 
-- **`name: ClassVar[str]`** — the registry key, the string you put in YAML as
+- **`name: ClassVar[str]`** - the registry key, the string you put in YAML as
   `kind`. (Data stores have no `Config` ClassVar requirement in the protocol,
-  but the built-ins carry one — see below.)
+  but the built-ins carry one - see below.)
 
-- **`read_jsonl(self, path: str) -> list[dict[str, Any]]`** — read a JSONL file
+- **`read_jsonl(self, path: str) -> list[dict[str, Any]]`** - read a JSONL file
   at `path` and return its rows as a list of dicts, one dict per line. This is
   the primary way datasets are loaded.
 
-- **`write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None`** —
+- **`write_jsonl(self, path: str, rows: Iterable[dict[str, Any]]) -> None`** -
   write an iterable of dicts to `path`, one JSON object per line. Used for
   rendered training data, predictions, and other row-shaped outputs. Returns
   nothing.
 
-- **`read_json(self, path: str) -> Any`** — read a single JSON document at
-  `path` and return the parsed value (any JSON type — dict, list, scalar).
+- **`read_json(self, path: str) -> Any`** - read a single JSON document at
+  `path` and return the parsed value (any JSON type - dict, list, scalar).
 
-- **`write_json(self, path: str, value: Any) -> None`** — serialize `value` to
+- **`write_json(self, path: str, value: Any) -> None`** - serialize `value` to
   JSON and write it to `path`. Used for manifests, summaries, config snapshots.
 
-- **`exists(self, path: str) -> bool`** — return `True` if something is present
+- **`exists(self, path: str) -> bool`** - return `True` if something is present
   at `path`, `False` otherwise. Callers use this to skip work or guard reads.
 
-- **`list(self, prefix: str) -> list[str]`** — return the paths under `prefix`.
+- **`list(self, prefix: str) -> list[str]`** - return the paths under `prefix`.
   For the local store, a directory prefix is walked recursively and a glob
   pattern is expanded; paths come back relative to the store root.
 
@@ -56,7 +56,7 @@ data_store:
 | Built-in | What it does / where it writes |
 |---|---|
 | `local` | `LocalDataStore` (`src/evsys_sdk/data_stores/local.py`). Reads/writes JSONL and JSON on the filesystem, no network. Relative `path`s resolve against `root` (default `"."`); absolute paths pass through. `write_*` create parent dirs; `list` walks a directory recursively or expands a glob, returning paths relative to `root`. |
-| `in_memory` | `InMemoryDataStore` (`src/evsys_sdk/data_stores/in_memory.py`). Keeps JSONL and JSON in two dicts keyed by path — nothing touches disk. `read_*` raise `FileNotFoundError` for unknown paths. For tests. |
+| `in_memory` | `InMemoryDataStore` (`src/evsys_sdk/data_stores/in_memory.py`). Keeps JSONL and JSON in two dicts keyed by path - nothing touches disk. `read_*` raise `FileNotFoundError` for unknown paths. For tests. |
 
 ## Create your own
 
@@ -118,7 +118,7 @@ class S3DataStore:
         return sorted(o["Key"] for o in resp.get("Contents", []))
 ```
 
-Then reference it by `kind` in YAML — no SDK edit:
+Then reference it by `kind` in YAML - no SDK edit:
 
 ```yaml
 data_store:
@@ -140,7 +140,7 @@ s3 = "my_pkg.stores:S3DataStore"
 ```
 
 On import, `evsys_sdk` walks that group and imports the target, running its
-`@register_data_store` decorator — your `kind` is available everywhere with no
+`@register_data_store` decorator - your `kind` is available everywhere with no
 fork.
 
 <Cards>

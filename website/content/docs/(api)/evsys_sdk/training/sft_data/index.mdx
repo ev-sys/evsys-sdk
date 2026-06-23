@@ -2,7 +2,7 @@
 title: sft_data
 ---
 
-SFT data shaping — turn ``\{messages: [...]\}`` rows into ``tinker.Datum``s.
+SFT data shaping - turn ``\{messages: [...]\}`` rows into ``tinker.Datum``s.
 
 Pure function over the tokenizer + max_seq_len + enable_thinking; no
 tinker_cookbook imports, no global state. The ``SFT`` algorithm calls
@@ -11,8 +11,8 @@ the result in each ``build_batch`` call.
 
 Output shape: ``list[tinker.Datum]`` where each ``Datum`` has
 
-  * ``model_input``       — token ids of the *entire* chat-templated sequence
-  * ``loss_fn_inputs["weights"]`` — per-position float mask, ``1.0`` on
+  * ``model_input``       - token ids of the *entire* chat-templated sequence
+  * ``loss_fn_inputs["weights"]`` - per-position float mask, ``1.0`` on
     assistant tokens, ``0.0`` elsewhere.
 
 This is the shape tinker's server-side ``cross_entropy`` loss consumes;
@@ -23,7 +23,7 @@ see ``training_client.forward_backward_async(loss_fn="cross_entropy")``.
 <PyAttribute name={"Supervise"} type={null} value={"Literal['all_assistant', 'last_assistant']"}>
 
 Which assistant turns the loss is computed on. This is an *algorithm*
-decision (passed in by the composer), NOT a property of the dataset —
+decision (passed in by the composer), NOT a property of the dataset -
 :class:`~evsys_sdk.data_types.ChatMessagesRow` carries only the conversation.
 
 </PyAttribute>
@@ -76,7 +76,7 @@ def sft_tokenize(
     if not data:
         raise ValueError(
             "sft_tokenize: all rows produced empty (no assistant tokens). "
-            "Check your data — at least one row needs an assistant turn."
+            "Check your data - at least one row needs an assistant turn."
         )
     return data
 ```
@@ -104,7 +104,7 @@ Strategy: render the full sequence once for the input ids; then walk
 the messages and for each *supervised* assistant turn, render up to (and
 not including) it with ``add_generation_prompt=True`` to find the prefix
 span, render through it without to find the end. The diff is the
-assistant token span — mark it 1.0 in the weight vector. ``supervise``
+assistant token span - mark it 1.0 in the weight vector. ``supervise``
 selects which assistant turns count (all, or just the last).
 
 Returns ``None`` when the row has no assistant turn or the supervised
@@ -127,7 +127,7 @@ def row_to_datum(
     the messages and for each *supervised* assistant turn, render up to (and
     not including) it with ``add_generation_prompt=True`` to find the prefix
     span, render through it without to find the end. The diff is the
-    assistant token span — mark it 1.0 in the weight vector. ``supervise``
+    assistant token span - mark it 1.0 in the weight vector. ``supervise``
     selects which assistant turns count (all, or just the last).
 
     Returns ``None`` when the row has no assistant turn or the supervised

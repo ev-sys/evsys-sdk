@@ -2,11 +2,11 @@
 title: fns
 ---
 
-In-process verifier functions — the SDK-local registry (D10).
+In-process verifier functions - the SDK-local registry (D10).
 
 `InProcessVerifier(fn_name="tool_calls_match", expected=..., params=...)` stores
 only a *reference*; the actual function lives here, in the SDK. This is the
-single source of truth for in-process verifier logic — the remote (Supabase)
+single source of truth for in-process verifier logic - the remote (Supabase)
 never stores verifier code, only the `fn_name` + per-task `expected`/`params`.
 
 Ported from the backend `api/experiments/verifiers.py` `_REGISTRY` so there is
@@ -14,7 +14,7 @@ exactly ONE registry. Resolve with ``get(fn_name)``; extend with
 ``register(fn_name, fn)`` or the ``@register_fn("name")`` decorator.
 
 Reproducibility note: because a task references a verifier by name, the named
-function resolves against *this SDK version* — record the SDK version on the
+function resolves against *this SDK version* - record the SDK version on the
 experiment/run (see EXPERIMENT_AGENT_DESIGN.md, D10 / Q-J).
 
 <PyAttribute name={"VerifierFn"} type={null} value={"Callable[[str, Any, dict], float]"} />

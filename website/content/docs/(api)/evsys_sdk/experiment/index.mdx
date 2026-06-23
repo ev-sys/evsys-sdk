@@ -2,7 +2,7 @@
 title: experiment
 ---
 
-Experiment — the top-level OOP orchestrator.
+Experiment - the top-level OOP orchestrator.
 
 What it replaces in researcher scripts: the manual
 ``create_experiment`` → ``create_group`` → per-arm ``create_run`` →
@@ -68,7 +68,7 @@ Dependencies are injectable for testing:
 <PyFunction name={"_benchmark_models"} type={"(bench_meta) -> list[str]"}>
 
 API models a benchmark should also be scored on, from ``models`` (list)
-or ``model`` (single string) on the benchmark spec. Empty when neither —
+or ``model`` (single string) on the benchmark spec. Empty when neither -
 i.e. checkpoint-only, the existing behavior.
 
 <PySourceCode >
@@ -76,7 +76,7 @@ i.e. checkpoint-only, the existing behavior.
 ```python
 def _benchmark_models(bench_meta: dict) -> list[str]:
     """API models a benchmark should also be scored on, from ``models`` (list)
-    or ``model`` (single string) on the benchmark spec. Empty when neither —
+    or ``model`` (single string) on the benchmark spec. Empty when neither -
     i.e. checkpoint-only, the existing behavior."""
     raw = bench_meta.get("models")
     if raw is None:
@@ -100,7 +100,7 @@ def _benchmark_models(bench_meta: dict) -> list[str]:
 <PyFunction name={"_predictions_from_score"} type={"(score) -> list[dict]"}>
 
 Prediction rows for the in-process (non-harbor) eval path, one per task,
-in the same shape ``harbor_eval.eval_predictions`` produces — so logger
+in the same shape ``harbor_eval.eval_predictions`` produces - so logger
 callbacks get the model output + reward regardless of engine.
 
 <PySourceCode >
@@ -108,7 +108,7 @@ callbacks get the model output + reward regardless of engine.
 ```python
 def _predictions_from_score(score: BenchmarkScore) -> list[dict]:
     """Prediction rows for the in-process (non-harbor) eval path, one per task,
-    in the same shape ``harbor_eval.eval_predictions`` produces — so logger
+    in the same shape ``harbor_eval.eval_predictions`` produces - so logger
     callbacks get the model output + reward regardless of engine."""
     return [
         {

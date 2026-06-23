@@ -47,7 +47,7 @@ def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
     api_key = os.environ.get(self.api_key_env)
     if not api_key:
         raise RuntimeError(
-            f"{self.api_key_env} not set in env — needed for TinkerBackend.prepare()"
+            f"{self.api_key_env} not set in env - needed for TinkerBackend.prepare()"
         )
     kwargs: dict[str, Any] = {}
     if self.base_url:

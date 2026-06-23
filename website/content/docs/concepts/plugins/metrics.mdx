@@ -12,14 +12,14 @@ benchmark and write your own when you need a reduction the built-ins don't cover
 ## The contract
 
 Defined in `src/evsys_sdk/protocols.py` as `class Metric(Protocol)`. A metric is
-simpler than the other plugins — it has **no `Config`** (metrics take no params):
+simpler than the other plugins - it has **no `Config`** (metrics take no params):
 
-- **`name: ClassVar[str]`** — registry key; the string you put on a benchmark's
+- **`name: ClassVar[str]`** - registry key; the string you put on a benchmark's
   `metrics:` list.
-- **`def compute(self, task_rewards: Sequence[Sequence[float]]) -> float`** — the
+- **`def compute(self, task_rewards: Sequence[Sequence[float]]) -> float`** - the
   one method. `task_rewards` is a sequence of sequences: **one inner sequence per
   task**, holding that task's per-sample rewards. (So `task_rewards[i][j]` is the
-  reward of sample `j` on task `i`.) It returns a single `float` — the aggregated
+  reward of sample `j` on task `i`.) It returns a single `float` - the aggregated
   score for the benchmark. A sample is treated as "passing" when its reward
   clears `PASS_THRESHOLD` (`1.0`, defined in `metrics/basic.py`).
 
@@ -60,7 +60,7 @@ PASS = 1.0
 @register_metric("worst_task")       # registry key == name on metrics: list
 class WorstTask:
     name: ClassVar[str] = "worst_task"
-    # No Config — metrics take no params.
+    # No Config - metrics take no params.
 
     # One inner sequence per task; returns one scalar for the benchmark.
     def compute(self, task_rewards: Sequence[Sequence[float]]) -> float:

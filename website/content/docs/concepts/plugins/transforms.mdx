@@ -15,20 +15,20 @@ knows how to read.
 The protocol lives in `src/evsys_sdk/protocols.py` as `class Transform(Protocol)`.
 A transform is any object that declares two class vars and is *callable*:
 
-- **`name: ClassVar[str]`** — the registry key. This is the exact string you put
+- **`name: ClassVar[str]`** - the registry key. This is the exact string you put
   as `kind:` in YAML.
-- **`Config: ClassVar[type]`** — a Pydantic model (with `extra="forbid"`)
+- **`Config: ClassVar[type]`** - a Pydantic model (with `extra="forbid"`)
   describing the transform's params. The factory validates the `params:` block
   from YAML against this model before constructing the transform, so an unknown
   or mistyped param fails loudly instead of being silently ignored.
 - **`def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]`**
-  — the one method. It receives `rows`, an iterable of plain dicts (one dict per
+  - the one method. It receives `rows`, an iterable of plain dicts (one dict per
   data row, exactly as read from the JSONL/parquet source or as emitted by the
   previous transform), and returns an iterable of dicts. There is no fixed schema
-  on the dicts — keys are whatever your data has. The convention is **additive**:
+  on the dicts - keys are whatever your data has. The convention is **additive**:
   keep the original keys and add new ones (`yield {**row, "messages": ...}`) so a
   later transform or the algorithm can still see the source fields. Returning a
-  generator is fine and encouraged — rows stream through lazily.
+  generator is fine and encouraged - rows stream through lazily.
 
 Because transforms are chained, the *output row shape of one transform is the
 input row shape of the next*. The last transform in the list must emit rows in
@@ -50,7 +50,7 @@ data:
 
 | Built-in | What it does |
 |---|---|
-| `jsonl_to_chat` | Turns each raw row into `{..., "messages": [...]}`. Adds a `system` message if `system_prompt` is set, a `user` message from `user_template.format(**row)`, and — if `assistant_template` is given (SFT) — an `assistant` message from `assistant_template.format(**row)`. Templates are Python format strings whose `{field}` placeholders pull from the row's keys. |
+| `jsonl_to_chat` | Turns each raw row into `{..., "messages": [...]}`. Adds a `system` message if `system_prompt` is set, a `user` message from `user_template.format(**row)`, and - if `assistant_template` is given (SFT) - an `assistant` message from `assistant_template.format(**row)`. Templates are Python format strings whose `{field}` placeholders pull from the row's keys. |
 | `identity` | Pass-through: returns the rows unchanged (`iter(rows)`). Useful for tests or when raw data is already in the right shape. Its `Config` has no fields. |
 
 ## Create your own

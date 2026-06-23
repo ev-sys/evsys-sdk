@@ -2,18 +2,18 @@
 title: sdft
 ---
 
-SDFT — self-distillation fine-tuning on the SDK training loop.
+SDFT - self-distillation fine-tuning on the SDK training loop.
 
 All the
 composer plumbing lives in
 :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`; SDFT supplies the two
 per-algorithm pieces:
 
-* :meth:`setup` — parse rows → :class:`PromptExample` dataset, build the
+* :meth:`setup` - parse rows → :class:`PromptExample` dataset, build the
   frozen teacher sampling client, and stash a per-step *student sampler
   provider* (snapshots the current weights each step so rollouts stay
-  on-policy — cookbook parity without monkey-patching ``sdft.train_step``).
-* :meth:`build_batch` — on-policy student rollout → teacher topK score → CE
+  on-policy - cookbook parity without monkey-patching ``sdft.train_step``).
+* :meth:`build_batch` - on-policy student rollout → teacher topK score → CE
   distillation Datums. :meth:`step_metrics` adds ``train/mean_loss`` from the
   forward-backward output.
 

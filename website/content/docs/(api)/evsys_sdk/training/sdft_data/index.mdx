@@ -2,20 +2,20 @@
 title: sdft_data
 ---
 
-SDFT data shaping — port the cookbook's distillation math, minus
-orchestration. Pure functions over tinker types — no I/O, no
+SDFT data shaping - port the cookbook's distillation math, minus
+orchestration. Pure functions over tinker types - no I/O, no
 ``tinker_cookbook`` imports.
 
 The Self-Distillation Fine-Tuning algorithm (Shenfeld et al., 2026):
 
-1. **Student rollout** — sample from the live student weights on the user
+1. **Student rollout** - sample from the live student weights on the user
    question (no demo). Each sample is a completion + per-position logprobs.
-2. **Teacher prompt** — build a frozen-teacher prompt that contains the
+2. **Teacher prompt** - build a frozen-teacher prompt that contains the
    golden answer as an in-context demonstration.
-3. **Teacher topK** — append the student completion to the teacher prompt,
+3. **Teacher topK** - append the student completion to the teacher prompt,
    ask the teacher for its top-K token distribution at each completion
    position via tinker's ``topk_prompt_logprobs`` sampling API.
-4. **CE distillation** — train the student to match the teacher's
+4. **CE distillation** - train the student to match the teacher's
    renormalized top-K distribution at each position via cross_entropy.
 
 This module owns Step 4's data shaping (turning teacher responses into
@@ -59,7 +59,7 @@ turn (via ``demo_template``). Student completions then get appended to
 this prompt for teacher-forced top-K scoring.
 
 We use :func:`~evsys_sdk.training.templates.messages_to_model_input`
-rather than the cookbook's ``Renderer.build_generation_prompt`` —
+rather than the cookbook's ``Renderer.build_generation_prompt`` -
 same end shape (HF chat-template applied with add_generation_prompt=True),
 no Renderer class hierarchy needed.
 
@@ -82,7 +82,7 @@ def build_teacher_prompt(
     this prompt for teacher-forced top-K scoring.
 
     We use :func:`~evsys_sdk.training.templates.messages_to_model_input`
-    rather than the cookbook's ``Renderer.build_generation_prompt`` —
+    rather than the cookbook's ``Renderer.build_generation_prompt`` -
     same end shape (HF chat-template applied with add_generation_prompt=True),
     no Renderer class hierarchy needed.
     """
@@ -295,7 +295,7 @@ def build_teacher_forced_sequence(
 <PyFunction name={"build_topk_targets"} type={"(*, student_data, completion_slices, teacher_topk_logprobs, topk=20, vocab_size=None, skip_first_n=3) -> tuple[list[tinker.Datum], dict[str, float]]"}>
 
 Build cross_entropy Datums with ``(N, K)`` soft targets from a
-batch of teacher top-K responses. Pure function — no I/O.
+batch of teacher top-K responses. Pure function - no I/O.
 
 <PySourceCode >
 
@@ -310,7 +310,7 @@ def build_topk_targets(
     skip_first_n: int = 3,
 ) -> tuple[list[tinker.Datum], dict[str, float]]:
     """Build cross_entropy Datums with ``(N, K)`` soft targets from a
-    batch of teacher top-K responses. Pure function — no I/O.
+    batch of teacher top-K responses. Pure function - no I/O.
 
     Parameters
     ----------

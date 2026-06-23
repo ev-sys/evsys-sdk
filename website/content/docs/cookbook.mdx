@@ -38,7 +38,7 @@ You should see a `final_checkpoint` artifact and a `metrics.jsonl` in
 ## 2. Drive everything from YAML
 
 `examples/02_yaml_driven.py` shows the same experiment expressed as a YAML
-string. The library's canonical interface is YAML — Python configs are just
+string. The library's canonical interface is YAML - Python configs are just
 sugar that produces the same dict tree. This is what an external evolution
 loop should mutate.
 
@@ -78,7 +78,7 @@ Same pattern as algorithms; entry point group is
 
 ## 6. Real Tinker SFT
 
-`examples/06_tinker_sft_real.py` — minimal real Tinker run, costs roughly $0.01.
+`examples/06_tinker_sft_real.py` - minimal real Tinker run, costs roughly $0.01.
 
 For a real-world campaign you'd write a SFT-then-RL fan-out over LoRA rank with
 checkpointing at 50/75/90/100% of training steps, then evaluate everything and
@@ -127,7 +127,7 @@ The library defines `DataStore` and `LogStore` as protocols (see
 * `MultiplexLogStore` (fan-out to N children)
 
 Supabase adapters live in `evsys_sdk.adapters.supabase` (extra:
-`pip install evsys-sdk[supabase]`). They are optional — the core
+`pip install evsys-sdk[supabase]`). They are optional - the core
 library imports zero Supabase code.
 
 ## Backends
@@ -150,5 +150,5 @@ Tinker training. Algorithms are routed to the right code path based on
 | LogStore | `@register_log_store("name")` | `evsys_sdk.log_stores` |
 
 Each registered class declares a `Config: ClassVar[type]` Pydantic model that
-defines the legal field space — this is exactly what an evolutionary
+defines the legal field space - this is exactly what an evolutionary
 algorithm needs to know to mutate the YAML safely.

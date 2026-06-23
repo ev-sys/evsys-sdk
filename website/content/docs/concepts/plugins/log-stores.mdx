@@ -14,14 +14,14 @@ database, several places at once).
 The contract is `evsys_sdk.protocols.LogStore` (a `typing.Protocol`). An
 implementation declares `name` and five methods:
 
-- **`name: ClassVar[str]`** — the registry key / YAML `kind`.
+- **`name: ClassVar[str]`** - the registry key / YAML `kind`.
 
-- **`log_scalar(self, key: str, value: float, step: int) -> None`** — record a
+- **`log_scalar(self, key: str, value: float, step: int) -> None`** - record a
   single named scalar `value` at training `step`. The one-metric convenience
   form of `log_metrics`.
 
 - **`log_metrics(self, metrics: dict[str, float], step: int, *, split: str = "train") -> None`**
-  — record a whole dict of named metrics at `step`. The `split` argument is
+  - record a whole dict of named metrics at `step`. The `split` argument is
   **keyword-only** (note the `*,`) and defaults to `"train"`. It tags which
   side of the train/val firewall the row belongs to: pass `split="val"` for
   in-loop validation metrics so train and validation curves stay distinguishable
@@ -29,16 +29,16 @@ implementation declares `name` and five methods:
   TensorBoard store ignores it because the split is already baked into the
   metric keys like `val/loss`.)
 
-- **`log_hyperparams(self, params: dict[str, Any]) -> None`** — record the run's
+- **`log_hyperparams(self, params: dict[str, Any]) -> None`** - record the run's
   hyperparameters once. Values can be any JSON-serializable type, not just
   floats. The JSONL store merges repeated calls into one file.
 
 - **`log_artifact(self, name: str, path: str, *, kind: str = "file") -> None`**
-  — register a produced artifact under a logical `name` pointing at `path`. The
+  - register a produced artifact under a logical `name` pointing at `path`. The
   `kind` argument is **keyword-only** and defaults to `"file"` (use it to mark
   e.g. `"checkpoint"`). Stores the pointer, not the bytes.
 
-- **`close(self) -> None`** — flush and release resources at run end. After
+- **`close(self) -> None`** - flush and release resources at run end. After
   close, the JSONL store refuses further writes.
 
 ## Use a built-in
@@ -53,7 +53,7 @@ log_store:
 | Built-in | What it does / where it writes |
 |---|---|
 | `jsonl` | `JSONLLogStore` (`src/evsys_sdk/log_stores/jsonl.py`). Append-only. Under `log_dir` it writes three files: **`metrics.jsonl`** (one JSON object per `log_scalar`/`log_metrics` call, each row `{ts, step, split, metrics}`), **`hyperparams.json`** (the merged hyperparameter dict, re-read and updated on each `log_hyperparams`), and **`artifacts.json`** (a growing list of `{name, path, kind, ts}` from `log_artifact`). File names are configurable via `metrics_file` / `hyperparams_file` / `artifacts_file`. In a standard run the dir is `<run_dir>/logs/`. |
-| `tensorboard` | `TensorBoardLogStore` (`src/evsys_sdk/log_stores/tensorboard.py`). Wraps a `torch.utils.tensorboard.SummaryWriter` (optional dependency — the module raises `ImportError` at load if torch/tensorboard is missing). Metrics become `add_scalar` events; hyperparameters and artifacts become `add_text`. `log_metrics`' `split` is ignored (it's already in the keys). Constructor params: `log_dir`, `flush_secs` (default 30). |
+| `tensorboard` | `TensorBoardLogStore` (`src/evsys_sdk/log_stores/tensorboard.py`). Wraps a `torch.utils.tensorboard.SummaryWriter` (optional dependency - the module raises `ImportError` at load if torch/tensorboard is missing). Metrics become `add_scalar` events; hyperparameters and artifacts become `add_text`. `log_metrics`' `split` is ignored (it's already in the keys). Constructor params: `log_dir`, `flush_secs` (default 30). |
 | `multiplex` | `MultiplexLogStore` (`src/evsys_sdk/log_stores/multiplex.py`). Fans every call out to a list of child stores. Param `children` is a list of `{kind, params}` specs it instantiates on construction (each looked up via the log-store registry). `close()` is best-effort per child (errors swallowed). Use it to write JSONL **and** TensorBoard from one run. |
 
 A multiplex config:

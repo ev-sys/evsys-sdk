@@ -4,7 +4,7 @@ title: project_init
 
 Scaffold a new EvolvingSystems research project on disk.
 
-Emits the locked directory layout (see ``docs/DESIGN.md`` — researcher-project
+Emits the locked directory layout (see ``docs/DESIGN.md`` - researcher-project
 layout) so every project the training-decider agent bootstraps has the same
 predictable shape:
 
@@ -214,7 +214,7 @@ __pycache__/
 # EvolvingSystems local mirror + cached datasets, checkpoints, log_store output
 .evsys/
 
-# Untracked source dumps — usually too large for git
+# Untracked source dumps - usually too large for git
 data/raw/
 '''
 ```
@@ -233,12 +233,12 @@ def _data_readme() -> str:
     return '''\
 # data/
 
-Lineage flows top to bottom — never rewrite earlier stages.
+Lineage flows top to bottom - never rewrite earlier stages.
 
   raw/        Source dumps, untouched. Gitignored (usually large).
   fetch/      Python scripts that populate raw/ from external sources.
   process/    Python scripts that turn raw/ into datasets/<name>/v<N>/.
-  datasets/   Versioned training/test JSONL — chat_messages or harbor_task rows.
+  datasets/   Versioned training/test JSONL - chat_messages or harbor_task rows.
               Each dataset is data/datasets/<name>/v<N>/{train,test}.jsonl
               + metadata.yaml (source, parent version, row count, schema hash).
   benchmark/  Harbor-format eval suites. Each is data/benchmark/<name>/tasks.jsonl
@@ -357,7 +357,7 @@ in the SDK. Add custom ones here when those don't fit your benchmark.
 ```python
 def _src_transforms() -> str:
     return '''\
-"""Project-specific data transforms — convert raw rows to algorithm-ready rows.
+"""Project-specific data transforms - convert raw rows to algorithm-ready rows.
 
 A transform is registered with `@register_transform("name")` and chains in
 `data.transforms` in a YAML config.

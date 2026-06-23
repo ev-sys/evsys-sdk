@@ -23,13 +23,13 @@ Path to the ``checkpoints.jsonl`` the loop wrote.
 <PyAttribute name={"checkpoints"} type={"list[ManifestRow]"} value={null}>
 
 Manifest rows the loop wrote, in order. The last one is the
-final sampler — the URI eval consumes.
+final sampler - the URI eval consumes.
 
 </PyAttribute>
 
 <PyAttribute name={"total_requested_steps"} type={"int"} value={null}>
 
-The step horizon passed to :meth:`TrainingLoop.run` (``num_steps``) —
+The step horizon passed to :meth:`TrainingLoop.run` (``num_steps``) -
 NOT the number of steps actually executed. These differ when a callback
 early-stops the loop via ``state.request_stop()``: this field still reads
 the requested ceiling. For "how many steps actually ran", read

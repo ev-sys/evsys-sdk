@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import { Mermaid } from '@/components/mermaid';
 
-// The whitepaper's "whole system at a glance" — the overall structure.
+// The whitepaper's "whole system at a glance" - the overall structure.
 const SYSTEM = `flowchart TB
     CFG["ExperimentConfig (YAML)<br/>the single canonical artifact"]
 
-    subgraph ORG["① Experiment layer — the organizing unit"]
+    subgraph ORG["① Experiment layer - the organizing unit"]
         direction TB
         E["Experiment.run()"]
         EXP["expand: run / runs / matrix → arms<br/>n_repeats → seeded groups"]
@@ -40,7 +40,7 @@ const SYSTEM = `flowchart TB
         LS["LogStore"] --- DC["DashboardClient"] --- ST["EvsysStore"]
     end
 
-    REG["⑥ Registries (8) — kind → class<br/>algorithm · backend · transform · data_store<br/>log_store · metric · verifier · inference"]
+    REG["⑥ Registries (8) - kind → class<br/>algorithm · backend · transform · data_store<br/>log_store · metric · verifier · inference"]
 
     CFG --> E
     EXP --> RUN
@@ -49,7 +49,7 @@ const SYSTEM = `flowchart TB
     E --> OBS
     REG -. "resolves every 'kind:' in the YAML" .-> RUN`;
 
-const AGENT_YAML = `# A coding agent launches an experiment by writing this — and
+const AGENT_YAML = `# A coding agent launches an experiment by writing this - and
 # sweeps, swaps algorithms, or registers new components by editing it.
 matrix:
   axes:
@@ -130,7 +130,7 @@ export default function HomePage() {
       <section className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ['Continually-learning models', 'Easily create continually-learning models on your own data.'],
-          ['One declarative YAML', 'Every experiment is a single ExperimentConfig — nothing hidden in scripts.'],
+          ['One declarative YAML', 'Every experiment is a single ExperimentConfig - nothing hidden in scripts.'],
           ['Autoresearch friendly', 'Make your coding agents fine-tune models on your own data on demand.'],
           ['Pluggable & continual', 'Eight registries for custom parts; weights chain so models keep learning.'],
         ].map(([t, d]) => (
@@ -152,7 +152,7 @@ export default function HomePage() {
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <ComponentCard index="①" title="Experiment" href="/docs/concepts/experiments">
-            The organizing unit — a hypothesis, one or more runs, an
+            The organizing unit - a hypothesis, one or more runs, an
             auto-synthesized conclusion and <code>best_arm</code>.
           </ComponentCard>
           <ComponentCard index="②" title="Data surface" href="/docs/concepts/data">
@@ -160,7 +160,7 @@ export default function HomePage() {
             rows that carry only data.
           </ComponentCard>
           <ComponentCard index="③" title="Algorithm surface" href="/docs/concepts/algorithms">
-            One contract — <code>train(ctx) -&gt; RunResult</code> — over any
+            One contract - <code>train(ctx) -&gt; RunResult</code> - over any
             tinker-compatible backend.
           </ComponentCard>
           <ComponentCard index="④" title="Evaluation" href="/docs/concepts/algorithms">
@@ -168,11 +168,11 @@ export default function HomePage() {
             <code>Validation</code> (in-loop), scored by metrics &amp; verifiers.
           </ComponentCard>
           <ComponentCard index="⑤" title="Plugins" href="/docs/concepts/plugins/algorithms">
-            Eight registries — implement a protocol, register a{' '}
+            Eight registries - implement a protocol, register a{' '}
             <code>kind</code>, reference it in YAML.
           </ComponentCard>
           <ComponentCard index="⑥" title="API reference" href="/docs/evsys_sdk">
-            263 pages auto-generated from the code — always in sync.
+            263 pages auto-generated from the code - always in sync.
           </ComponentCard>
         </div>
       </section>
@@ -183,36 +183,36 @@ export default function HomePage() {
           The overall structure
         </h2>
         <p className="mb-4 text-fd-muted-foreground">
-          The whole system on one screen — one canonical config drives the
+          The whole system on one screen - one canonical config drives the
           Experiment layer, each run's data and algorithm surfaces, evaluation,
           and storage; the registries resolve every <code>kind:</code>.
         </p>
         <Mermaid chart={SYSTEM} />
       </section>
 
-      {/* Built for coding agents — customisability */}
+      {/* Built for coding agents - customisability */}
       <section className="mt-16">
         <h2 className="mb-2 text-2xl font-bold tracking-tight">
           Built for coding agents
         </h2>
         <p className="mb-5 max-w-3xl text-fd-muted-foreground">
           Because everything is one declarative artifact, a coding agent can
-          drive the whole loop programmatically — and customise it at every
+          drive the whole loop programmatically - and customise it at every
           layer without forking the library:
         </p>
         <div className="grid gap-6 lg:grid-cols-2">
           <ul className="flex flex-col gap-4 text-sm">
             <li className="rounded-xl border bg-fd-card p-4">
               <strong>Launch &amp; sweep.</strong> An agent edits the{' '}
-              <code>ExperimentConfig</code> — flip an algorithm, add a{' '}
-              <code>matrix</code> axis — and a whole campaign of runs expands
+              <code>ExperimentConfig</code> - flip an algorithm, add a{' '}
+              <code>matrix</code> axis - and a whole campaign of runs expands
               from one file.
             </li>
             <li className="rounded-xl border bg-fd-card p-4">
               <strong>Register new parts.</strong> Every <code>kind:</code>{' '}
               resolves through a registry, so an agent can add a brand-new
               algorithm, verifier, or backend with{' '}
-              <code>@register_algorithm(...)</code> — no SDK edit.
+              <code>@register_algorithm(...)</code> - no SDK edit.
             </li>
             <li className="rounded-xl border bg-fd-card p-4">
               <strong>Learn from results.</strong> Outcomes are structured

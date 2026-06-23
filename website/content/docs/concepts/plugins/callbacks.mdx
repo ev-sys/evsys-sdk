@@ -3,7 +3,7 @@ title: Callbacks
 description: Lifecycle + logging hooks fired through the experiment and training loop.
 ---
 
-A **callback** is an object that gets called at fixed moments — when the
+A **callback** is an object that gets called at fixed moments - when the
 experiment starts, before/after each run, after every training step, on each
 eval, on checkpoint, at the end. Callbacks are how logging, dashboards,
 progress printing, and early stopping plug in without touching the loop. You
@@ -21,11 +21,11 @@ The base class is `evsys_sdk.training.callbacks.Callback`. There is no `Config`
 requirement on the base, but built-ins carry `name` + `Config` ClassVars so they
 work from YAML. Two kinds of state object are threaded in:
 
-- **`LogState`** (called `LoopState` in code) — live training-loop state:
+- **`LogState`** (called `LoopState` in code) - live training-loop state:
   `.step`, `.num_steps`, `.output_dir`, `.backend`, `.log_store`,
   `.checkpoint_mgr`, `.stop_requested`, `.ctx`. Call `state.request_stop()` from
   any loop hook to break the loop after the current step finishes.
-- **`LogContext`** — experiment-wide context shared across all hooks:
+- **`LogContext`** - experiment-wide context shared across all hooks:
   `.output_dir`, `.config`, `.store`, `.run_key`, `.run_config`, `.group_name`,
   `.ids` (dashboard ids populated by logger callbacks), `.extras` (scratch shared
   between callbacks within a run).
@@ -34,45 +34,52 @@ Here is **every hook**, with its exact signature and when it fires.
 
 **Loop-scope hooks** (dispatched by the `TrainingLoop`):
 
-- **`on_train_start(self, state: LoopState) -> None`** — once, before the for-loop
+- **`on_train_start(self, state: LoopState) -> None`** - once, before the for-loop
   starts. Open log files, init a wandb run, snapshot config.
 - **`on_step_end(self, state: LoopState, step_idx: int, batch: TrainingBatch, metrics: dict[str, float]) -> None`**
-  — after every train step's metric row is written. `step_idx` is the 0-based
+  - after every train step's metric row is written. `step_idx` is the 0-based
   step; `batch` is the step's training batch; `metrics` is that step's metric
   dict. The universal per-step hook.
 - **`on_eval(self, state: LoopState, step_idx: int, eval_name: str, metrics: dict[str, float]) -> None`**
-  — once per evaluator after each in-loop eval. `eval_name` identifies the
+  - once per evaluator after each in-loop eval. `eval_name` identifies the
   evaluator; `metrics` is its scalar output. Drives early stopping and val curves.
-- **`on_checkpoint(self, state: LoopState, row: ManifestRow) -> None`** — after each
+- **`on_train_data(self, ctx: LogContext, rows: list[dict]) -> None`** - once in
+  setup with the **final training examples** (after the chat template / rendering),
+  so a logger can persist exactly what went into training.
+- **`on_rollout(self, state: LoopState, step_idx: int, rollouts: list) -> None`** -
+  per step with the algorithm's on-policy rollouts (RL/SDFT `TrajectoryGroup`s) -
+  fired **only when `log_rollouts` / `--dry` is on** and the algorithm set
+  `batch.rollouts` (SFT never does, so it never fires for SFT).
+- **`on_checkpoint(self, state: LoopState, row: ManifestRow) -> None`** - after each
   checkpoint manifest row is recorded. `row` carries the checkpoint's name,
   step, and paths. Useful for shipping/pruning checkpoints.
-- **`on_train_end(self, state: LoopState, artifacts: LoopArtifacts) -> None`** —
+- **`on_train_end(self, state: LoopState, artifacts: LoopArtifacts) -> None`** -
   once after the loop completes (including the final checkpoint save).
   `artifacts` carries totals (requested steps, train seconds, run dir,
   checkpoints). Flush summaries, close files.
 
-**Experiment-scope hooks** (dispatched by the `Experiment`, not the loop — these
+**Experiment-scope hooks** (dispatched by the `Experiment`, not the loop - these
 let one logger own the full lifecycle, threading dashboard ids through
 `ctx.ids`):
 
-- **`on_experiment_start(self, ctx: LogContext) -> None`** — once at experiment
+- **`on_experiment_start(self, ctx: LogContext) -> None`** - once at experiment
   start, before any arm. A logger creates the experiment record here and sets
   `ctx.ids['experiment_id']`.
-- **`on_group_start(self, ctx: LogContext, group_name: str) -> None`** — when a new
+- **`on_group_start(self, ctx: LogContext, group_name: str) -> None`** - when a new
   run-group is needed (`n_repeats` replicates or continual stages). A logger
   creates the group → `ctx.ids[f'group:{group_name}']`.
-- **`on_run_start(self, ctx: LogContext) -> None`** — per arm, before training.
+- **`on_run_start(self, ctx: LogContext) -> None`** - per arm, before training.
   `ctx.run_config` is set. A logger opens its run-scoped sink (e.g. `wandb.init`)
   → `ctx.ids['run_id']`, reading the parent ids to link it.
 - **`on_benchmark_eval(self, ctx: LogContext, eval_result: EvalResult, predictions: list[dict], *, step: int | None = None) -> None`**
-  — per benchmark scored, in-loop (`step` = the train step) or post-training
+  - per benchmark scored, in-loop (`step` = the train step) or post-training
   (`step=None`). `eval_result` carries metrics + breakdowns + tags; `predictions`
   is the per-task prediction rows. `step` is **keyword-only**.
 - **`on_run_end(self, ctx: LogContext, run_result: RunResult, arm: ArmResult) -> None`**
-  — per arm, after eval, before the run is marked completed. `run_result` is the
+  - per arm, after eval, before the run is marked completed. `run_result` is the
   algorithm's result; `arm` is the arm record. Loggers close their sink and
   record final status here.
-- **`on_experiment_end(self, ctx: LogContext, result: ExperimentResult) -> None`** —
+- **`on_experiment_end(self, ctx: LogContext, result: ExperimentResult) -> None`** -
   once at experiment end. `result` carries `best_arm`, `best_score`, `status`,
   `conclusion`. Final summary / flush.
 
@@ -93,28 +100,37 @@ callbacks:
 | `early_stopping` | Watches a metric on `on_eval` and calls `state.request_stop()` after N evals without improvement. Params: `metric`, `eval_name` (or `None` = any), `patience` (default 3), `mode` (`max`/`min`), `min_delta`. |
 | `wandb_logger` | One Weights & Biases run per arm (opened `on_run_start`, closed `on_run_end`). Logs per-step + eval + benchmark metrics and a predictions `wandb.Table`. wandb is imported lazily; if missing, every hook no-ops. Surfaces the run URL on `ctx.extras['wandb_url']`. Params: `project`, `entity`, `name`, `mode`, `log_every`, `max_pred_rows`. |
 | `tensorboard_logger` | One TensorBoard event dir per arm. Logs scalar + eval + benchmark metrics via `SummaryWriter`. Lazy torch import; no-ops if missing. Params: `log_dir` (default `<output_dir>/tb/<run_key>`), `flush_secs`. |
-| `local_logger` | Human-readable local mirror — see exact outputs below. |
+| `local_logger` | Human-readable local mirror - see exact outputs below. |
 | `evsys_logger` | "Callbacks own the store" mode: persists experiment/group/run records, per-step metrics, checkpoints, benchmark evals + predictions to the evsys dashboard, keyed off `ctx.ids`. Disables itself if the `Experiment` already has a `store=` (to avoid double-writes). Params: `project_id`, `flush_every`. |
-| `debug_logger` | Pretty-prints every hook and its arguments to stdout — pure introspection, no persistence. Drop it in to see exactly what each logger callback receives and in what order. Params: `max_len`, `max_pred_rows`. |
+| `debug_logger` | Pretty-prints every hook and its arguments to stdout - pure introspection, no persistence. Drop it in to see exactly what each logger callback receives and in what order. Params: `max_len`, `max_pred_rows`. |
 
 ### What `local_logger` writes, exactly
 
-`LocalLoggerCallback` both prints a per-step one-liner (cadence `print_every`,
-`0` = silent) and persists files:
+`LocalLoggerCallback` is the **single local writer** (no duplicate metrics file).
+It prints a per-step one-liner (cadence `print_every`, `0` = silent) and persists
+a **per-run tree under `<output_dir>/<run_key>/logs/`, organized by concern**:
 
-- **`<output_dir>/<run_key>/metrics.jsonl`** — appended on every `on_step_end`
-  (split `"train"`) and `on_eval` (split `"val"`). Each row is
-  `{step, split, metrics}`.
-- **`<output_dir>/<run_key>/predictions/<name>.jsonl`** — written per benchmark in
-  `on_benchmark_eval` when predictions are present (`<name>` is the eval name,
-  slashes/spaces sanitized), one prediction row per line.
-- **`<output_dir>/<run_key>/summary.md`** — written at `on_run_end`: the run key,
-  the hypothesis (echoed in the header), final status, and one line per benchmark
-  eval with its metrics.
-- **`<output_dir>/experiment.md`** — the experiment-level mirror: the hypothesis
-  (read from `ctx.config.metadata['hypothesis']` at `on_experiment_start`) and
-  the conclusion (from `ExperimentResult.conclusion` at `on_experiment_end`). So
-  the local mirror carries hypothesis + conclusion even with no dashboard.
+```
+<output_dir>/<run_key>/
+  logs/
+    data/        training_data.jsonl     # final examples fed to the model (post chat-template) - on_train_data
+    training/    metrics.jsonl           # per-step train metrics - on_step_end
+                 rollouts.jsonl          # training rollouts (reward · usage · decoded text) - on_rollout, --dry only
+    validation/  metrics.jsonl           # in-loop val scores - on_eval
+                 rollouts.jsonl          # validation predictions/rollouts
+    test/        metrics.jsonl           # final benchmark scores - on_benchmark_eval (split=test)
+                 rollouts.jsonl          # test predictions
+    hypothesis.md   conclusion.md        # per-run mirror of the experiment hypothesis + conclusion
+  .harbor/{train,val,test}/              # harbor's verbose rollout workspace - hidden, OUTSIDE logs/
+```
+
+Notes:
+
+- Metric rows are `{step, split, metrics}`; the `split` (`train`/`val`/`test`) routes the row to the right folder.
+- **`rollouts.jsonl`** rows carry the trajectory's reward, token/cost usage, and its **own** decoded completion text (paired at harvest, so text always matches its reward). Training rollouts are written only under `--dry` / `log_rollouts`.
+- **`hypothesis.md`** / **`conclusion.md`** are written into every run's `logs/` (hypothesis at experiment start, conclusion at end), so the local mirror carries them with no dashboard.
+- Harbor's raw rollout artifacts live in a **hidden `.harbor/`** *outside* `logs/`, so `logs/` stays clean.
+- `output_dir` **defaults to the directory of the config file** (where `config.yaml` / `run.py` live), so logs land next to the experiment that produced them.
 
 ## Create your own
 
@@ -145,7 +161,7 @@ class SlackNotifyCallback(Callback):
         import requests
         best = getattr(getattr(result, "best_arm", None), "name", None)
         requests.post(self.webhook_url, json={
-            "text": f"Experiment done — best arm {best}, score {getattr(result, 'best_score', None)}",
+            "text": f"Experiment done - best arm {best}, score {getattr(result, 'best_score', None)}",
         })
 ```
 
@@ -166,7 +182,7 @@ callback registry. To distribute a callback without copying code, import the
 module that runs your `@register_callback` decorator at startup (e.g. from your
 project's package `__init__`). Note callbacks are **not** among the entry-point
 groups `evsys_sdk` auto-loads (those cover algorithms, verifiers, metrics, data
-stores, log stores, backends, inference, transforms) — so ensure your
+stores, log stores, backends, inference, transforms) - so ensure your
 registering module is imported before the experiment runs.
 
 <Cards>

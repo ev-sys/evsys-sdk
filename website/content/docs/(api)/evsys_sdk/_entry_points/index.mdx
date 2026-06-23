@@ -10,7 +10,7 @@ External packages declare extensions in their pyproject.toml:
     my_dpo = "my_pkg.algorithms:MyDPO"
 
 When evsys_sdk imports, we walk those groups and import each
-target module — its top-level @register_* decorators run, populating our
+target module - its top-level @register_* decorators run, populating our
 registries. No fork required.
 
 Failures here are non-fatal: a third-party package with an import error

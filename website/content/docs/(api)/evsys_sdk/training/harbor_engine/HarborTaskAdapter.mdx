@@ -3,7 +3,7 @@ title: HarborTaskAdapter
 ---
 
 Adapt our ``HarborTask`` rows (the ``harbor_task`` / RL + eval format) to
-harbor task dirs + native ``TaskConfig``\s — **scored** rollouts.
+harbor task dirs + native ``TaskConfig``\s - **scored** rollouts.
 
 ``to_harbor(output_dir)`` writes one task dir per task (``instruction.md`` +
 a SHARED-mode ``task.toml`` + a dummy ``tests/test.sh`` that only satisfies
@@ -59,7 +59,7 @@ def to_harbor(self, output_dir: Path) -> list[Any]:
         (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
         tests = dest / "tests"
         tests.mkdir(exist_ok=True)
-        (tests / "test.sh").write_text(_DUMMY_TEST_SH)  # dummy — satisfies load, never run
+        (tests / "test.sh").write_text(_DUMMY_TEST_SH)  # dummy - satisfies load, never run
         v = task.verifier
         (dest / _VERIFIER_SPEC_FILE).write_text(json.dumps({
             "fn_name": v.fn_name,

@@ -1,11 +1,11 @@
 ---
 title: Experiments
-description: The organizing unit — a hypothesis, one or more training runs, and an auto-synthesized conclusion.
+description: The organizing unit - a hypothesis, one or more training runs, and an auto-synthesized conclusion.
 ---
 
 The **Experiment** is the scientific container: a **hypothesis**, one or more
 **training runs**, and an auto-synthesized **conclusion**. It's the top of the
-spine — `config.yaml → Experiment → arms → backend → eval → artifacts`.
+spine - `config.yaml → Experiment → arms → backend → eval → artifacts`.
 
 ```python
 from evsys_sdk import Experiment
@@ -29,14 +29,14 @@ flowchart TD
 
 ## Vocabulary
 
-- **Experiment** — the top-level study. `Experiment.from_yaml(...).run()` owns
+- **Experiment** - the top-level study. `Experiment.from_yaml(...).run()` owns
   dashboard experiment/run creation, sweep expansion, per-arm failure
   isolation, post-train scoring, metric forwarding, and conclusion building.
-- **Training run (arm)** — one `RunConfig` = one concrete training job (one
+- **Training run (arm)** - one `RunConfig` = one concrete training job (one
   cell of a sweep). `runs` / `matrix` produce many arms.
-- **Run group** — `n_repeats > 1` replicates an arm across seeds (shared
+- **Run group** - `n_repeats > 1` replicates an arm across seeds (shared
   `group_id`) so variance is a config field, not a bespoke script.
-- **Hypothesis → success_metric → conclusion** — the hypothesis is the
+- **Hypothesis → success_metric → conclusion** - the hypothesis is the
   question; `success_metric` ranks arms into `best_arm`; the `conclusion`
   summarizes the outcome. All recorded on the dashboard.
 
@@ -45,7 +45,7 @@ flowchart TD
 | Object | Role |
 |---|---|
 | `ExperimentConfig` | top level: `name`, `output_dir`, stores, one of `run`/`runs`/`matrix`, `n_repeats`/`base_seed`, `parent_experiment_id`, `metadata` |
-| `RunConfig` | one run: `data`, `model`, `algorithm`, `backend`, `eval`, `validation`, `seed`, `tags` — the cell the two surfaces plug into |
+| `RunConfig` | one run: `data`, `model`, `algorithm`, `backend`, `eval`, `validation`, `seed`, `tags` - the cell the two surfaces plug into |
 | `MatrixSpec` / `Sweep` | cartesian expansion over dotted-path axes → many `RunConfig`s via one `expand_runs()` |
 | `ExperimentResult` / `ArmResult` | outputs: per-arm metrics + the experiment-level `best_arm`, `conclusion`, `hypothesis` |
 
@@ -59,7 +59,7 @@ directly to train without bookkeeping.
 
 `continual` is a **modifier** (not a fourth mode) on top of a single `run`: give
 it an ordered list of `datasets`, and the base run trains **once per dataset, in
-order**, with each stage starting from the **previous stage's weights** — a fresh
+order**, with each stage starting from the **previous stage's weights** - a fresh
 optimizer initialised via `init_from_checkpoint`. All stages live in one
 experiment and each is scored on every benchmark, so you watch the model
 accumulate skills dataset by dataset.

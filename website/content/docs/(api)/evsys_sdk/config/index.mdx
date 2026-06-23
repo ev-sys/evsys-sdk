@@ -2,7 +2,7 @@
 title: config
 ---
 
-Pydantic config models — the canonical YAML schema.
+Pydantic config models - the canonical YAML schema.
 
 The full experiment is described by ExperimentConfig, which is what gets
 serialized to and from YAML. Each block uses a `kind:` discriminator that
@@ -10,7 +10,7 @@ selects the matching registry entry; the registered class's `.Config` model
 validates the rest of that block.
 
 `extra='forbid'` is set everywhere so an evolutionary algorithm can't drop a
-key by typoing it — the YAML loader will reject unknown fields loudly.
+key by typoing it - the YAML loader will reject unknown fields loudly.
 
 <Tabs items={["Class"]}>
 

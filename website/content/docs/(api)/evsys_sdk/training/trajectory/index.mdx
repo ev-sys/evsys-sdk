@@ -2,9 +2,9 @@
 title: trajectory
 ---
 
-The rollout data model — one shape for all (multi-turn) rollouts.
+The rollout data model - one shape for all (multi-turn) rollouts.
 
-Every rollout in the SDK — single- or multi-turn, RL or SDFT — is a
+Every rollout in the SDK - single- or multi-turn, RL or SDFT - is a
 :class:`Trajectory`: an ordered list of :class:`Turn`\s (each a prompt + a
 sampled completion with per-token logprobs) plus a scalar reward. Harbor's
 ``RolloutDetail`` (ATIF) is converted into this at the engine boundary

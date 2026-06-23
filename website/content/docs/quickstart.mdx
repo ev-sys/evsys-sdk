@@ -1,10 +1,10 @@
 ---
 title: Quickstart
-description: Train your first model in five minutes — no GPU, no network — then point it at a real backend.
+description: Train your first model in five minutes - no GPU, no network - then point it at a real backend.
 ---
 
 This takes you from a zero-setup **mock** wiring test to **real** local
-training — no GPU required. The config shape is identical; you only swap the
+training - no GPU required. The config shape is identical; you only swap the
 `backend`.
 
 ## 1. Install
@@ -13,15 +13,15 @@ training — no GPU required. The config shape is identical; you only swap the
 uv sync
 ```
 
-Everything ships in the base install — see [Installation](/docs/installation).
+Everything ships in the base install - see [Installation](/docs/installation).
 
 ## 2. Describe the experiment
 
 Everything about a run lives in one declarative `config.yaml`. The repo ships
-this ready to run at **`examples/quickstart_experiment/`** — two configs (a
+this ready to run at **`examples/quickstart_experiment/`** - two configs (a
 `mock` wiring test and a real `local` train) plus a tiny `run.py` that loads
 either. **The only difference between the two configs is `backend`, `model`,
-and `algorithm` — the data is identical.**
+and `algorithm` - the data is identical.**
 
 <Tabs items={["config.yaml (mock)", "config_local.yaml (real)", "run.py"]}>
 
@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
 ## 3. Run the wiring test (mock)
 
-The `mock` backend produces a deterministic loss curve and stub checkpoints —
+The `mock` backend produces a deterministic loss curve and stub checkpoints -
 no model, no GPU, no network. It's the fastest way to confirm everything is
 wired up.
 
@@ -125,7 +125,7 @@ Metrics: {'train/final_loss': 0.1278, 'total_steps': 2.0}
 
 ## 4. Train for real (local)
 
-Now swap to the `local` backend — it trains a LoRA adapter on **Qwen3-0.6B**
+Now swap to the `local` backend - it trains a LoRA adapter on **Qwen3-0.6B**
 with transformers + TRL + peft, right on your machine. No GPU required; it runs
 on CPU/MPS in about a minute for 5 steps (the first run downloads the model,
 ~1.2 GB).
@@ -149,13 +149,13 @@ real run, or set `backend.kind: tinker` to train hosted.
 ## 5. The three training paradigms
 
 `evsys-sdk` runs **SFT, RL, and distillation** behind one config shape. Each has
-a ready-to-run config in `examples/configs/` and a hands-on walkthrough — raw
+a ready-to-run config in `examples/configs/` and a hands-on walkthrough - raw
 data → transform → config → run:
 
 <Cards>
-  <Card title="🎯 SFT — supervised fine-tuning" href="/docs/examples/sft" />
-  <Card title="🏆 RL — reinforcement learning" href="/docs/examples/rl" />
-  <Card title="🎓 SDFT — self-distillation" href="/docs/examples/sdft" />
+  <Card title="🎯 SFT - supervised fine-tuning" href="/docs/examples/sft" />
+  <Card title="🏆 RL - reinforcement learning" href="/docs/examples/rl" />
+  <Card title="🎓 SDFT - self-distillation" href="/docs/examples/sdft" />
 </Cards>
 
 ## 6. Go further

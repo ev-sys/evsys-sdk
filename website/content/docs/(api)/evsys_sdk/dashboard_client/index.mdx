@@ -2,7 +2,7 @@
 title: dashboard_client
 ---
 
-DashboardClient — push SDK runs to the EvolvingSystems backend, with a local mirror.
+DashboardClient - push SDK runs to the EvolvingSystems backend, with a local mirror.
 
 Architecture: SDK → Django HTTP → Supabase. The user holds an API key (the
 same key the dashboard issues at ``Settings → API keys``) plus a project id
@@ -14,7 +14,7 @@ Robustness (wandb-offline style):
   * Every write is **also** mirrored to a local folder (``EVSYS_LOG_DIR``,
     default ``./evsys_sdk``). There is no remote-only mode.
   * If the backend is unreachable (connection error / timeout / 5xx) the call
-    logs a warning and keeps going with the local mirror — it does not crash.
+    logs a warning and keeps going with the local mirror - it does not crash.
   * Auth is required by default: without an API key + project id the client
     raises. Set ``EVSYS_OFFLINE=true`` (or ``offline=True``) to run with no
     auth, writing only to the local mirror.

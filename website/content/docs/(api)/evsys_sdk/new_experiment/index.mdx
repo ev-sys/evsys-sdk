@@ -5,10 +5,10 @@ title: new_experiment
 Scaffold a new experiment dir under ``experiments/\<yyyymmdd>_\<slug>/``.
 
 Emits two files:
-  * ``config.yaml`` — a minimal, runnable ``ExperimentConfig`` skeleton with
+  * ``config.yaml`` - a minimal, runnable ``ExperimentConfig`` skeleton with
     placeholders for the model, data, algorithm, and a metadata block where
     hypothesis / success_metric / benchmark live.
-  * ``run.py`` — the 3-line declarative entrypoint researchers run:
+  * ``run.py`` - the 3-line declarative entrypoint researchers run:
 
         from evsys_sdk import Experiment
         import src   # registers project verifiers / metrics / transforms
@@ -29,7 +29,7 @@ Use via the CLI: ``evsys new-experiment \<slug>``. Programmatically:
 Create ``\<project_root>/experiments/\<yyyymmdd>_\<slug>/`` and write
 ``config.yaml`` + ``run.py`` inside. Returns the experiment dir.
 
-Refuses if the dir already exists — researchers can pick a different
+Refuses if the dir already exists - researchers can pick a different
 slug or delete the prior one.
 
 <PySourceCode >
@@ -44,7 +44,7 @@ def new_experiment(
     """Create ``<project_root>/experiments/<yyyymmdd>_<slug>/`` and write
     ``config.yaml`` + ``run.py`` inside. Returns the experiment dir.
 
-    Refuses if the dir already exists — researchers can pick a different
+    Refuses if the dir already exists - researchers can pick a different
     slug or delete the prior one.
     """
     project_root = Path(project_root).expanduser().resolve()
@@ -58,7 +58,7 @@ def new_experiment(
     exp_dir = experiments_root / dir_name
     if exp_dir.exists():
         raise FileExistsError(
-            f"{exp_dir} already exists — pick a different slug or remove the prior one"
+            f"{exp_dir} already exists - pick a different slug or remove the prior one"
         )
     exp_dir.mkdir()
 
@@ -115,7 +115,7 @@ def _normalize_slug(slug: str) -> str:
 ```python
 def _config_yaml(slug: str) -> str:
     return f"""\
-# Experiment config — read by `Experiment.from_yaml('config.yaml').run()`.
+# Experiment config - read by `Experiment.from_yaml('config.yaml').run()`.
 # Fields under `metadata` drive Experiment-level behavior (hypothesis,
 # tags, success_metric, benchmark). The rest is a regular ExperimentConfig.
 
@@ -132,7 +132,7 @@ metadata:
   #   breakdown_keys: [toolkit]
   #   max_tokens: 512
 
-# One run, or a `matrix:` sweep — see docs/DESIGN.md for the full schema.
+# One run, or a `matrix:` sweep - see docs/DESIGN.md for the full schema.
 run:
   name: {slug}
   seed: 42
@@ -181,7 +181,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evsys_sdk import Experiment
-import src  # noqa: F401 — registers project verifiers / metrics / transforms
+import src  # noqa: F401 - registers project verifiers / metrics / transforms
 
 
 if __name__ == "__main__":

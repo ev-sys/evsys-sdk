@@ -2,7 +2,7 @@
 title: evaluators
 ---
 
-In-loop evaluator adapters — wrap an :class:`evsys_sdk.Benchmark`
+In-loop evaluator adapters - wrap an :class:`evsys_sdk.Benchmark`
 so the training loop can score it every N steps against the live
 sampler.
 
@@ -15,7 +15,7 @@ Benchmark iteration doesn't block the event loop and the existing
 ``ChatTemplatedInference`` wrapper (which inspects ``_tokenizer``) keeps
 working unchanged.
 
-The other half of the wiring is :func:`build_in_loop_evaluators` — a
+The other half of the wiring is :func:`build_in_loop_evaluators` - a
 metadata-aware factory that the three native algorithm composers call to
 turn ``metadata.benchmark`` list entries with a ``run_every`` field into
 :class:`BenchmarkEvaluator` instances ready for the
@@ -47,7 +47,7 @@ Read ``metadata.benchmark`` and return one
 Single-dict ``benchmark`` and list form are both accepted (matches the
 parser in :meth:`evsys_sdk.experiment.Experiment._resolve_benchmarks`).
 Entries without ``run_every`` are post-training-only and silently
-skipped here — they're handled by ``Experiment._eval_arm``.
+skipped here - they're handled by ``Experiment._eval_arm``.
 
 ``tokenizer`` is required (used by the async→sync sampler bridge);
 ``store`` is required when an entry resolves a benchmark by ``id`` or
@@ -71,7 +71,7 @@ def build_in_loop_evaluators(
     Single-dict ``benchmark`` and list form are both accepted (matches the
     parser in :meth:`evsys_sdk.experiment.Experiment._resolve_benchmarks`).
     Entries without ``run_every`` are post-training-only and silently
-    skipped here — they're handled by ``Experiment._eval_arm``.
+    skipped here - they're handled by ``Experiment._eval_arm``.
 
     ``tokenizer`` is required (used by the async→sync sampler bridge);
     ``store`` is required when an entry resolves a benchmark by ``id`` or
@@ -89,7 +89,7 @@ def build_in_loop_evaluators(
     for i, spec in enumerate(specs):
         if not isinstance(spec, dict):
             logger.warning(
-                "build_in_loop_evaluators: benchmark[%d] not a dict — skipping",
+                "build_in_loop_evaluators: benchmark[%d] not a dict - skipping",
                 i,
             )
             continue
@@ -99,7 +99,7 @@ def build_in_loop_evaluators(
         bench = Benchmark.load(spec, store=store)
         if bench is None:
             logger.warning(
-                "build_in_loop_evaluators: benchmark[%d] (%r) didn't resolve — skipping",
+                "build_in_loop_evaluators: benchmark[%d] (%r) didn't resolve - skipping",
                 i, spec.get("name"),
             )
             continue

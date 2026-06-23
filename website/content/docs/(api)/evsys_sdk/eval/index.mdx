@@ -15,7 +15,7 @@ Public surface:
 
 Every inference call is wrapped in ``call_with_retry`` (configurable attempts +
 backoff); exhausted failures surface via ``RetryReport`` instead of aborting.
-This module is domain-agnostic — project-specific eval harnesses (e.g. an API
+This module is domain-agnostic - project-specific eval harnesses (e.g. an API
 search eval) build on this infra in their own repos.
 
 <PyAttribute name={"__all__"} type={null} value={"['AliasMatcher', 'EvalArtifacts', 'EvalSummary', 'ModelEvalConfig', 'ModelEvalResult', 'RetryFailure', 'RetryReport', 'call_with_retry', 'evaluate_model', 'extract_predicted_slug', 'format_summary_markdown', 'load_eval_dataset', 'model_query_found', 'qwen_chat_prompt', 'run_model_eval', 'score_rows']"} />

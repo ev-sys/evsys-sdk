@@ -20,7 +20,7 @@ Training-side metrics from ``RunResult.metrics``.
 
 <PyAttribute name={"eval_metrics"} type={"dict[str, float]"} value={"field(default_factory=dict)"}>
 
-Back-compat alias — mirrors ``evals[\<primary>].metrics``. ``primary``
+Back-compat alias - mirrors ``evals[\<primary>].metrics``. ``primary``
 is the first ``test``-tagged post-training eval, or the first
 post-training eval, or the first eval overall.
 
@@ -30,7 +30,7 @@ post-training eval, or the first eval overall.
 
 <PyAttribute name={"evals"} type={"list[EvalResult]"} value={"field(default_factory=list)"}>
 
-All benchmarks scored against this arm — see ``EvalResult``.
+All benchmarks scored against this arm - see ``EvalResult``.
 
 </PyAttribute>
 
@@ -70,7 +70,7 @@ Look up an eval result by benchmark ``name``.
 if present; else the last in-loop row for that benchmark.
 
 ``step=\<int>`` → return the exact in-loop row at that step (or
-``None`` if no exact match — callers can do their own nearest-step
+``None`` if no exact match - callers can do their own nearest-step
 lookup over ``arm.evals``).
 
 <PySourceCode >
@@ -83,7 +83,7 @@ def eval(self, name: str, *, step: int | None = None) -> EvalResult | None:
     if present; else the last in-loop row for that benchmark.
 
     ``step=<int>`` → return the exact in-loop row at that step (or
-    ``None`` if no exact match — callers can do their own nearest-step
+    ``None`` if no exact match - callers can do their own nearest-step
     lookup over ``arm.evals``).
     """
     matches = [e for e in self.evals if e.name == name]
@@ -118,9 +118,9 @@ Return the metric value for ranking by ``success_metric``.
 
 Three forms supported:
 
-* ``"pass_rate"`` (bare) — looked up on ``eval_metrics`` (the
+* ``"pass_rate"`` (bare) - looked up on ``eval_metrics`` (the
   primary post-training eval), then ``metrics`` (training-side).
-* ``"bench.pass_rate"`` (dotted) — looked up on
+* ``"bench.pass_rate"`` (dotted) - looked up on
   ``arm.eval("bench").metrics["pass_rate"]``. The dotted form wins
   when an experiment carries multiple named benchmarks and
   ``success_metric`` picks one explicitly.
@@ -134,9 +134,9 @@ def score(self, metric: str) -> float | None:
 
     Three forms supported:
 
-    * ``"pass_rate"`` (bare) — looked up on ``eval_metrics`` (the
+    * ``"pass_rate"`` (bare) - looked up on ``eval_metrics`` (the
       primary post-training eval), then ``metrics`` (training-side).
-    * ``"bench.pass_rate"`` (dotted) — looked up on
+    * ``"bench.pass_rate"`` (dotted) - looked up on
       ``arm.eval("bench").metrics["pass_rate"]``. The dotted form wins
       when an experiment carries multiple named benchmarks and
       ``success_metric`` picks one explicitly.

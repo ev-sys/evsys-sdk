@@ -90,7 +90,7 @@ export function ExperimentFlow() {
         <Label c={c} x={470} y={277} text="checkpoint" />
 
         {/* nodes */}
-        <Node c={c} x={240} y={18} w={240} h={48} fill={c.userFill} stroke={c.userStroke} text={c.userText} title="ExperimentConfig" sub="one YAML — the canonical artifact" />
+        <Node c={c} x={240} y={18} w={240} h={48} fill={c.userFill} stroke={c.userStroke} text={c.userText} title="ExperimentConfig" sub="one YAML - the canonical artifact" />
         <Node c={c} x={210} y={104} w={300} h={56} fill={c.pillFill} stroke={c.pillStroke} text={c.pillText} title="Experiment" sub="run / runs / matrix → arms · n_repeats → seeds" />
 
         <Node c={c} x={55} y={252} w={170} h={70} fill={c.pillFill} stroke={c.pillStroke} text={c.pillText} title="Data" sub="raw → data format rows" />

@@ -2,10 +2,10 @@
 title: templates
 ---
 
-Chat-template helpers — thin wrappers over ``tokenizer.apply_chat_template``.
+Chat-template helpers - thin wrappers over ``tokenizer.apply_chat_template``.
 
 We deliberately do NOT reproduce tinker_cookbook's ``Renderer`` class hierarchy
-— Hugging Face's tokenizers already implement the template via
+- Hugging Face's tokenizers already implement the template via
 ``apply_chat_template``, and the cookbook's ``Renderer`` subclasses just wrap
 that call with per-model defaults (``enable_thinking=False`` for Qwen3.5-disable
 variants, etc.). We forward the kwarg directly when set, which keeps every
@@ -16,7 +16,7 @@ sampling / forward call.
 
 <PyAttribute name={"Message"} type={null} value={"dict[str, Any]"}>
 
-Role-tagged chat message — ``\{"role": "system" | "user" | "assistant", "content": "..."\}``.
+Role-tagged chat message - ``\{"role": "system" | "user" | "assistant", "content": "..."\}``.
 Matches the HF ``apply_chat_template`` input shape.
 
 </PyAttribute>
@@ -34,7 +34,7 @@ when explicitly set.
 
 Why the gate: Qwen3.5 tokenizers accept ``enable_thinking``, but most
 others do NOT and raise on the unknown kwarg. Forwarding only when set
-keeps the helper tokenizer-agnostic — same approach already in
+keeps the helper tokenizer-agnostic - same approach already in
 ``ChatTemplatedInference`` (``inference/chat_templated.py``).
 
 <PySourceCode >
@@ -52,7 +52,7 @@ def apply_template(
 
     Why the gate: Qwen3.5 tokenizers accept ``enable_thinking``, but most
     others do NOT and raise on the unknown kwarg. Forwarding only when set
-    keeps the helper tokenizer-agnostic — same approach already in
+    keeps the helper tokenizer-agnostic - same approach already in
     ``ChatTemplatedInference`` (``inference/chat_templated.py``).
     """
     kwargs: dict[str, Any] = {

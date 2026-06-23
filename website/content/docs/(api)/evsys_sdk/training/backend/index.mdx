@@ -2,7 +2,7 @@
 title: backend
 ---
 
-Backend — the only surface that talks to tinker.
+Backend - the only surface that talks to tinker.
 
 The `Backend` Protocol is the seam the rest of the training stack is built
 against. A concrete backend (:class:`~evsys_sdk.training.backend.MockBackend`
@@ -12,14 +12,14 @@ checkpoint manager) stays backend-agnostic. That's how we drop the
 tinker_cookbook dependency without locking ourselves to tinker either.
 
 Method shape mirrors tinker's own client so a TinkerBackend implementation
-is one-to-one plumbing — see the docstrings on each method for the
+is one-to-one plumbing - see the docstrings on each method for the
 contract.
 
 <PyAttribute name={"LossCallable"} type={null} value={"Callable[[Any, dict[str, Any]], Any]"}>
 
 Custom client-side loss. Receives ``(model_output, batch_metadata)`` and
 returns a scalar (typically a ``torch.Tensor``) the backend uses for the
-backward pass. The exact shape of ``model_output`` is backend-defined —
+backward pass. The exact shape of ``model_output`` is backend-defined -
 TinkerBackend passes ``tinker.ForwardOutput`` here.
 
 </PyAttribute>

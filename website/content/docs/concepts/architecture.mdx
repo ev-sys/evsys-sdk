@@ -1,22 +1,22 @@
 ---
 title: Architecture
-description: The whole system at a glance — one ExperimentConfig, five layers, eight registries.
+description: The whole system at a glance - one ExperimentConfig, five layers, eight registries.
 ---
 
 `evsys-sdk` is organized around a single idea: **one `ExperimentConfig` (YAML)
 drives everything**, and every `kind:` in it resolves through a registry.
 
-## The Experiment — the organizing unit
+## The Experiment - the organizing unit
 
 The **Experiment** is the top of the system. It's the scientific container: you
 give it a hypothesis and one or more runs, and it produces a best arm and an
 auto-synthesized conclusion. Concretely, `Experiment.run()`:
 
-1. **Expands** the config — a single `run`, a list of `runs`, or a `matrix`
-   shorthand — into one or more **arms** (each arm is one `RunConfig` = one
+1. **Expands** the config - a single `run`, a list of `runs`, or a `matrix`
+   shorthand - into one or more **arms** (each arm is one `RunConfig` = one
    training job). `n_repeats` replicates an arm across seeds for variance.
-2. **Runs each arm** through the same pipeline — **Data → Training →
-   Evaluation** — with per-arm failure isolation.
+2. **Runs each arm** through the same pipeline - **Data → Training →
+   Evaluation** - with per-arm failure isolation.
 3. **Picks the best arm** by your `success_metric` and records an
    `ExperimentResult` (`best_arm`, `conclusion`, metrics).
 
@@ -31,11 +31,11 @@ result are what the SDK owns.
 
 | Layer | What it does | Start here |
 | --- | --- | --- |
-| **① Experiment** | The organizing unit — a hypothesis, one or more runs, an auto-synthesized conclusion. | [Experiments](/docs/concepts/experiments) |
+| **① Experiment** | The organizing unit - a hypothesis, one or more runs, an auto-synthesized conclusion. | [Experiments](/docs/concepts/experiments) |
 | **② Data** | Raw sources → ordered transforms → standardized typed rows. | [Data](/docs/concepts/data) |
-| **③ Algorithm** | One contract — `train(ctx) -> RunResult` — over any tinker-compatible backend. | [Algorithms](/docs/concepts/algorithms) |
+| **③ Algorithm** | One contract - `train(ctx) -> RunResult` - over any tinker-compatible backend. | [Algorithms](/docs/concepts/algorithms) |
 | **④ Evaluation** | A test/validation firewall: `Benchmark` (once) vs `Validation` (in-loop). | [Algorithms](/docs/concepts/algorithms) |
-| **⑤ Plugins** | Eight registries — implement a protocol, register a `kind`, reference it in YAML. | [Plugins](/docs/concepts/plugins/algorithms) |
+| **⑤ Plugins** | Eight registries - implement a protocol, register a `kind`, reference it in YAML. | [Plugins](/docs/concepts/plugins/algorithms) |
 
 Everything below this page drills into one layer. If you just want to run
 something, jump to the [Quickstart](/docs/quickstart).

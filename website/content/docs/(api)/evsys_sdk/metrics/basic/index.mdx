@@ -2,7 +2,7 @@
 title: basic
 ---
 
-Built-in benchmark metrics — reduce per-task rollout rewards to a scalar.
+Built-in benchmark metrics - reduce per-task rollout rewards to a scalar.
 
 A benchmark scores each task by running its verifier on ``num_samples`` rollouts,
 yielding a list of per-sample rewards per task. A **metric** reduces that
@@ -12,11 +12,11 @@ benchmark's ``metrics:`` list and registered with ``@register_metric``; add your
 own the same way in a project.
 
 Built-ins:
-  * ``mean_reward`` / ``avg`` — macro mean reward (mean over tasks of each task's
+  * ``mean_reward`` / ``avg`` - macro mean reward (mean over tasks of each task's
     mean sample reward).
-  * ``pass_rate`` — micro pass rate (passing samples / total samples, pooled).
-  * ``pass@k`` — a task is solved if **any** of its first ``k`` samples passes.
-  * ``pass^k`` — a task is solved only if **all** of its first ``k`` samples pass
+  * ``pass_rate`` - micro pass rate (passing samples / total samples, pooled).
+  * ``pass@k`` - a task is solved if **any** of its first ``k`` samples passes.
+  * ``pass^k`` - a task is solved only if **all** of its first ``k`` samples pass
     (consistency / "pass-hat-k").
 
 The interface is one method::

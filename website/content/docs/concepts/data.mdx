@@ -5,7 +5,7 @@ description: Raw sources → ordered transforms → standardized typed rows that
 
 The data surface standardizes *anything* into a few typed shapes, then hands
 those to the algorithm. Tokenization and supervision live **below** this
-boundary — the typed rows carry only data; the algorithm decides what's a
+boundary - the typed rows carry only data; the algorithm decides what's a
 target token.
 
 ```mermaid
@@ -35,13 +35,13 @@ flowchart LR
 |---|---|---|
 | `DataConfig` | author in YAML | source + `transforms[]` |
 | **`Transform`** | **yes** (`@register_transform`) | `__call__(rows) -> rows` + `Config` |
-| `ChatMessagesRow` / `PromptExample` / `HarborTask` | choose shape | **data only — no supervision encoded** |
+| `ChatMessagesRow` / `PromptExample` / `HarborTask` | choose shape | **data only - no supervision encoded** |
 | `DataStore` | rarely | `read_jsonl` / `write_jsonl` / `read_json` / `write_json` / `exists` / `list` |
 | `Workspace` / `MaterializedDataset` | no (SDK) | pull / cache / lineage |
 
 <Callout title="The dataset-format rule">
 Data formats hold only data. **The algorithm decides which tokens are
-targets** — the same `ChatMessagesRow` can be used for SFT or as an RL prompt.
+targets** - the same `ChatMessagesRow` can be used for SFT or as an RL prompt.
 </Callout>
 
 Next: [Algorithms](/docs/concepts/algorithms) ·

@@ -64,7 +64,7 @@ def train(self, ctx: RunContext) -> RunResult:
                 task_lm=task_lm, score_fn=score_fn, out=out, rng=rng,
             )
         except ImportError:
-            logger.info("gepa package not installed — using built-in hill-climber")
+            logger.info("gepa package not installed - using built-in hill-climber")
 
     return _run_hill_climber(
         ctx=ctx, cfg=self.cfg, examples=examples,

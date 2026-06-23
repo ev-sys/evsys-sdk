@@ -2,22 +2,22 @@
 title: harbor_agents
 ---
 
-Harbor glue classes — agent + environment (harbor 0.13.2).
+Harbor glue classes - agent + environment (harbor 0.13.2).
 
 These subclass harbor base classes, so ``harbor`` is imported at module top.
-Our own code **never imports this module directly** — harbor loads these by the
+Our own code **never imports this module directly** - harbor loads these by the
 string ``import_path`` recorded in the job/agent config at runtime (see
 :mod:`evsys_sdk.training.harbor_engine`). That keeps the optional ``[harbor]``
 extra out of the base import path.
 
-* :class:`NoOpEnvironment` — sandbox-free ``BaseEnvironment`` (no container).
-* :class:`BasicLoopAgent` — drives ``Chat(\<llm>)`` on-policy, records token-level
+* :class:`NoOpEnvironment` - sandbox-free ``BaseEnvironment`` (no container).
+* :class:`BasicLoopAgent` - drives ``Chat(\<llm>)`` on-policy, records token-level
   ``rollout_details`` onto the ``AgentContext``, and writes the completion to the
   agent dir so the verifier can read it. The default agent. ``model_client`` picks
   the sampler: ``"tinker"`` (on-policy ``TinkerLLM``) or ``"litellm"`` (any provider
   litellm supports, for benchmarking closed/API models through the same path).
   Users can also plug any ``BaseAgent`` via ``agent_import_path``.
-* :class:`EvsysVerifier` — a harbor ``BaseVerifier`` that wraps our **registered
+* :class:`EvsysVerifier` - a harbor ``BaseVerifier`` that wraps our **registered
   verifier fns**. It runs host-side (no container exec): reads the completion the
   agent wrote + the per-task spec (``fn_name``/``expected``/``params``)
   materialized into the task dir, and returns the reward as a harbor

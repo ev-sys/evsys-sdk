@@ -5,12 +5,12 @@ title: AliasMatcher
 Looks up whether ``predicted`` is an accepted answer for ``expected``.
 
 Inputs:
-  * primary_aliases — flat map \{slug_a: slug_b\}. Treated as a symmetric
+  * primary_aliases - flat map \{slug_a: slug_b\}. Treated as a symmetric
     equivalence: ``slug_a`` and ``slug_b`` are accepted interchangeably.
-  * secondary_aliases — \{slug_a: [slug_b, slug_c, ...]\} for cases where
+  * secondary_aliases - \{slug_a: [slug_b, slug_c, ...]\} for cases where
     multiple slugs are valid replacements (e.g. GOOGLESHEETS_QUERY_TABLE
     → \{BATCH_GET, LOOKUP_SPREADSHEET_ROW, VALUES_GET\}). Also symmetric.
-  * bidirectional — set to False to disable reverse lookup (forward
+  * bidirectional - set to False to disable reverse lookup (forward
     match only, like the original semantics).
 
 ## Attributes

@@ -3,11 +3,11 @@ title: Agents
 description: The pluggable rollout harness the policy is trained inside, so it learns to use that harness.
 ---
 
-An **agent** is the rollout harness for RL (and SDFT) — the harbor `BaseAgent`
+An **agent** is the rollout harness for RL (and SDFT) - the harbor `BaseAgent`
 that actually drives the model through a task, turn by turn, and records what
 happened. It's pluggable on purpose: point at any harbor agent and the model
 trains *inside* that harness, so it learns to use it. This is the same principle
-as Opus being trained inside the Claude Code harness — the policy adapts to the
+as Opus being trained inside the Claude Code harness - the policy adapts to the
 exact loop, tools, and message flow it will run under at inference time. You'd
 write your own to train against a multi-turn loop, a tool-use protocol, or a
 custom environment.
@@ -19,34 +19,34 @@ The default harness is `BasicLoopAgent` in
 `harbor.agents.base`, which the rollout engine builds fresh per trial. The
 methods a harbor `BaseAgent` implements (as `BasicLoopAgent` shows):
 
-- **`@staticmethod name() -> str`** — the agent's harbor name
+- **`@staticmethod name() -> str`** - the agent's harbor name
   (`"evsys-basic-loop"`). A static method returning a string.
 
-- **`version(self) -> str | None`** — an optional version string (`"1.0.0"`).
+- **`version(self) -> str | None`** - an optional version string (`"1.0.0"`).
 
-- **`async setup(self, environment: BaseEnvironment) -> None`** — one-time prep
+- **`async setup(self, environment: BaseEnvironment) -> None`** - one-time prep
   before any rollout, given the environment harbor allocated (the SDK default is
   `NoOpEnvironment`, a sandbox-free in-process env). Returns nothing.
 
 - **`async run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None`**
-  The core method — one rollout for one task. This is what you override.
-  - `instruction` — the task prompt (the templated `HarborTask.instruction`).
-  - `environment` — the harbor environment to act in (exec/upload/download;
+  The core method - one rollout for one task. This is what you override.
+  - `instruction` - the task prompt (the templated `HarborTask.instruction`).
+  - `environment` - the harbor environment to act in (exec/upload/download;
     no-op for in-process runs).
-  - `context: AgentContext` — the object harbor harvests after the rollout. The
+  - `context: AgentContext` - the object harbor harvests after the rollout. The
     agent **writes its results onto it**: `BasicLoopAgent` sets
-    `context.rollout_details` (token-level data — present for tinker, empty for
+    `context.rollout_details` (token-level data - present for tinker, empty for
     API models), plus `context.n_input_tokens`, `context.n_output_tokens`,
     `context.n_cache_tokens`, and `context.cost_usd` (usage/cost, harbor records
     these on the trial). It also writes the completion text to its agent dir so
     the host-side verifier can read and score it.
-  - Returns nothing — all output flows through `context` and the agent dir.
+  - Returns nothing - all output flows through `context` and the agent dir.
 
 `BasicLoopAgent.run` drives a `Chat(<llm>)` for `max_turns` turns. Its `__init__`
 takes the kwargs the RL/SDFT engine passes through: `model_name`, `model_path`,
 `renderer_name`, `max_tokens`, `temperature`, `max_turns`, `system_prompt`,
 `model_client`, `api_base`. `model_client` picks the sampler: `"tinker"` (an
-on-policy `TinkerLLM` reading the just-saved `model_path` — this is the path the
+on-policy `TinkerLLM` reading the just-saved `model_path` - this is the path the
 gradient flows back through) or `"litellm"` (any litellm provider, for
 benchmarking closed/API models through the same harness).
 
@@ -69,7 +69,7 @@ algorithm:
 When `agent_import_path` is `null`, the engine uses
 `BasicLoopAgent`, parameterized by the rollout kwargs above. When you set it to a
 `"module.path:ClassName"` string, **that agent wins and the engine passes it no
-kwargs** — it must be fully self-configured.
+kwargs** - it must be fully self-configured.
 
 | Built-in | What it does |
 |---|---|
@@ -142,7 +142,7 @@ the defaults it needs to construct a sampler on the current policy.
 
 ## Ship it in a package
 
-A custom agent ships as an ordinary Python class — the RL config references it by
+A custom agent ships as an ordinary Python class - the RL config references it by
 its `module.path:ClassName` import string, so any installed package (or your own
 project module) works with no SDK fork. The engine imports it by that path at
 rollout time, exactly as it imports the built-in `BasicLoopAgent`.

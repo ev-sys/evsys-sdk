@@ -1,15 +1,15 @@
 ---
 title: Verifiers
-description: How RL rewards work — the verifier rides on each task row and names a function in the verifier-fn registry.
+description: How RL rewards work - the verifier rides on each task row and names a function in the verifier-fn registry.
 ---
 
 A **verifier** turns a model's completion into a reward. The key thing to
 understand first: **the verifier rides on the data**, and the **registry holds
-the function it names**. They are not two competing options — they work together.
+the function it names**. They are not two competing options - they work together.
 
 ### How RL picks a verifier
 
-Every RL task **row** carries a `verifier` spec — so each task brings its own
+Every RL task **row** carries a `verifier` spec - so each task brings its own
 check *and* its own expected answer:
 
 ```yaml
@@ -25,7 +25,7 @@ check *and* its own expected answer:
 
 At score time the SDK resolves `fn_name` → a function in the **verifier-fn
 registry** and calls it with this row's `expected`/`params`. The remote backend
-never stores verifier *code* — only the `fn_name` + `expected`/`params`; the SDK
+never stores verifier *code* - only the `fn_name` + `expected`/`params`; the SDK
 is the single source of truth for the function (D10).
 
 So the two pieces are:
@@ -38,20 +38,20 @@ So the two pieces are:
 
 A few facts that clear up the common confusion:
 
-- For the **RL rollout path, `kind` must be `in_process`** today — that's
+- For the **RL rollout path, `kind` must be `in_process`** today - that's
   `InProcessVerifier`, which just dispatches to your `fn_name`. The full
   `@register_verifier` **class** registry (below) is a separate, heavier
   extension used for config-level reward logic, not the per-row RL path.
-- `verifier_name` on the RL algorithm config is only a **default `fn_name`** —
+- `verifier_name` on the RL algorithm config is only a **default `fn_name`** -
   used when a row leaves `fn_name` blank, so you don't repeat it on every task.
 
-Start with **(a) the verifier-fn registry** — it's what RL uses. Reach for
+Start with **(a) the verifier-fn registry** - it's what RL uses. Reach for
 **(b) the Verifier class registry** only when the reward is config-level and
 shared across all tasks.
 
 ---
 
-## (a) The verifier-fn registry — what RL uses
+## (a) The verifier-fn registry - what RL uses
 
 These are **functions** (not classes) in `src/evsys_sdk/verifiers/fns.py`,
 referenced **by name from each task row** via `fn_name`. This is the single
@@ -75,11 +75,11 @@ VerifierFn = Callable[[str, Any, dict], float]
 def fn(model_output: str, expected: Any, params: dict) -> float: ...
 ```
 
-- **`model_output: str`** — the model's completion text.
-- **`expected: Any`** — the gold value from the task's `expected` field (string,
+- **`model_output: str`** - the model's completion text.
+- **`expected: Any`** - the gold value from the task's `expected` field (string,
   dict, etc., depending on the fn).
-- **`params: dict`** — the task's `params` block, a plain dict of options.
-- **returns `float`** — the reward, typically `1.0` (pass) or `0.0` (fail).
+- **`params: dict`** - the task's `params` block, a plain dict of options.
+- **returns `float`** - the reward, typically `1.0` (pass) or `0.0` (fail).
 
 ### Use a built-in fn
 
@@ -108,11 +108,11 @@ def startswith(model_output: str, expected, params: dict) -> float:
     return 1.0 if b and a.startswith(b) else 0.0
 ```
 
-Then any task row can reference it: `verifier: {kind: in_process, fn_name: startswith, expected: "Answer:", params: {ignore_case: true}}` — or set `verifier_name: startswith` on the RL algorithm so every row defaults to it.
+Then any task row can reference it: `verifier: {kind: in_process, fn_name: startswith, expected: "Answer:", params: {ignore_case: true}}` - or set `verifier_name: startswith` on the RL algorithm so every row defaults to it.
 
 ---
 
-## (b) The Verifier class registry — config-level rewards
+## (b) The Verifier class registry - config-level rewards
 
 ### The contract
 
@@ -128,11 +128,11 @@ class VerificationResult:
 
 A verifier class declares two class vars and one method:
 
-- **`name: ClassVar[str]`** — registry key / YAML `kind`.
-- **`Config: ClassVar[type]`** — Pydantic model (`extra="forbid"`) for the
+- **`name: ClassVar[str]`** - registry key / YAML `kind`.
+- **`Config: ClassVar[type]`** - Pydantic model (`extra="forbid"`) for the
   verifier's params; `params:` from YAML is validated against it.
 - **`def verify(self, *, prompt: str, completion: str, target: dict[str, Any]) -> VerificationResult`**
-  — all three arguments are **keyword-only**. `prompt` is the input text the
+  - all three arguments are **keyword-only**. `prompt` is the input text the
   model saw; `completion` is the model's generated text; `target` is a dict of
   gold/reference data for this example (answer keys, expected fields, etc.). It
   returns a `VerificationResult` whose `reward` is a float and whose `info` is a

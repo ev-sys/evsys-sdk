@@ -4,7 +4,7 @@ title: TrainingLoop
 
 Drive a training run against a :class:`Backend`.
 
-Construction is intentionally explicit — no global state, no env-var
+Construction is intentionally explicit - no global state, no env-var
 knobs, no auto-resume. Algorithms compose the loop with their own
 StepBuilder + Backend + optional Evaluators.
 
@@ -174,7 +174,7 @@ async def _run_one_step(self, step: int, num_steps: int,
 
     # Dispatch loss based on whether it's a name (server-side) or a
     # callable (client-side custom). Custom losses don't take
-    # ``loss_fn_config`` — they're closures.
+    # ``loss_fn_config`` - they're closures.
     if callable(batch.loss_fn) and not isinstance(batch.loss_fn, str):
         fb_future = self.backend.forward_backward_custom_async(
             batch.data, batch.loss_fn
@@ -202,7 +202,7 @@ async def _run_one_step(self, step: int, num_steps: int,
     }
     try:
         metrics.update(self.step_builder.step_metrics(step, batch, fb_result))
-    except Exception:  # pragma: no cover  — never block the loop
+    except Exception:  # pragma: no cover  - never block the loop
         logger.exception("step_metrics raised on step %d; continuing", step)
     metrics.update(getattr(optim_result, "metrics", None) or {})
     metrics.update(batch.metrics)

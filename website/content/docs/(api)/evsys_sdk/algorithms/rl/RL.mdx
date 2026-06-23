@@ -49,7 +49,7 @@ async def setup(self, ctx: RunContext, backend: TinkerBackend) -> None:
     self._snapshot_i = 0
     # Rollouts are materialized + persisted under the run's workspace on
     # disk; training rollouts are NOT uploaded to the dashboard (only eval
-    # rollouts are — see harbor_eval).
+    # rollouts are - see harbor_eval).
     self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
     # Resolve the renderer like the backend (algorithm config first, then
     # the model's renderer from backend handles) so the rollout doesn't

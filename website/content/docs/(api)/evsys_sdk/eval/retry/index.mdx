@@ -55,7 +55,7 @@ def _default_retriable_exceptions() -> tuple[type[BaseException], ...]:
 Call ``fn(*args, **kwargs)`` retrying on transient errors.
 
 On exhaustion: records to ``report`` (if supplied) and returns ``None``.
-Non-transient exceptions propagate immediately — eval bugs shouldn't be
+Non-transient exceptions propagate immediately - eval bugs shouldn't be
 silently retried.
 
 <PySourceCode >
@@ -75,7 +75,7 @@ def call_with_retry(
     """Call ``fn(*args, **kwargs)`` retrying on transient errors.
 
     On exhaustion: records to ``report`` (if supplied) and returns ``None``.
-    Non-transient exceptions propagate immediately — eval bugs shouldn't be
+    Non-transient exceptions propagate immediately - eval bugs shouldn't be
     silently retried.
     """
     if retriable is None:

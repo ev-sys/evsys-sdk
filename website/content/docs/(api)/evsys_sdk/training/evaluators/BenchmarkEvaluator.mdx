@@ -39,7 +39,7 @@ Registered metric names to compute (harbor engine), e.g.
 
 <PyAttribute name={"limit"} type={"int | None"} value={"None"}>
 
-Cap the number of tasks scored per eval — useful when the benchmark
+Cap the number of tasks scored per eval - useful when the benchmark
 is large and you want quick in-loop snapshots.
 
 </PyAttribute>
@@ -202,7 +202,7 @@ def _upload(
                 eval_id = rec.get("id") or rec.get("eval_id")
             else:
                 eval_id = getattr(rec, "id", None)
-        except Exception:  # pragma: no cover — defensive
+        except Exception:  # pragma: no cover - defensive
             logger.exception("create_eval failed for run %s", self.run_id)
     # Each validation mints its own eval (tagged with `step`); the per-task
     # predictions hang off that eval_id so step-5 / step-10 / final evals
@@ -216,7 +216,7 @@ def _upload(
     try:
         preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step)
         upload_eval_rollouts(self.store, self.run_id, preds)
-    except Exception:  # pragma: no cover — defensive
+    except Exception:  # pragma: no cover - defensive
         logger.exception("eval rollout upload failed for run %s", self.run_id)
 ```
 

@@ -2,7 +2,7 @@
 title: harbor_engine
 ---
 
-Harbor rollout runner — hands rollouts to harbor's ``Job`` engine (0.13.2).
+Harbor rollout runner - hands rollouts to harbor's ``Job`` engine (0.13.2).
 
 Import-safe **without** the ``harbor`` package: all harbor imports are lazy
 (inside the runners), and the agent / environment classes are referenced only by
@@ -153,21 +153,21 @@ def _to_agent_config(AgentConfig: Any, import_path: str, kwargs: dict[str, Any])
 </PyFunction>
 <PyFunction name={"run_harbor_rollouts"} type={"(items, *, outcome_reward=True, model_name, model_path, workspace_dir, model_client='tinker', renderer_name=None, num_samples=1, max_turns=1, max_tokens=512, temperature=1.0, system_prompt=None, agent_import_path=None, n_concurrent=4, max_retries=2, _job_factory=None) -> list[TrajectoryGroup]"}>
 
-Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine —
+Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine -
 one :class:`TrajectoryGroup` per item, in order.
 
-``outcome_reward`` is the agent-meaningful knob — does the rollout get scored
+``outcome_reward`` is the agent-meaningful knob - does the rollout get scored
 by an outcome verifier? The runner is adapter-aware (it runs the matching
 adapter to write the task dirs, where ``materialize_task`` used to be), so no
 caller ever touches an adapter:
 
-* ``outcome_reward=True`` (default) — ``items`` are :class:`HarborTask`\s;
+* ``outcome_reward=True`` (default) - ``items`` are :class:`HarborTask`\s;
   :class:`HarborTaskAdapter` writes scored task dirs and the host-side
   :class:`EvsysVerifier` produces each outcome reward. (RL + benchmark eval.)
-* ``outcome_reward=False`` — ``items`` are prompt strings; :class:`PromptAdapter`
+* ``outcome_reward=False`` - ``items`` are prompt strings; :class:`PromptAdapter`
   writes generation-only dirs (no verifier, ``reward=0``). (SDFT students.)
 
-``model_client`` — ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
+``model_client`` - ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
 or ``"litellm"`` (closed/API model; ``model_name`` a litellm string, e.g.
 ``"anthropic/claude-opus-4-1"``).
 
@@ -196,21 +196,21 @@ async def run_harbor_rollouts(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
-    """Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine —
+    """Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine -
     one :class:`TrajectoryGroup` per item, in order.
 
-    ``outcome_reward`` is the agent-meaningful knob — does the rollout get scored
+    ``outcome_reward`` is the agent-meaningful knob - does the rollout get scored
     by an outcome verifier? The runner is adapter-aware (it runs the matching
     adapter to write the task dirs, where ``materialize_task`` used to be), so no
     caller ever touches an adapter:
 
-    * ``outcome_reward=True`` (default) — ``items`` are :class:`HarborTask`\\s;
+    * ``outcome_reward=True`` (default) - ``items`` are :class:`HarborTask`\\s;
       :class:`HarborTaskAdapter` writes scored task dirs and the host-side
       :class:`EvsysVerifier` produces each outcome reward. (RL + benchmark eval.)
-    * ``outcome_reward=False`` — ``items`` are prompt strings; :class:`PromptAdapter`
+    * ``outcome_reward=False`` - ``items`` are prompt strings; :class:`PromptAdapter`
       writes generation-only dirs (no verifier, ``reward=0``). (SDFT students.)
 
-    ``model_client`` — ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
+    ``model_client`` - ``"tinker"`` (on-policy ``TinkerLLM``, needs ``model_path``)
     or ``"litellm"`` (closed/API model; ``model_name`` a litellm string, e.g.
     ``"anthropic/claude-opus-4-1"``).
 
@@ -224,7 +224,7 @@ async def run_harbor_rollouts(
     adapter = (HarborTaskAdapter if outcome_reward else PromptAdapter)(items)
     task_configs = adapter.to_harbor(workspace_dir / "tasks")
 
-    # Lazy harbor imports — keep this module importable without the extra.
+    # Lazy harbor imports - keep this module importable without the extra.
     from harbor import Job
     from harbor.models.job.config import JobConfig, RetryConfig
     from harbor.models.trial.config import (
@@ -377,8 +377,8 @@ Convert a harbor ``TrialResult`` → our multi-turn :class:`Trajectory`,
 reading the rollout off ``agent_result`` (``AgentContext``).
 
 Token-level turns come from ``rollout_details`` (tinker on-policy rollouts).
-Closed/API models (litellm) return no token ids, so for an eval trial — one
-that produced a verifier reward — we still build a *token-less* Trajectory
+Closed/API models (litellm) return no token ids, so for an eval trial - one
+that produced a verifier reward - we still build a *token-less* Trajectory
 carrying the reward + usage so it isn't dropped from scoring. Errored trials,
 and generation-only trials with neither tokens nor a reward, return ``None``.
 
@@ -390,8 +390,8 @@ def _trial_to_trajectory(tr: Any) -> Trajectory | None:
     reading the rollout off ``agent_result`` (``AgentContext``).
 
     Token-level turns come from ``rollout_details`` (tinker on-policy rollouts).
-    Closed/API models (litellm) return no token ids, so for an eval trial — one
-    that produced a verifier reward — we still build a *token-less* Trajectory
+    Closed/API models (litellm) return no token ids, so for an eval trial - one
+    that produced a verifier reward - we still build a *token-less* Trajectory
     carrying the reward + usage so it isn't dropped from scoring. Errored trials,
     and generation-only trials with neither tokens nor a reward, return ``None``.
     """
@@ -446,7 +446,7 @@ Pull harbor's native cost / token / timing info off a trial result.
 Harbor records ``cost_usd`` + token counts on ``agent_result``
 (``AgentContext``) and per-phase wall-clock timing on the trial
 (``agent_execution``, whole-trial span as fallback). Any field harbor didn't
-populate stays ``None`` — on-policy tinker has no API ``cost_usd``, and the
+populate stays ``None`` - on-policy tinker has no API ``cost_usd``, and the
 caller backfills token counts from the turns. Pure + harbor-free.
 
 <PySourceCode >
@@ -458,7 +458,7 @@ def _trial_usage(tr: Any) -> dict[str, Any]:
     Harbor records ``cost_usd`` + token counts on ``agent_result``
     (``AgentContext``) and per-phase wall-clock timing on the trial
     (``agent_execution``, whole-trial span as fallback). Any field harbor didn't
-    populate stays ``None`` — on-policy tinker has no API ``cost_usd``, and the
+    populate stays ``None`` - on-policy tinker has no API ``cost_usd``, and the
     caller backfills token counts from the turns. Pure + harbor-free."""
     ar = getattr(tr, "agent_result", None)
     return {
@@ -484,14 +484,14 @@ def _trial_usage(tr: Any) -> dict[str, Any]:
 </PyFunction>
 <PyFunction name={"_phase_seconds"} type={"(phase) -> float | None"}>
 
-Wall-clock seconds for a harbor timing phase — anything carrying
+Wall-clock seconds for a harbor timing phase - anything carrying
 ``started_at`` / ``finished_at`` datetimes. ``None`` when either is missing.
 
 <PySourceCode >
 
 ```python
 def _phase_seconds(phase: Any) -> float | None:
-    """Wall-clock seconds for a harbor timing phase — anything carrying
+    """Wall-clock seconds for a harbor timing phase - anything carrying
     ``started_at`` / ``finished_at`` datetimes. ``None`` when either is missing."""
     started = getattr(phase, "started_at", None)
     finished = getattr(phase, "finished_at", None)

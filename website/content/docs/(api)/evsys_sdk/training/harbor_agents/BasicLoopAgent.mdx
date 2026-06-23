@@ -132,7 +132,7 @@ provider env vars).
 rollouts for training) but OFF for litellm: it makes harbor request
 ``logprobs`` + ``extra_body.return_token_ids``, which closed APIs
 (Anthropic, OpenAI) reject with a 400. API-model benchmarking only needs
-the completion + reward + usage (cost/tokens), not token ids — those are
+the completion + reward + usage (cost/tokens), not token ids - those are
 still captured from the response. See ``_trial_to_trajectory``.
 
 <PySourceCode >
@@ -149,7 +149,7 @@ def _build_llm(self) -> Any:
     rollouts for training) but OFF for litellm: it makes harbor request
     ``logprobs`` + ``extra_body.return_token_ids``, which closed APIs
     (Anthropic, OpenAI) reject with a 400. API-model benchmarking only needs
-    the completion + reward + usage (cost/tokens), not token ids — those are
+    the completion + reward + usage (cost/tokens), not token ids - those are
     still captured from the response. See ``_trial_to_trajectory``."""
     if self._model_client == "litellm":
         from harbor.llms.lite_llm import LiteLLM  # lazy: tinker rollouts skip litellm
@@ -213,7 +213,7 @@ def _cache_key(self) -> tuple:
 
 <PyFunction name={"_shared_llm"} type={"(self) -> Any"}>
 
-The cached LLM for this rollout's (loop, config) — built once per
+The cached LLM for this rollout's (loop, config) - built once per
 harbor job and reused by every trial (see the module cache note). The
 first build is warmed under a per-loop lock so concurrent trials share
 ONE sampling client instead of each creating their own.
@@ -222,7 +222,7 @@ ONE sampling client instead of each creating their own.
 
 ```python
 async def _shared_llm(self) -> Any:
-    """The cached LLM for this rollout's (loop, config) — built once per
+    """The cached LLM for this rollout's (loop, config) - built once per
     harbor job and reused by every trial (see the module cache note). The
     first build is warmed under a per-loop lock so concurrent trials share
     ONE sampling client instead of each creating their own."""

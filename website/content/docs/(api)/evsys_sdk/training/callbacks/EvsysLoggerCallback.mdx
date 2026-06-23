@@ -2,7 +2,7 @@
 title: EvsysLoggerCallback
 ---
 
-Persist EVERYTHING to the evsys dashboard store via callbacks — the
+Persist EVERYTHING to the evsys dashboard store via callbacks - the
 experiment/group/run records, per-step metrics, checkpoints, and benchmark
 evals + predictions. Keyed off the shared ``ctx.ids`` it populates
 (``experiment_id`` → ``group:\<name>`` → ``run_id``).
@@ -12,7 +12,7 @@ a ``store=`` (so the orchestrator makes no store calls) and add this
 callback instead. If ``Experiment`` already has a store (``ctx.store`` set),
 this callback disables itself to avoid double-writing. The store handle is
 built lazily from the environment (EvsysStore) unless one is injected
-(``cb._store = ...``) — the test seam.
+(``cb._store = ...``) - the test seam.
 
 ## Attributes
 

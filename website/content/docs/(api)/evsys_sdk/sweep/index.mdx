@@ -2,7 +2,7 @@
 title: sweep
 ---
 
-Sweep — declarative axes over a single `RunConfig`.
+Sweep - declarative axes over a single `RunConfig`.
 
 A ``Sweep`` is the OOP way to describe what YAML's ``matrix:`` block describes:
 one ``base_run`` template + per-axis lists of values, expanded by cartesian
@@ -16,7 +16,7 @@ This is what an experiment script reaches for instead of writing a per-axis
         ...
 
 Or, more commonly, from a YAML matrix block already parsed into
-``MatrixSpec`` — round-trip with ``Sweep.from_matrix`` / ``.to_matrix``.
+``MatrixSpec`` - round-trip with ``Sweep.from_matrix`` / ``.to_matrix``.
 
 The expansion is the single source of truth for both the YAML ``matrix:``
 loader and programmatic builds (the legacy ``_expand_matrix`` delegates here).
@@ -40,7 +40,7 @@ loader and programmatic builds (the legacy ``_expand_matrix`` delegates here).
 
 Cartesian product of ``axes`` over ``base_run``.
 
-Single source of truth for matrix expansion — both ``Sweep.expand`` and
+Single source of truth for matrix expansion - both ``Sweep.expand`` and
 the YAML loader's ``_expand_matrix`` route through here. Empty ``axes``
 returns ``[base_run]`` unchanged.
 
@@ -54,7 +54,7 @@ def expand_runs(
 ) -> list[RunConfig]:
     """Cartesian product of ``axes`` over ``base_run``.
 
-    Single source of truth for matrix expansion — both ``Sweep.expand`` and
+    Single source of truth for matrix expansion - both ``Sweep.expand`` and
     the YAML loader's ``_expand_matrix`` route through here. Empty ``axes``
     returns ``[base_run]`` unchanged.
     """

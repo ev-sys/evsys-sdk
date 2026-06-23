@@ -29,7 +29,7 @@ walks each row, and calls ``store.log_metrics(run_id=..., step=..., metrics=\{..
 Per-row store errors are swallowed (logged), so a flaky upload doesn't drop
 the rest of the metrics.
 
-Called automatically by ``Experiment._train_arm`` after each arm — researcher
+Called automatically by ``Experiment._train_arm`` after each arm - researcher
 scripts using the OOP path don't have to think about it.
 
 <PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
@@ -132,7 +132,7 @@ def forward_step_metrics(
         metrics = _extract_metrics(row)
         if metrics is None:
             continue
-        # ``val/``-prefixed keys are in-loop validation metrics — forward them
+        # ``val/``-prefixed keys are in-loop validation metrics - forward them
         # under split="val" so the dashboard separates the validation curve from
         # training. Everything else stays on the default (train) split, with the
         # original call signature preserved for back-compat.

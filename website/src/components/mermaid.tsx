@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { useTheme } from 'next-themes';
 
-// Renders a Mermaid diagram on the client. Works with static export — the SVG
+// Renders a Mermaid diagram on the client. Works with static export - the SVG
 // is produced after hydration. `chart` is the raw mermaid source.
 export function Mermaid({ chart }: { chart: string }) {
   const id = useId();

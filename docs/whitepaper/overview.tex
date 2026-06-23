@@ -64,7 +64,7 @@
 \renewcommand{\arraystretch}{1.25}
 
 % ---------------------------------------------------------------------------
-\title{\textbf{EvSys --- Turn your coding agents into a continual-learning lab}}
+\title{\textbf{EvSys - Turn your coding agents into a continual-learning lab}}
 \author{}
 \date{}
 
@@ -89,17 +89,17 @@ from every interaction.
 We believe the future of AI is not a handful of giant generalist models, but
 \textbf{thousands of task-specialised models that learn continuously from every
 interaction}. In that future, \textbf{enterprises will build a continual-learning
-system for every use-case} they have --- each one a model that keeps getting
+system for every use-case} they have - each one a model that keeps getting
 better at its specific job. Realising that future requires a new layer of
 infrastructure: the
-\textbf{autoresearch} infrastructure for continuously learning models --- the
+\textbf{autoresearch} infrastructure for continuously learning models - the
 abstractions that let a system discover what to learn, train on it, and ship it
 autonomously and safely. \textbf{The SDK builds that layer.} The SDK abstracts away all the complexities related to training models and makes coding agents and you focus only on two parts - \textbf{data} and the \textbf{algorithm}
 
 To make that autoresearch work, you need to both \textbf{standardise} and
 \textbf{centralise} the entire history of experiments, so that coding agents
 have the context they need. That is what this SDK does: it lets coding agents
---- and you --- focus on the training experiments themselves (finding the right
+- and you - focus on the training experiments themselves (finding the right
 \textbf{data} and \textbf{recipe}), while the SDK handles the standardisation,
 the centralisation, and the supply of the right context to you and your coding
 agents. Without this standardisation a coding agent just sees a pile of ad-hoc
@@ -112,10 +112,10 @@ traces}; a lightweight \textbf{agent decides} whether a given trace is worth
 learning from and, if so, triggers \textbf{autoresearch}; the autoresearch loop
 runs a series of educated experiments and trains a candidate checkpoint;
 \textbf{deployment evals} then judge whether that checkpoint is genuinely better
-than what is in production --- and only then is it \textbf{deployed}. The freshly
+than what is in production - and only then is it \textbf{deployed}. The freshly
 deployed model produces new traces, and the loop continues, so the system
 improves with every interaction. What we release today is \textbf{Phase 1}: the
-autoresearch loop --- everything the rest of this document describes.
+autoresearch loop - everything the rest of this document describes.
 
 \begin{figure}[h]
 \centering
@@ -124,7 +124,7 @@ autoresearch loop --- everything the rest of this document describes.
   \node[eng] (prod) {Production traces};
   \node[user, right=of prod] (decide) {Agent: train on this?};
   \node[eng, right=of decide, line width=1.2pt, draw=userstroke, fill=userblue]
-        (auto) {\textbf{Autoresearch}\\\scriptsize \textbf{Phase 1 --- released}};
+        (auto) {\textbf{Autoresearch}\\\scriptsize \textbf{Phase 1 - released}};
   \node[sdk, right=of auto] (deval) {Deployment evals\\\scriptsize gate the checkpoint};
   \node[user, right=of deval] (deploy) {Deploy\\\scriptsize if it improves};
 
@@ -140,7 +140,7 @@ autoresearch loop --- everything the rest of this document describes.
 \caption{The continual-learning system. A deployed model produces traces; an
 agent decides whether to learn from them and triggers \textbf{autoresearch}
 (this SDK), which trains a candidate checkpoint; deployment evals gate whether it
-ships. The blue \textbf{autoresearch} stage --- and only that stage --- is what we
+ships. The blue \textbf{autoresearch} stage - and only that stage - is what we
 release as Phase 1.}
 \end{figure}
 
@@ -149,17 +149,17 @@ The design rests on a deliberate split of work across \textbf{two agents}.
 
 The \textbf{first agent is a light, fast decision-maker}. It watches incoming
 production traces and decides whether a batch is worth learning from. Because it
-gates the expensive step, it must be cheap and quick --- and it needs \emph{no}
+gates the expensive step, it must be cheap and quick - and it needs \emph{no}
 context of previous experiments. If it says yes, it hands off to the second
 stage, where the real budget is spent.
 
-\textbf{That second stage is autoresearch} --- a heavier, budgeted search for the
+\textbf{That second stage is autoresearch} - a heavier, budgeted search for the
 right training recipe. We frame continual learning as autoresearch on purpose:
 there is \textbf{no single algorithm} that enables continual learning across all
 data; different data demands different recipes. So a capable agent must
 autonomously run experiments, recover from training collapses, and decide which
 checkpoint is finally worth deploying. That is exactly what the autoresearch loop
-does --- which is why training a model with this SDK is, by construction, a
+does - which is why training a model with this SDK is, by construction, a
 building block of the larger continual-learning system.
 
 % ===========================================================================
@@ -248,7 +248,7 @@ back to steer model selection.
   \draw[arrf] (eval.south west) to[bend left=20]
         node[lab,below]{Async validation every N steps} (train.south east);
 
-  % --- coding agent acts on the Data + Training surfaces ---
+  % - coding agent acts on the Data + Training surfaces -
   \node[agent, below=18mm of data] (cagent) {Coding agent};
   \draw[arrd] (cagent.north) -- node[alab,left]{edit} (data.south);
   \draw[arrd] (cagent.north east) to[bend left=10]
@@ -326,7 +326,7 @@ templating) without ever touching the source.
   \draw[arr] (tf.east) -- (pe.west);
   \draw[arr] (tf.east) -- (ht.west);
 
-  % --- coding agent authors the transform ---
+  % - coding agent authors the transform -
   \node[agent, below=15mm of tf] (cagent) {Coding agent};
   \draw[arrd] (cagent.north) -- node[alab,right]{transforms()} (tf.south);
 \end{tikzpicture}
@@ -458,14 +458,14 @@ pattern is uniform: \textbf{implement a protocol $\to$ register under a
 \code{kind} $\to$ reference it in YAML}. No subclassing the library, no fork.
 
 \begin{itemize}\setlength\itemsep{3pt}
-  \item \textbf{algorithm} --- \code{@register\_algorithm}, the \code{run.algorithm.kind}: the training recipe, i.e.\ the math for one optimisation step (\code{sft}, \code{rl}, \code{sdft}).
-  \item \textbf{backend} --- \code{@register\_backend}, the \code{run.backend.kind}: where the model trains (\code{tinker}, \code{local}, \code{mock}).
-  \item \textbf{transform} --- \code{@register\_transform}, in \code{data.transforms[].kind}: shapes raw rows into the format the algorithm consumes.
-  \item \textbf{data\_store} --- \code{@register\_data\_store}, the \code{data\_store.kind}: where datasets are pulled from and cached.
-  \item \textbf{log\_store} --- \code{@register\_log\_store}, the \code{log\_store.kind}: where metrics, hyperparams, and artifact pointers go.
-  \item \textbf{metric} --- \code{@register\_metric}, in \code{eval.metrics[]} / \code{validation.metrics[]}: how rewards aggregate into a score (\code{pass@1}, \code{pass@k}, \dots).
-  \item \textbf{verifier} --- \code{@register\_verifier}, in verifier specs / the RL reward: scores a single rollout.
-  \item \textbf{inference\_client} --- \code{@register\_inference}, the \code{eval.inference.kind}: how completions are generated at eval time.
+  \item \textbf{algorithm} - \code{@register\_algorithm}, the \code{run.algorithm.kind}: the training recipe, i.e.\ the math for one optimisation step (\code{sft}, \code{rl}, \code{sdft}).
+  \item \textbf{backend} - \code{@register\_backend}, the \code{run.backend.kind}: where the model trains (\code{tinker}, \code{local}, \code{mock}).
+  \item \textbf{transform} - \code{@register\_transform}, in \code{data.transforms[].kind}: shapes raw rows into the format the algorithm consumes.
+  \item \textbf{data\_store} - \code{@register\_data\_store}, the \code{data\_store.kind}: where datasets are pulled from and cached.
+  \item \textbf{log\_store} - \code{@register\_log\_store}, the \code{log\_store.kind}: where metrics, hyperparams, and artifact pointers go.
+  \item \textbf{metric} - \code{@register\_metric}, in \code{eval.metrics[]} / \code{validation.metrics[]}: how rewards aggregate into a score (\code{pass@1}, \code{pass@k}, \dots).
+  \item \textbf{verifier} - \code{@register\_verifier}, in verifier specs / the RL reward: scores a single rollout.
+  \item \textbf{inference\_client} - \code{@register\_inference}, the \code{eval.inference.kind}: how completions are generated at eval time.
 \end{itemize}
 
 % ===========================================================================

@@ -2,7 +2,7 @@
 title: benchmark_run
 ---
 
-Standalone benchmark run — score a benchmark on a model, no training.
+Standalone benchmark run - score a benchmark on a model, no training.
 
 Reuses the *same* harbor rollout path as in-training eval
 (:func:`evsys_sdk.training.harbor_eval.score_via_harbor`) plus the same metrics
@@ -13,7 +13,7 @@ workspace and, when a ``store`` + ``run_id`` are given, push to the dashboard.
 
     from evsys_sdk import run_benchmark
 
-    # by local path, dashboard id, or name — same resolver as the config
+    # by local path, dashboard id, or name - same resolver as the config
     metrics = run_benchmark(path="data/benchmark/tool-search",
                             model="anthropic/claude-opus-4-1")
     metrics = run_benchmark(id="bench_abc123", model="openai/gpt-4o", store=store)
@@ -29,7 +29,7 @@ API keys come from the standard provider env vars (``ANTHROPIC_API_KEY``,
 
 <PyFunction name={"run_benchmark"} type={"(benchmark=None, *, model, path=None, id=None, name=None, num_samples=1, max_tokens=512, temperature=0.0, system_prompt=None, limit=None, n_concurrent=8, workspace_dir=None, store=None, run_id=None, eval_id=None) -> dict[str, float]"}>
 
-Score a benchmark on a closed / API ``model`` through harbor — no training.
+Score a benchmark on a closed / API ``model`` through harbor - no training.
 
 The benchmark is given directly (``benchmark=``) or resolved by
 ``path`` / ``id`` / ``name`` via the shared :meth:`Benchmark.load` resolver
@@ -60,7 +60,7 @@ def run_benchmark(
     run_id: str | None = None,
     eval_id: str | None = None,
 ) -> dict[str, float]:
-    """Score a benchmark on a closed / API ``model`` through harbor — no training.
+    """Score a benchmark on a closed / API ``model`` through harbor - no training.
 
     The benchmark is given directly (``benchmark=``) or resolved by
     ``path`` / ``id`` / ``name`` via the shared :meth:`Benchmark.load` resolver
@@ -96,7 +96,7 @@ def run_benchmark(
 
     score = asyncio.run(benchmark.score_via_harbor(
         model_name=model,
-        model_path=None,            # no checkpoint — the API model *is* the policy
+        model_path=None,            # no checkpoint - the API model *is* the policy
         model_client="litellm",
         workspace_dir=ws,
         num_samples=num_samples,

@@ -5,7 +5,7 @@ title: WandbLoggerCallback
 Log metrics + benchmark predictions to Weights & Biases.
 
 One W&B run per arm: opened in ``on_run_start`` (so it exists before the
-first step) and closed in ``on_run_end``. wandb is imported lazily — if it
+first step) and closed in ``on_run_end``. wandb is imported lazily - if it
 isn't installed the callback warns once and every hook no-ops (training is
 never affected; :func:`dispatch` also isolates errors). The run URL is
 surfaced on ``ctx.extras['wandb_url']`` so a downstream logger

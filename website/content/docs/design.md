@@ -3,23 +3,23 @@ title: Design & Architecture
 description: Layout, protocols, and the rationale behind the SDK.
 ---
 
-# evsys-sdk — design notes
+# evsys-sdk - design notes
 
 ## Goals
 
 1. **Single declarative YAML** drives a full experiment (data → train → eval),
    so an evolutionary algorithm can mutate it without writing Python.
-2. **Modular** — adding a new algorithm/verifier/metric is a decorator + a
+2. **Modular** - adding a new algorithm/verifier/metric is a decorator + a
    Pydantic Config class. No library fork.
-3. **Backend-pluggable** — same YAML can run locally on TRL or remotely on
+3. **Backend-pluggable** - same YAML can run locally on TRL or remotely on
    Tinker; backends are interchangeable.
-4. **Decoupled storage** — the library imports zero Supabase code by default;
+4. **Decoupled storage** - the library imports zero Supabase code by default;
    Supabase is an optional adapter.
 
 ## Why protocols, not ABCs
 
 PEP 544 protocols mean any class with the right methods satisfies the contract
-— no inheritance from us. This is critical for third-party extensions: if you
+- no inheritance from us. This is critical for third-party extensions: if you
 have to subclass `evsys_sdk.algorithms.BaseAlgorithm`, you've
 imported the world. With protocols, your `MyDPO` class is just plain Python.
 
@@ -42,7 +42,7 @@ defaults that hide misspellings. The `kind:` discriminator selects which
 registered class's `Config` validates the corresponding `params:` block.
 
 The `matrix:` shorthand is a convenience that expands at load-time into
-`runs:` — the result is the same `runs[]` shape, so the runner doesn't care.
+`runs:` - the result is the same `runs[]` shape, so the runner doesn't care.
 
 ## Lifecycle of a run
 
@@ -55,7 +55,7 @@ The `matrix:` shorthand is a convenience that expands at load-time into
    6. Construct `RunContext` carrying `data_store`, `log_store`, `backend`, `extras`.
    7. `algorithm.train(ctx)` → `RunResult`.
    8. `backend.teardown(handles)`.
-   9. Best-effort eval (skips on failure — eval errors don't fail the run).
+   9. Best-effort eval (skips on failure - eval errors don't fail the run).
    10. Persist `run_result.json`.
 
 ## Researcher-project layout
@@ -85,12 +85,12 @@ project with ``evsys init-project <name>``; the tree is:
 │   └── transforms.py               # @register_transform
 ├── experiments/
 │   └── <yyyymmdd>_<slug>/          # `evsys new-experiment <slug>`
-│       ├── config.yaml             # ExperimentConfig — model, data, sweep, metadata
+│       ├── config.yaml             # ExperimentConfig - model, data, sweep, metadata
 │       └── run.py                  # Experiment.from_yaml("config.yaml").run()
 └── .evsys/                    # local mirror + checkpoints + log_store output
 ```
 
-Each ``config.yaml`` is **self-contained** — there is no project-root yaml that
+Each ``config.yaml`` is **self-contained** - there is no project-root yaml that
 experiments inherit from. The experiment-level fields (hypothesis, tags,
 success_metric, benchmark) live under ``metadata:`` and are read by
 ``Experiment.run()``:
@@ -100,7 +100,7 @@ metadata:
   hypothesis: "Higher LoRA rank improves pass@1"
   tags: [sft, qwen3_4b]
   success_metric: pass_rate
-  benchmark:                        # TEST set — scored once, after training
+  benchmark:                        # TEST set - scored once, after training
     id: <dashboard benchmark id from `evsys benchmark upload`>   # preferred
     # name: composio_eval_v2     # alt: resolves to the latest version's id
     # path: data/benchmark/composio_eval_v2   # offline / dev fallback
@@ -137,13 +137,13 @@ A **test benchmark** is the *final goal*: scored once after training (no
 ``run_every``), tagged ``[test]``. Model selection must never key off it.
 
 A **validation benchmark** is scored *during* training to drive model
-selection — same harbor format, tagged ``[val]`` with a positive
+selection - same harbor format, tagged ``[val]`` with a positive
 ``run_every``:
 
 ```yaml
 metadata:
   benchmark:
-    - name: val_set                 # in-loop — scored every N steps
+    - name: val_set                 # in-loop - scored every N steps
       id: <benchmark id>            # or path: data/benchmark/<name>
       tags: [val]
       run_every: 50                 # score every 50 training steps off the live model
@@ -156,7 +156,7 @@ metadata:
 
 Every ``run_every`` steps the training loop scores the live model on the
 ``[val]`` entry and records ``val/<name>/<metric>`` curves under
-``split="val"`` — separate from the post-training ``[test]`` eval.
+``split="val"`` - separate from the post-training ``[test]`` eval.
 
 ## OOP entry points
 
@@ -179,7 +179,7 @@ Experiment.from_yaml("config.yaml").run()
   * aggregating ``best_score`` + ``conclusion`` and finalizing the experiment.
 
 The legacy ``run_experiment(cfg)`` is still the inner runner that
-``Experiment`` calls per arm — bypass ``Experiment`` only when you need to do
+``Experiment`` calls per arm - bypass ``Experiment`` only when you need to do
 training without dashboard bookkeeping.
 
 ## What's NOT in v0.1

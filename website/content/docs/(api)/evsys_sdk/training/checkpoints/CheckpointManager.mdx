@@ -4,14 +4,14 @@ title: CheckpointManager
 
 Decide WHEN to save and WRITE the manifest row when we do.
 
-The decision policy is intentionally tiny — `should_save(step)` returns
+The decision policy is intentionally tiny - `should_save(step)` returns
 True every ``save_every`` steps (after the optimizer step at that index).
 The actual save call is dispatched by the loop, which has the live
 `Backend` handle; the manager only records the resulting paths.
 
 Final-step save is unconditional: the loop calls ``save_final(...)`` after
 its for-loop completes, so even when ``save_every`` doesn't land exactly
-on the last step the final sampler is always recorded — that's the URI
+on the last step the final sampler is always recorded - that's the URI
 downstream eval consumes.
 
 ## Attributes
@@ -128,7 +128,7 @@ picks the last row that has a ``state_path``. The loop hands the
 state_path back to the backend to recreate the training client with
 optimizer state intact.
 
-Returns ``None`` when no resumable checkpoint is on disk — caller
+Returns ``None`` when no resumable checkpoint is on disk - caller
 should start fresh.
 
 <PySourceCode >
@@ -142,7 +142,7 @@ def find_resume(self) -> Checkpoint | None:
     state_path back to the backend to recreate the training client with
     optimizer state intact.
 
-    Returns ``None`` when no resumable checkpoint is on disk — caller
+    Returns ``None`` when no resumable checkpoint is on disk - caller
     should start fresh.
     """
     if not self.manifest_path.is_file():

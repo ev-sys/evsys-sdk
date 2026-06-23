@@ -2,15 +2,15 @@
 title: benchmark
 ---
 
-Benchmark — load a harbor-format eval suite and score a model against it.
+Benchmark - load a harbor-format eval suite and score a model against it.
 
 A benchmark on disk is a directory:
 
     data/benchmark/\<name>/
-        tasks.jsonl       # required — one HarborTask per line
-        metadata.yaml     # optional — description, version, source, splits, ...
-        images/           # optional — referenced by relative path from tasks
-        raw/              # optional — pre-harbor source for traceability
+        tasks.jsonl       # required - one HarborTask per line
+        metadata.yaml     # optional - description, version, source, splits, ...
+        images/           # optional - referenced by relative path from tasks
+        raw/              # optional - pre-harbor source for traceability
 
 `Benchmark.from_dir(path)` loads the suite. `bench.score(client)` runs each
 task's `instruction` through an `InferenceClient`, then scores the completion
@@ -19,7 +19,7 @@ collects per-task rows, top-level aggregates (`mean_reward`, `pass_rate`,
 `n_tasks`), and optional breakdown buckets (e.g. per-toolkit pass rate) keyed
 by an attribute path into `metadata`.
 
-E2B and LLM-judge verifiers are recognized but not executed here — they need
+E2B and LLM-judge verifiers are recognized but not executed here - they need
 network / sandboxes and live behind their own runners. Tasks carrying those
 verifier kinds raise a clear error so callers don't silently mis-score.
 
@@ -86,7 +86,7 @@ def _score_task(task: HarborTask, completion: str) -> tuple[float, Any]:
 def _read_metadata_yaml(path: Path) -> dict:
     if not path.is_file():
         return {}
-    import yaml  # local — pyyaml is a required dep
+    import yaml  # local - pyyaml is a required dep
 
     data = yaml.safe_load(path.read_text()) or {}
     if not isinstance(data, dict):

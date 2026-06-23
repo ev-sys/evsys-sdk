@@ -2,16 +2,16 @@
 title: training
 ---
 
-evsys_sdk.training — native training-loop package.
+evsys_sdk.training - native training-loop package.
 
 Three concerns, three modules:
 
-* :mod:`~evsys_sdk.training.backend` — `Backend` Protocol, `SamplingClient`
+* :mod:`~evsys_sdk.training.backend` - `Backend` Protocol, `SamplingClient`
   Protocol, in-memory `MockBackend` for tests. The only seam that talks to
   tinker (or a stand-in).
-* :mod:`~evsys_sdk.training.loop` — `TrainingLoop` driver, `StepBuilder`
+* :mod:`~evsys_sdk.training.loop` - `TrainingLoop` driver, `StepBuilder`
   Protocol, `TrainingBatch` dataclass, `Evaluator` Protocol, `LoopArtifacts`.
-* :mod:`~evsys_sdk.training.checkpoints` — `CheckpointManager` (writes the
+* :mod:`~evsys_sdk.training.checkpoints` - `CheckpointManager` (writes the
   manifest :class:`evsys_sdk.checkpoint.Checkpoint` reads).
 
 Concrete algorithm wrappers (`sft`, `sdft`, `rl`) live

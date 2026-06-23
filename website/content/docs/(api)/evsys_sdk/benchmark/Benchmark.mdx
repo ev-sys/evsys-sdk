@@ -5,8 +5,8 @@ title: Benchmark
 A harbor-format eval suite loaded into memory.
 
 Two builders:
-  * `from_dir(path)`   — `data/benchmark/\<name>/\{tasks.jsonl,metadata.yaml\}`
-  * `from_iterable(name, rows, metadata=...)` — for tests / programmatic.
+  * `from_dir(path)`   - `data/benchmark/\<name>/\{tasks.jsonl,metadata.yaml\}`
+  * `from_iterable(name, rows, metadata=...)` - for tests / programmatic.
 
 `score(client)` runs inference + verification and returns a `BenchmarkScore`.
 
@@ -115,7 +115,7 @@ def from_iterable(
 Resolve a benchmark spec ``\{path | id | name\}`` to a ``Benchmark``.
 
 The single resolver shared by the experiment config, the standalone
-``run_benchmark``, and the CLI — so all accept the same references:
+``run_benchmark``, and the CLI - so all accept the same references:
 
 * ``path`` → local harbor dir (delegates to ``from_dir``); offline / dev.
 * ``id``   → dashboard benchmark id, pulled into the local ``.evsys/``.
@@ -132,7 +132,7 @@ def load(cls, spec: dict[str, Any], *, store: Any = None) -> Benchmark | None:
     """Resolve a benchmark spec ``{path | id | name}`` to a ``Benchmark``.
 
     The single resolver shared by the experiment config, the standalone
-    ``run_benchmark``, and the CLI — so all accept the same references:
+    ``run_benchmark``, and the CLI - so all accept the same references:
 
     * ``path`` → local harbor dir (delegates to ``from_dir``); offline / dev.
     * ``id``   → dashboard benchmark id, pulled into the local ``.evsys/``.
@@ -174,7 +174,7 @@ def load(cls, spec: dict[str, Any], *, store: Any = None) -> Benchmark | None:
 
 Run each task through `client` and score the completion.
 
-Sequential — wrap in a thread/process pool externally if you need
+Sequential - wrap in a thread/process pool externally if you need
 concurrency. (Most local clients are GPU-bound and don't benefit.)
 
 `prompt_builder(task) -> str` lets callers shape the model input;
@@ -183,7 +183,7 @@ default is `task.instruction` verbatim.
 `breakdown_keys` are dotted attribute paths into `task.metadata`. Each
 key produces `\{value -> \{n, mean_reward, pass_rate\}\}` in the result.
 
-`limit` caps how many tasks are scored — the first `limit` in
+`limit` caps how many tasks are scored - the first `limit` in
 `self.tasks` (deterministic, in benchmark order). Useful for fast
 smoke-runs on large benchmarks. ``None`` means score everything.
 
@@ -205,7 +205,7 @@ def score(
 ) -> BenchmarkScore:
     """Run each task through `client` and score the completion.
 
-    Sequential — wrap in a thread/process pool externally if you need
+    Sequential - wrap in a thread/process pool externally if you need
     concurrency. (Most local clients are GPU-bound and don't benefit.)
 
     `prompt_builder(task) -> str` lets callers shape the model input;
@@ -214,7 +214,7 @@ def score(
     `breakdown_keys` are dotted attribute paths into `task.metadata`. Each
     key produces `{value -> {n, mean_reward, pass_rate}}` in the result.
 
-    `limit` caps how many tasks are scored — the first `limit` in
+    `limit` caps how many tasks are scored - the first `limit` in
     `self.tasks` (deterministic, in benchmark order). Useful for fast
     smoke-runs on large benchmarks. ``None`` means score everything.
     """
@@ -246,7 +246,7 @@ def score(
                 instruction=task.instruction,
                 model_output=last_completion,
                 expected=last_expected,
-                # Per-task mean reward — drives the breakdown buckets.
+                # Per-task mean reward - drives the breakdown buckets.
                 reward=sum(sample_rewards) / len(sample_rewards),
                 metadata=dict(task.metadata),
             )
@@ -288,7 +288,7 @@ def score(
 
 <PyFunction name={"score_via_harbor"} type={"(self, *, model_name, model_path=None, model_client='tinker', workspace_dir, renderer_name=None, num_samples=1, max_tokens=512, temperature=0.0, system_prompt=None, limit=None, breakdown_keys=None, metrics=None, n_concurrent=8, agent_import_path=None, max_retries=2, _job_factory=None) -> BenchmarkScore"}>
 
-Score this benchmark through harbor's rollout engine — the harbor
+Score this benchmark through harbor's rollout engine - the harbor
 counterpart of :meth:`score`, returning the same :class:`BenchmarkScore`.
 
 Each task is rolled out ``num_samples`` times (one verifier reward per
@@ -323,7 +323,7 @@ async def score_via_harbor(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> BenchmarkScore:
-    """Score this benchmark through harbor's rollout engine — the harbor
+    """Score this benchmark through harbor's rollout engine - the harbor
     counterpart of :meth:`score`, returning the same :class:`BenchmarkScore`.
 
     Each task is rolled out ``num_samples`` times (one verifier reward per
@@ -366,7 +366,7 @@ async def score_via_harbor(
                 # harbor harvests token ids, not completion text.
                 model_output="",
                 expected=getattr(task.verifier, "expected", None),
-                # Per-task mean reward — drives the breakdown buckets.
+                # Per-task mean reward - drives the breakdown buckets.
                 reward=(sum(rewards) / len(rewards)) if rewards else 0.0,
                 metadata=dict(task.metadata),
             )

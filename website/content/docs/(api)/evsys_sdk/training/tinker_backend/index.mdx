@@ -2,11 +2,11 @@
 title: tinker_backend
 ---
 
-TinkerBackend — concrete :class:`~evsys_sdk.training.backend.Backend`
+TinkerBackend - concrete :class:`~evsys_sdk.training.backend.Backend`
 implementation against ``tinker.ServiceClient``.
 
 Constructed via ``await TinkerBackend.create(model_name=..., lora_rank=...)``
-— the underlying ``create_lora_training_client_async`` is async, so the
+- the underlying ``create_lora_training_client_async`` is async, so the
 factory is async. Algorithm composers run the loop inside one
 ``asyncio.run(...)`` call so the constructor and the loop body share the
 same event loop:
@@ -19,7 +19,7 @@ same event loop:
     def train(self, ctx):
         return asyncio.run(self._train(ctx))
 
-The wrapper is thin — every method is a one-to-one passthrough to the
+The wrapper is thin - every method is a one-to-one passthrough to the
 underlying tinker client, plus the one ergonomic affordance of returning
 a wrapped :class:`TinkerSamplingClient` from
 ``snapshot_sampling_client`` (so callers don't have to know about the

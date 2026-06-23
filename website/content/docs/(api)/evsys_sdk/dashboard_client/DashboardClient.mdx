@@ -47,7 +47,7 @@ def __init__(
 
     if self.offline:
         log.info(
-            "evsys_sdk running in OFFLINE mode — writing only to %s",
+            "evsys_sdk running in OFFLINE mode - writing only to %s",
             self.local.root,
         )
         self._session = None
@@ -119,7 +119,7 @@ def _post(self, path: str, body: dict | None = None) -> dict | None:
     except requests.exceptions.RequestException as e:
         self._remote_down = True
         log.warning(
-            "backend unreachable (%s) — falling back to local mirror at %s for the rest of this run",
+            "backend unreachable (%s) - falling back to local mirror at %s for the rest of this run",
             e.__class__.__name__,
             self.local.root,
         )
@@ -132,8 +132,8 @@ def _post(self, path: str, body: dict | None = None) -> dict | None:
     if 400 <= r.status_code < 500:
         # Real client error (auth, not-a-member, bad payload): surface it.
         raise DashboardClientError(r.status_code, r.text, path)
-    # 5xx — treat like an outage and degrade to local.
-    log.warning("backend error HTTP %s on %s — falling back to local mirror", r.status_code, path)
+    # 5xx - treat like an outage and degrade to local.
+    log.warning("backend error HTTP %s on %s - falling back to local mirror", r.status_code, path)
     self._remote_down = True
     return None
 ```

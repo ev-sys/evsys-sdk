@@ -2,12 +2,12 @@
 title: model_eval
 ---
 
-Model eval — generate completions over the eval set via an InferenceClient.
+Model eval - generate completions over the eval set via an InferenceClient.
 
 Each row in the eval set has 3 queries; the model predicts a tool slug for
 each. Pass@1/pass@3/pass^3 are computed in :mod:`.report`.
 
-Generation calls are wrapped in the retry helper too — Tinker / remote
+Generation calls are wrapped in the retry helper too - Tinker / remote
 inference can occasionally raise transient errors that shouldn't kill the
 whole run.
 
@@ -270,7 +270,7 @@ def run_model_eval(
                 context=ctx,
             )
             if result is None:
-                # Whole batch failed — mark each prompt as retry-exhausted.
+                # Whole batch failed - mark each prompt as retry-exhausted.
                 for j in range(len(chunk)):
                     completions[idx + j] = None
             else:

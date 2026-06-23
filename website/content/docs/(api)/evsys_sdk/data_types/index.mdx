@@ -9,14 +9,14 @@ internal types so JSONL files round-trip between this SDK and the internal
 serving / dashboard stack without conversion.
 
 Two row formats:
-  * ``ChatMessagesRow``  — SFT example  (messages prefix + supervised target)
-  * ``HarborTask``       — RL task      (instruction + verifier spec)
+  * ``ChatMessagesRow``  - SFT example  (messages prefix + supervised target)
+  * ``HarborTask``       - RL task      (instruction + verifier spec)
 
 Verifier specs (the data the runner serializes for HarborTask):
-  * ``InProcessVerifier`` — cheap Python fn lookup
-  * ``E2BVerifier``       — sandboxed code execution
-  * ``LLMJudgeVerifier``  — judge model + rubric
-  * ``VerifierPayload``   — discriminated union of the three (use this in type hints).
+  * ``InProcessVerifier`` - cheap Python fn lookup
+  * ``E2BVerifier``       - sandboxed code execution
+  * ``LLMJudgeVerifier``  - judge model + rubric
+  * ``VerifierPayload``   - discriminated union of the three (use this in type hints).
 
 These are *data shapes* (Pydantic / dataclasses) describing the verification
 plan; the runtime ``Verifier`` Protocol in ``protocols.py`` is what actually
@@ -219,7 +219,7 @@ Returns 'chat_messages' | 'harbor_task' | 'prompt_dataset' | 'unknown'.
 
 Checked most-specific first: ``harbor_task`` and ``prompt_dataset`` have
 distinctive key pairs; ``chat_messages`` is any row carrying ``messages``
-(the conversation — supervision is decided by the algorithm, not the row).
+(the conversation - supervision is decided by the algorithm, not the row).
 
 <PySourceCode >
 
@@ -229,7 +229,7 @@ def detect_format(row: Any) -> str:
 
     Checked most-specific first: ``harbor_task`` and ``prompt_dataset`` have
     distinctive key pairs; ``chat_messages`` is any row carrying ``messages``
-    (the conversation — supervision is decided by the algorithm, not the row).
+    (the conversation - supervision is decided by the algorithm, not the row).
     """
     if not isinstance(row, dict):
         return "unknown"
@@ -368,18 +368,18 @@ def prompt_example_from_dict(d: dict) -> PromptExample:
 </PyFunction>
 <PyFunction name={"from_dict"} type={"(row) -> Union[ChatMessagesRow, HarborTask, PromptExample]"}>
 
-Dispatch on row shape — round-trips the JSONL coming off a runner.
+Dispatch on row shape - round-trips the JSONL coming off a runner.
 
 <PySourceCode >
 
 ```python
 def from_dict(row: dict) -> Union[ChatMessagesRow, HarborTask, PromptExample]:
-    """Dispatch on row shape — round-trips the JSONL coming off a runner."""
+    """Dispatch on row shape - round-trips the JSONL coming off a runner."""
     fmt = detect_format(row)
     if fmt == "chat_messages":  return chat_messages_row_from_dict(row)
     if fmt == "harbor_task":    return harbor_task_from_dict(row)
     if fmt == "prompt_dataset": return prompt_example_from_dict(row)
-    raise ValueError(f"can't dispatch row — unknown format: keys={sorted(row.keys())[:6]}")
+    raise ValueError(f"can't dispatch row - unknown format: keys={sorted(row.keys())[:6]}")
 ```
 
 </PySourceCode>
@@ -401,7 +401,7 @@ This is the standardized boundary between the transform stage and a
 StepBuilder/algorithm: ``raw rows -> transforms -> parse_rows(fmt) -> typed
 rows``. ``fmt`` is a :class:`TargetFormat` (or its string value). Every row
 must match ``fmt`` per :func:`detect_format`; a mismatch raises
-``ValueError`` naming the offending row — no silent coercion, mirroring the
+``ValueError`` naming the offending row - no silent coercion, mirroring the
 SDK's ``extra='forbid'`` philosophy. Tokenization/rollout stays downstream,
 owned by the algorithm.
 
@@ -418,7 +418,7 @@ def parse_rows(
     StepBuilder/algorithm: ``raw rows -> transforms -> parse_rows(fmt) -> typed
     rows``. ``fmt`` is a :class:`TargetFormat` (or its string value). Every row
     must match ``fmt`` per :func:`detect_format`; a mismatch raises
-    ``ValueError`` naming the offending row — no silent coercion, mirroring the
+    ``ValueError`` naming the offending row - no silent coercion, mirroring the
     SDK's ``extra='forbid'`` philosophy. Tokenization/rollout stays downstream,
     owned by the algorithm.
     """

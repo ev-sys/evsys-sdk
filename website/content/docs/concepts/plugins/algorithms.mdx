@@ -1,12 +1,12 @@
 ---
 title: Algorithms
-description: The training recipe — SFT, RL, distillation, or any custom loss — that decides what each batch contains.
+description: The training recipe - SFT, RL, distillation, or any custom loss - that decides what each batch contains.
 ---
 
 An **algorithm** is a training recipe. It owns one thing the rest of the stack
 does not: *how each step's batch is built and which loss it trains under*.
-Everything else — backend allocation, step/save cadence, evaluators, logging,
-artifacts — is shared plumbing. **Any** algorithm is supported (LoRA on any
+Everything else - backend allocation, step/save cadence, evaluators, logging,
+artifacts - is shared plumbing. **Any** algorithm is supported (LoRA on any
 model, any loss) by overriding a single method, so you write your own whenever
 the recipe differs from SFT/RL/SDFT.
 
@@ -15,10 +15,10 @@ the recipe differs from SFT/RL/SDFT.
 At the protocol level (`src/evsys_sdk/protocols.py`), an algorithm declares two
 ClassVars and implements one method:
 
-- **`name: ClassVar[str]`** — registry key and the YAML `algorithm.kind`.
-- **`Config: ClassVar[type]`** — a Pydantic model for the recipe's params,
+- **`name: ClassVar[str]`** - registry key and the YAML `algorithm.kind`.
+- **`Config: ClassVar[type]`** - a Pydantic model for the recipe's params,
   validated against `algorithm.params` in YAML.
-- **`train(self, ctx: RunContext) -> RunResult`** — execute one full run.
+- **`train(self, ctx: RunContext) -> RunResult`** - execute one full run.
   - `ctx: RunContext` carries everything the run needs: `run_id`, `output_dir`,
     `config` (the parsed `ExperimentConfig`), `data_store`, `log_store`,
     `backend`, and a free-form `extras` dict (where the backend handles, the
@@ -43,7 +43,7 @@ algorithm overrides just the per-recipe pieces:
 
 - **`async build_batch(self, step_idx: int) -> TrainingBatch`**
   Produce the batch for `step_idx` (0-based). SFT slices its static datums; RL
-  and SDFT roll out **on-policy** here. **The loss rides on the returned batch —
+  and SDFT roll out **on-policy** here. **The loss rides on the returned batch -
   there is no separate loss override.** Returns a `TrainingBatch`.
 
 - **`step_metrics(self, step_idx: int, batch: TrainingBatch, fb_result: Any) -> dict[str, float]`**
@@ -59,26 +59,26 @@ algorithm overrides just the per-recipe pieces:
 `callbacks`, and Adam knobs. A subclass adds its own and may re-declare a field
 to change its default (RL drops `learning_rate` to `1e-5`).
 
-### `TrainingBatch` — where the loss lives
+### `TrainingBatch` - where the loss lives
 
 From `src/evsys_sdk/training/loop.py`, the dataclass `build_batch` returns:
 
-- **`data: list[tinker.Datum]`** — the step's training examples. The loss mask on
+- **`data: list[tinker.Datum]`** - the step's training examples. The loss mask on
   each Datum decides which tokens are supervised (the algorithm's call, not the
   dataset's).
-- **`loss_fn: tinker.types.LossFnType | LossCallable`** — *either* a
+- **`loss_fn: tinker.types.LossFnType | LossCallable`** - *either* a
   server-recognized string name (`"cross_entropy"`, `"importance_sampling"`, …)
   for a server-side loss, *or* a Python callable for a client-side custom loss.
   The loop dispatches the right backend method based on the type:
   `forward_backward_async` for a string, `forward_backward_custom_async` for a
   callable. A `LossCallable` is `Callable[[model_output, batch_metadata], Any]`
   returning a scalar tensor for the backward pass.
-- **`loss_fn_config: dict[str, Any] | None`** — extra loss params; only used when
+- **`loss_fn_config: dict[str, Any] | None`** - extra loss params; only used when
   `loss_fn` is a string.
-- **`metrics: dict[str, float]`** — algorithm-precomputed per-step metrics (e.g.
+- **`metrics: dict[str, float]`** - algorithm-precomputed per-step metrics (e.g.
   reward stats, teacher entropy) merged into the per-step log row.
 
-This is the seam for **any loss**: focal loss, DPO, GRPO, a custom RL objective —
+This is the seam for **any loss**: focal loss, DPO, GRPO, a custom RL objective -
 override `build_batch`, set the `loss_fn`, and the shared loop drives it.
 
 ## Use a built-in
@@ -106,7 +106,7 @@ algorithm:
 
 ## Create your own
 
-Subclass a concrete recipe and override one method — here, SFT with a custom
+Subclass a concrete recipe and override one method - here, SFT with a custom
 client-side loss:
 
 ```python
@@ -161,7 +161,7 @@ my_dpo = "my_pkg.algorithms:MyDPO"
 ```
 
 Importing `evsys_sdk` imports the target module, running its `@register_algorithm`
-decorator — the recipe is selectable by name from any `config.yaml`, no SDK fork.
+decorator - the recipe is selectable by name from any `config.yaml`, no SDK fork.
 
 <Cards>
   <Card title="Backends" href="/docs/concepts/plugins/backends" />

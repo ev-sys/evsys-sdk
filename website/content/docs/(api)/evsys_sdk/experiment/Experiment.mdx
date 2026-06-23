@@ -115,7 +115,7 @@ def run(self) -> ExperimentResult:
 
     # When n_repeats > 1, register one dashboard group per primary
     # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
-    # previous behavior — no groups, no group_id on runs.
+    # previous behavior - no groups, no group_id on runs.
     # TODO : even when n_repeats == 1, we should create a group.
     primaries = self._iter_runs()
     n_repeats = self.config.n_repeats
@@ -215,7 +215,7 @@ def _iter_runs(self) -> list[RunConfig]:
 
 Per-primary seed replicates.
 
-For ``n_repeats == 1``: returns ``[(primary, None)]`` — no group.
+For ``n_repeats == 1``: returns ``[(primary, None)]`` - no group.
 For ``n_repeats > 1``: returns N tuples of
 ``(\<RunConfig with name=primary.name__s\<seed> and seed=\<seed>>, primary.name)``.
 Seeds run ``[base_seed, base_seed+1, ...]`` when ``base_seed`` is set,
@@ -227,7 +227,7 @@ else ``[primary.seed, primary.seed+1, ...]``.
 def _replicates_for(self, primary: RunConfig) -> list[tuple[RunConfig, str | None]]:
     """Per-primary seed replicates.
 
-    For ``n_repeats == 1``: returns ``[(primary, None)]`` — no group.
+    For ``n_repeats == 1``: returns ``[(primary, None)]`` - no group.
     For ``n_repeats > 1``: returns N tuples of
     ``(<RunConfig with name=primary.name__s<seed> and seed=<seed>>, primary.name)``.
     Seeds run ``[base_seed, base_seed+1, ...]`` when ``base_seed`` is set,
@@ -309,7 +309,7 @@ def _resolve_benchmarks(
         bench = Benchmark.load(spec, store=self.store)
         if bench is None:
             continue
-        # Default a name when missing — required for list form, harmless for single.
+        # Default a name when missing - required for list form, harmless for single.
         spec = dict(spec)
         spec.setdefault("name", str(spec.get("id") or spec.get("path") or f"benchmark_{i}"))
         out.append((bench, spec))
@@ -555,7 +555,7 @@ def _resolve_run_dir(self, arm: ArmResult) -> Path | None:
 User-supplied factory wins; otherwise pick a default by backend kind.
 
 Falls back to the registry's ``get_default_inference_factory`` so we
-don't have to import backend-specific inference modules here — e.g.
+don't have to import backend-specific inference modules here - e.g.
 ``tinker`` registers its own default at module load.
 
 <PySourceCode >
@@ -565,7 +565,7 @@ def _resolve_inference_factory(self, run_cfg: RunConfig) -> InferenceFactory | N
     """User-supplied factory wins; otherwise pick a default by backend kind.
 
     Falls back to the registry's ``get_default_inference_factory`` so we
-    don't have to import backend-specific inference modules here — e.g.
+    don't have to import backend-specific inference modules here - e.g.
     ``tinker`` registers its own default at module load.
     """
     if self.inference_factory is not None:
@@ -591,18 +591,18 @@ def _resolve_inference_factory(self, run_cfg: RunConfig) -> InferenceFactory | N
 Score each post-training benchmark and attach an EvalResult per entry.
 
 ``score_api_models=False`` skips the closed/API-model (``benchmark.models``)
-evals — used for continual stages after the first, since a closed model's
+evals - used for continual stages after the first, since a closed model's
 weights are fixed across stages so one scoring suffices (only the trained
 checkpoint, which changes per stage, is re-scored).
 
 Entries flagged with ``run_every`` are in-loop and skipped here (their
-scoring happens during training in the algorithm wrapper — task
+scoring happens during training in the algorithm wrapper - task
 commit 2). Entries without ``run_every`` get a single post-training
 ``EvalResult`` appended to ``arm.evals``.
 
 After all benchmarks score, the flat back-compat fields
 (``arm.eval_metrics`` / ``eval_breakdowns`` / ``eval_seconds``)
-mirror the **primary** eval — the first ``test``-tagged
+mirror the **primary** eval - the first ``test``-tagged
 post-training row, else the first post-training row, else nothing.
 
 <PySourceCode >
@@ -620,24 +620,24 @@ def _eval_arm(
     """Score each post-training benchmark and attach an EvalResult per entry.
 
     ``score_api_models=False`` skips the closed/API-model (``benchmark.models``)
-    evals — used for continual stages after the first, since a closed model's
+    evals - used for continual stages after the first, since a closed model's
     weights are fixed across stages so one scoring suffices (only the trained
     checkpoint, which changes per stage, is re-scored).
 
     Entries flagged with ``run_every`` are in-loop and skipped here (their
-    scoring happens during training in the algorithm wrapper — task
+    scoring happens during training in the algorithm wrapper - task
     commit 2). Entries without ``run_every`` get a single post-training
     ``EvalResult`` appended to ``arm.evals``.
 
     After all benchmarks score, the flat back-compat fields
     (``arm.eval_metrics`` / ``eval_breakdowns`` / ``eval_seconds``)
-    mirror the **primary** eval — the first ``test``-tagged
+    mirror the **primary** eval - the first ``test``-tagged
     post-training row, else the first post-training row, else nothing.
     """
     assert arm.run_result is not None
     for bench, bench_meta in benchmarks:
         # Closed-source / API models (``benchmark.models: [...]``) have static
-        # weights, so they're scored exactly ONCE post-training — never on the
+        # weights, so they're scored exactly ONCE post-training - never on the
         # in-loop ``run_every`` cadence (that's for the changing checkpoint),
         # and in continual runs only on the first stage (``score_api_models``).
         # Run them up-front, regardless of run_every; one eval per model via
@@ -653,14 +653,14 @@ def _eval_arm(
         if str(bench_meta.get("engine", "")).lower() == "harbor":
             self._eval_arm_harbor(arm, run_cfg, bench, bench_meta)
         else:
-            # Legacy in-process path — the ONLY path needing an inference
+            # Legacy in-process path - the ONLY path needing an inference
             # client. Resolve it lazily here so harbor / api-model benchmarks
             # above never depend on a factory they don't use.
             factory = self._resolve_inference_factory(run_cfg)
             if factory is None:
                 logger.warning(
                     "benchmark %r has no engine: harbor and backend %r provides no "
-                    "inference factory — skipping (set engine: harbor or supply one)",
+                    "inference factory - skipping (set engine: harbor or supply one)",
                     bench_meta.get("name"), run_cfg.backend.kind,
                 )
                 continue
@@ -730,7 +730,7 @@ Score one benchmark through harbor's rollout engine and upload the
 eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``.
 
 ``api_model`` (a litellm string) scores a closed / API model instead of
-the trained checkpoint — same rollout path, ``model_client='litellm'``,
+the trained checkpoint - same rollout path, ``model_client='litellm'``,
 recorded as its own per-model eval. ``None`` → the trained checkpoint.
 
 <PySourceCode >
@@ -744,7 +744,7 @@ def _eval_arm_harbor(
     eval rollouts (kind='eval'). Opt-in via ``benchmark.engine: harbor``.
 
     ``api_model`` (a litellm string) scores a closed / API model instead of
-    the trained checkpoint — same rollout path, ``model_client='litellm'``,
+    the trained checkpoint - same rollout path, ``model_client='litellm'``,
     recorded as its own per-model eval. ``None`` → the trained checkpoint.
     """
     import asyncio
@@ -760,8 +760,8 @@ def _eval_arm_harbor(
     # One eval per (benchmark, model): the checkpoint and each API model are
     # distinct results, named/tagged by model so they don't collide.
     eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
-    # Persist eval rollouts under the run's output dir — alongside training's
-    # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
+    # Persist eval rollouts under the run's output dir - alongside training's
+    # ``harbor_rollouts/`` and validation's ``harbor_val/`` - so the eval
     # trial dirs survive the run instead of vanishing with a tempdir.
     run_dir = self._resolve_run_dir(arm)
     if run_dir is not None:
@@ -808,7 +808,7 @@ def _eval_arm_harbor(
         arm.evals[-1], preds, step=None,
     )
     # Upload eval rollouts only (training rollouts are never uploaded), and
-    # only once they have an eval_id to hang off of — orphan predictions
+    # only once they have an eval_id to hang off of - orphan predictions
     # can't be told apart from other evals on the same run.
     if self.store is not None and arm.run_id:
         if eval_id is None:

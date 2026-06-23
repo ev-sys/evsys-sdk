@@ -7,29 +7,29 @@ A **backend** is the seam between an algorithm and the machine that runs it. Its
 one job is to materialize a model plus its training resources (a client, a
 tokenizer, a service handle) and pass them along so the algorithm stays
 hardware-agnostic. You'd write your own to put the SDK on any **Tinker-compatible**
-training server — anything that exposes the Tinker training-server API, such as
-Fireworks, TML, or SkyRL — without touching algorithm code.
+training server - anything that exposes the Tinker training-server API, such as
+Fireworks, TML, or SkyRL - without touching algorithm code.
 
 ## The contract
 
 A backend is any class satisfying the `Backend` protocol in
 `src/evsys_sdk/protocols.py`. It declares one ClassVar and implements two methods:
 
-- **`name: ClassVar[str]`** — the registry key, also the string you write under
+- **`name: ClassVar[str]`** - the registry key, also the string you write under
   `backend.kind` in YAML (`"tinker"`, `"local"`, `"mock"`).
-- **`Config: ClassVar[type]`** — a Pydantic model (`extra="forbid"`) describing
+- **`Config: ClassVar[type]`** - a Pydantic model (`extra="forbid"`) describing
   the backend's params. Whatever you put under `backend.params` in YAML is
   validated against this before the backend is constructed.
 
 - **`prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]`**
   Called once before training. Both arguments are keyword-only.
-  - `model` — a dict describing the model to fine-tune. It carries at least
+  - `model` - a dict describing the model to fine-tune. It carries at least
     `model["name"]` (the HuggingFace identifier), and optionally
     `model["load_checkpoint_path"]`, `model["init_from_checkpoint"]`, and
     `model["renderer_name"]` (these come straight from the YAML `model:` block).
-  - `run_dir` — the local filesystem directory this run may write to.
+  - `run_dir` - the local filesystem directory this run may write to.
   - **Returns** a dict of backend-specific *handles* that the runner attaches to
-    `ctx.extras["backend_handles"]`. The algorithm reads from it — e.g. a tinker
+    `ctx.extras["backend_handles"]`. The algorithm reads from it - e.g. a tinker
     run needs `{"backend": "tinker", "service_client": ..., "model_name": ...,
     "renderer_name": ..., "run_dir": ...}`; a local run needs
     `{"model": <hf_model>, "tokenizer": ..., ...}`. The keys are a private
@@ -122,7 +122,7 @@ fireworks = "my_pkg.backends:FireworksBackend"
 ```
 
 Importing `evsys_sdk` walks that group and imports the target module, running its
-`@register_backend` decorator — your backend is available by name with no SDK fork.
+`@register_backend` decorator - your backend is available by name with no SDK fork.
 
 <Cards>
   <Card title="Algorithms" href="/docs/concepts/plugins/algorithms" />

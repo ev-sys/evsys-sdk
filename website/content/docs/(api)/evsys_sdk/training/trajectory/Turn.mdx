@@ -8,7 +8,7 @@ One assistant turn of a rollout.
 (system + prior turns + the latest observation); ``completion_tokens`` /
 ``logprobs`` are the sampled response. A single-turn rollout has exactly one.
 
-``logprobs`` is optional — on-policy tinker rollouts populate it (training
+``logprobs`` is optional - on-policy tinker rollouts populate it (training
 needs it), but eval / closed-API rollouts often have none. Defaults to empty.
 
 ## Attributes

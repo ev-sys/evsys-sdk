@@ -6,15 +6,15 @@ Turn :class:`~evsys_sdk.training.env.TrajectoryGroup`\s into
 ``list[tinker.Datum]`` ready for IS-loss training.
 
 Port of ``tinker_cookbook.rl.data_processing.compute_advantages`` +
-``assemble_training_data``. Both are pure functions — no I/O, no
+``assemble_training_data``. Both are pure functions - no I/O, no
 tinker_cookbook dependency.
 
 The two-step pipeline:
 
-1. :func:`compute_advantages` — group-normalize rewards within each
+1. :func:`compute_advantages` - group-normalize rewards within each
    :class:`TrajectoryGroup` (subtract the group mean → reduces variance
    without bias).
-2. :func:`assemble_training_data` — flatten to a ``list[tinker.Datum]``
+2. :func:`assemble_training_data` - flatten to a ``list[tinker.Datum]``
    with ``loss_fn_inputs`` = ``target_tokens`` + per-position ``advantages``
    (0 off-completion → masks the loss) + ``logprobs`` from the sampler (the
    "old" logprobs for the IS ratio). These are the only keys tinker's
@@ -39,7 +39,7 @@ The two-step pipeline:
 
 <PyFunction name={"compute_advantages"} type={"(trajectory_groups, *, normalize=True) -> list[list[float]]"}>
 
-Return ``advantages[group][traj]`` — per-trajectory scalar advantages.
+Return ``advantages[group][traj]`` - per-trajectory scalar advantages.
 
 ``normalize=True`` subtracts the group mean from each trajectory's reward
 (standard variance-reduction baseline). When a group has only one
@@ -53,7 +53,7 @@ def compute_advantages(
     *,
     normalize: bool = True,
 ) -> list[list[float]]:
-    """Return ``advantages[group][traj]`` — per-trajectory scalar advantages.
+    """Return ``advantages[group][traj]`` - per-trajectory scalar advantages.
 
     ``normalize=True`` subtracts the group mean from each trajectory's reward
     (standard variance-reduction baseline). When a group has only one
@@ -89,7 +89,7 @@ def compute_advantages(
 
 Flatten ``(group, trajectory, turn)`` → ``(Datum, DatumMetadata)`` pairs.
 
-**One Datum per assistant turn** — a single-turn trajectory yields one
+**One Datum per assistant turn** - a single-turn trajectory yields one
 Datum, a multi-turn one yields one per turn, all carrying the same
 trajectory-level advantage. Each Datum carries:
 
@@ -98,11 +98,11 @@ trajectory-level advantage. Each Datum carries:
   * ``loss_fn_inputs["logprobs"]``: sampler's per-position logprobs (zero on
     prompt positions). The "old" logprobs for the IS ratio.
   * ``loss_fn_inputs["advantages"]``: the trajectory's group-normalized
-    reward on completion positions; 0 on prompt positions — which is what
+    reward on completion positions; 0 on prompt positions - which is what
     masks the loss to the completion (tinker's ``importance_sampling`` takes
     no mask/weights key, only target_tokens + logprobs + advantages).
 
-Turns with no completion tokens are dropped silently — IS loss is a no-op.
+Turns with no completion tokens are dropped silently - IS loss is a no-op.
 
 <PySourceCode >
 
@@ -113,7 +113,7 @@ def assemble_training_data(
 ) -> tuple[list[tinker.Datum], list[DatumMetadata]]:
     """Flatten ``(group, trajectory, turn)`` → ``(Datum, DatumMetadata)`` pairs.
 
-    **One Datum per assistant turn** — a single-turn trajectory yields one
+    **One Datum per assistant turn** - a single-turn trajectory yields one
     Datum, a multi-turn one yields one per turn, all carrying the same
     trajectory-level advantage. Each Datum carries:
 
@@ -122,11 +122,11 @@ def assemble_training_data(
       * ``loss_fn_inputs["logprobs"]``: sampler's per-position logprobs (zero on
         prompt positions). The "old" logprobs for the IS ratio.
       * ``loss_fn_inputs["advantages"]``: the trajectory's group-normalized
-        reward on completion positions; 0 on prompt positions — which is what
+        reward on completion positions; 0 on prompt positions - which is what
         masks the loss to the completion (tinker's ``importance_sampling`` takes
         no mask/weights key, only target_tokens + logprobs + advantages).
 
-    Turns with no completion tokens are dropped silently — IS loss is a no-op.
+    Turns with no completion tokens are dropped silently - IS loss is a no-op.
     """
     datums: list[tinker.Datum] = []
     metas: list[DatumMetadata] = []

@@ -2,7 +2,7 @@
 title: rl
 ---
 
-RL — on-policy reinforcement learning, rollouts run by harbor's engine.
+RL - on-policy reinforcement learning, rollouts run by harbor's engine.
 
 Rollouts are handed to **harbor's ``Job`` engine** (retries, bounded
 concurrency, timeouts, persistence) via
@@ -13,9 +13,9 @@ returned trajectories into importance-sampling-loss Datums.
 Composer plumbing lives in :class:`~evsys_sdk.algorithms.base.BaseAlgorithm`;
 RL supplies:
 
-* :meth:`setup` — parse ``HarborTask`` rows; stash the backend + the
+* :meth:`setup` - parse ``HarborTask`` rows; stash the backend + the
   ``.evsys`` rollout workspace.
-* :meth:`build_batch` — save a sampler checkpoint (on-policy), roll out the
+* :meth:`build_batch` - save a sampler checkpoint (on-policy), roll out the
   batch via harbor, group-normalize advantages, emit IS-loss Datums.
 
 The agent harness is pluggable: by default harbor runs our ``BasicLoopAgent``

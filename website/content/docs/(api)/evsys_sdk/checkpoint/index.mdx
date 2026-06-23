@@ -2,7 +2,7 @@
 title: checkpoint
 ---
 
-Checkpoint — parse the `checkpoints.jsonl` manifests algorithms write.
+Checkpoint - parse the `checkpoints.jsonl` manifests algorithms write.
 
 Tinker SFT/RL (and any other algorithm that follows the same convention)
 appends one JSON row per saved checkpoint to ``\<output_dir>/checkpoints.jsonl``:
@@ -13,10 +13,10 @@ appends one JSON row per saved checkpoint to ``\<output_dir>/checkpoints.jsonl``
 Researcher scripts repeatedly hand-roll a few lines to find this manifest,
 parse it, and pick the right row to evaluate against. This module gives them:
 
-  * ``Checkpoint`` — one row, typed.
-  * ``read_manifest(path)`` — full ordered list.
-  * ``find_manifest(run_dir)`` — locate the manifest under a run directory.
-  * ``Checkpoint.pick_final(checkpoints)`` — pick the "evaluate me" row
+  * ``Checkpoint`` - one row, typed.
+  * ``read_manifest(path)`` - full ordered list.
+  * ``find_manifest(run_dir)`` - locate the manifest under a run directory.
+  * ``Checkpoint.pick_final(checkpoints)`` - pick the "evaluate me" row
     (prefer ``name == "final"``, else the last row that exposes a path).
 
 <PyAttribute name={"MANIFEST_NAME"} type={null} value={"'checkpoints.jsonl'"} />
@@ -41,7 +41,7 @@ parse it, and pick the right row to evaluate against. This module gives them:
 Parse a checkpoints.jsonl into ordered Checkpoint rows.
 
 Blank lines are skipped; malformed JSON raises ``ValueError`` (don't
-silently lose checkpoint pointers — the eval step depends on them).
+silently lose checkpoint pointers - the eval step depends on them).
 
 <PySourceCode >
 
@@ -50,7 +50,7 @@ def read_manifest(path: str | Path) -> list[Checkpoint]:
     """Parse a checkpoints.jsonl into ordered Checkpoint rows.
 
     Blank lines are skipped; malformed JSON raises ``ValueError`` (don't
-    silently lose checkpoint pointers — the eval step depends on them).
+    silently lose checkpoint pointers - the eval step depends on them).
     """
     p = Path(path)
     if not p.is_file():

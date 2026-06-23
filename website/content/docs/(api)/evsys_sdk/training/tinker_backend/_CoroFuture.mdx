@@ -8,7 +8,7 @@ Bridge tinker's coroutine-returning ``*_async`` methods to the
 The loop fires forward_backward / optim WITHOUT awaiting, then awaits each
 one's ``result_async()`` (the shape :class:`MockBackend` implements). But
 tinker's ``forward_backward_async`` / ``optim_step_async`` are *coroutine
-functions* — calling them returns an un-awaited coroutine, not a future.
+functions* - calling them returns an un-awaited coroutine, not a future.
 This wraps that coroutine so ``await wrapper.result_async()`` awaits the
 coroutine to obtain the tinker future, then awaits the future's result.
 

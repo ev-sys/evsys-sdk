@@ -7,14 +7,14 @@ Benchmark / validation evaluation through harbor's rollout engine.
 Eval reuses the *same* engine as training: a benchmark is a set of
 :class:`~evsys_sdk.data_types.HarborTask`\s (instruction + verifier), so
 scoring it is just :func:`~evsys_sdk.training.harbor_engine.run_harbor_rollouts`
-over those tasks — the verifier reward *is* the eval score.
+over those tasks - the verifier reward *is* the eval score.
 
 Unlike training, eval rollouts are **uploaded to the dashboard** (Supabase)
 with ``kind='eval'`` via :func:`upload_eval_rollouts`. (Training rollouts stay
 on disk in the run workspace and are never uploaded.)
 
 The metrics / prediction builders are pure functions over
-:class:`TrajectoryGroup`\s — harbor-free and directly testable.
+:class:`TrajectoryGroup`\s - harbor-free and directly testable.
 
 <PyAttribute name={"logger"} type={null} value={"logging.getLogger(__name__)"} />
 
@@ -150,7 +150,7 @@ def _task_usage_means(group: TrajectoryGroup) -> dict[str, float | None]:
 </PyFunction>
 <PyFunction name={"eval_predictions"} type={"(tasks, groups, *, eval_id=None, step=None) -> list[dict]"}>
 
-Build dashboard prediction rows (``kind='eval'``) — one per
+Build dashboard prediction rows (``kind='eval'``) - one per
 (task, sample). Carries the token-level rollout + reward for the eval.
 
 <PySourceCode >
@@ -163,7 +163,7 @@ def eval_predictions(
     eval_id: str | None = None,
     step: int | None = None,
 ) -> list[dict]:
-    """Build dashboard prediction rows (``kind='eval'``) — one per
+    """Build dashboard prediction rows (``kind='eval'``) - one per
     (task, sample). Carries the token-level rollout + reward for the eval."""
     rows: list[dict] = []
     for task, group in zip(tasks, groups):
@@ -180,7 +180,7 @@ def eval_predictions(
                 "expected": getattr(task.verifier, "expected", None),
                 "reward": traj.reward,
                 "completion_token_ids": last.completion_tokens if last else [],
-                # Per-task time + tokens are persisted inside ``metadata`` — the
+                # Per-task time + tokens are persisted inside ``metadata`` - the
                 # one JSON column both the local and remote prediction stores
                 # keep. Top-level prediction columns are fixed, so anything
                 # outside ``metadata`` is dropped by the remote backend.

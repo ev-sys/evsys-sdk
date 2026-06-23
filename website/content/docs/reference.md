@@ -3,14 +3,14 @@ title: SDK Reference
 description: The full hand-written reference for configs, CLI, and protocols.
 ---
 
-# evsys-sdk — SDK Reference
+# evsys-sdk - SDK Reference
 
 > Package: `evsys_sdk` · Distribution: `evsys-sdk` · Version: `0.1.0` · Python ≥ 3.12 · License: MIT
 > CLI entry point: `evsys`
 
 A declarative, modular framework for LLM training experiments (SFT, RL,
-distillation, prompt tuning). A single YAML file describes a full experiment —
-**data → train → eval** — and every moving part (algorithm, backend, metric,
+distillation, prompt tuning). A single YAML file describes a full experiment -
+**data → train → eval** - and every moving part (algorithm, backend, metric,
 store, …) is a pluggable extension registered by a decorator. The same YAML
 runs on a mock backend (tests), locally on TRL/PEFT, or remotely on Tinker.
 
@@ -62,7 +62,7 @@ Optional dependency extras (`pyproject.toml`):
 | `dev` | `pytest`, `pytest-asyncio`, `ruff` | Development |
 
 Core dependencies are minimal: `pydantic>=2.10`, `pyyaml`, `typing-extensions`,
-`requests`. The core imports **zero** training/Supabase code — heavy deps load
+`requests`. The core imports **zero** training/Supabase code - heavy deps load
 lazily only when the relevant extension actually runs.
 
 For real Tinker runs: `export TINKER_API_KEY=...`.
@@ -143,7 +143,7 @@ Three ideas hold it together:
   registered class's `.Config` Pydantic model. This indirection is what lets an
   evolution loop mutate YAML safely without importing typed classes.
 - **Protocols, not base classes.** Extensions satisfy a `typing.Protocol`
-  (PEP 544) — any class with the right methods works; no subclassing the
+  (PEP 544) - any class with the right methods works; no subclassing the
   library, so a third-party extension never has to "import the world."
 - **One registry per extension point**, each with its own decorator and Python
   entry-point group, so external packages auto-extend the registries on import.
@@ -155,12 +155,12 @@ Three ideas hold it together:
 Defined in `config.py`. All models inherit `_Strict` → `extra="forbid"`, so a
 typo'd key is rejected loudly (critical when an algorithm is mutating the YAML).
 
-### `ExperimentConfig` — the root
+### `ExperimentConfig` - the root
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `version` | `int` | `1` | Schema version; advisory, bumped on breaking changes |
-| `name` | `str` | — | Required |
+| `name` | `str` | - | Required |
 | `description` | `str` | `""` | |
 | `output_dir` | `str` | `"./outputs"` | Where local artifacts/logs are written |
 | `data_store` | `DataStoreSpec` | `{kind: local}` | |
@@ -173,14 +173,14 @@ typo'd key is rejected loudly (critical when an algorithm is mutating the YAML).
 
 `model_post_init` enforces that **exactly one** of `run` / `runs` / `matrix` is set.
 
-### `RunConfig` — one training run
+### `RunConfig` - one training run
 
 | Field | Type | Default |
 |---|---|---|
-| `name` | `str` | — (unique within experiment) |
-| `data` | `DataConfig` | — |
-| `model` | `ModelConfig` | — |
-| `algorithm` | `AlgorithmConfig` | — |
+| `name` | `str` | - (unique within experiment) |
+| `data` | `DataConfig` | - |
+| `model` | `ModelConfig` | - |
+| `algorithm` | `AlgorithmConfig` | - |
 | `backend` | `BackendConfig` | `{kind: tinker}` |
 | `eval` | `EvalConfig` | enabled, no metrics |
 | `seed` | `int` | `42` |
@@ -279,7 +279,7 @@ a YAML path, expands matrix, then for **each** `RunConfig` calls `_execute_run`:
 8. **`log_store.log_hyperparams(...)`** (experiment/run name, model, backend, tags).
 9. **`algorithm.train(ctx) -> RunResult`** inside try/finally; on exception →
    `status="failed"`. `backend.teardown(handles)` always runs in `finally`.
-10. **Eval (best-effort)** — only if `status == "completed"`. Any eval exception
+10. **Eval (best-effort)** - only if `status == "completed"`. Any eval exception
     is logged and swallowed; **eval never fails the run**. Eval metrics are
     merged into `result.metrics` under `eval/<metric_kind>` keys and logged.
 11. **`log_store.close()`** then **persist** `run_dir/run_result.json`
@@ -305,17 +305,17 @@ key); most also declare `Config: ClassVar[type]` (a Pydantic model for `params`)
 
 ### Run dataclasses (passed to every algorithm)
 
-**`RunContext`** — everything an algorithm needs:
+**`RunContext`** - everything an algorithm needs:
 `run_id`, `output_dir`, `config` (the parsed `ExperimentConfig`), `data_store`,
-`log_store`, `backend`, `extras: dict` (free bag — e.g. `train_rows`,
+`log_store`, `backend`, `extras: dict` (free bag - e.g. `train_rows`,
 `backend_handles`, tinker `training_client`).
 
-**`RunResult`** — what `train` returns:
+**`RunResult`** - what `train` returns:
 `run_id`, `status` (`"completed"|"failed"|"cancelled"`),
 `metrics: dict[str,float]`, `artifacts: dict[str,str]` (e.g.
 `{"final_checkpoint": "s3://…"}`), `error: str?`, `extras: dict`.
 
-**`VerificationResult`** — `reward: float`, `info: dict`.
+**`VerificationResult`** - `reward: float`, `info: dict`.
 
 ### Protocol contracts
 
@@ -324,8 +324,8 @@ key); most also declare `Config: ClassVar[type]` (a Pydantic model for `params`)
 | `Algorithm` | `train(ctx: RunContext)` | `RunResult` |
 | `Verifier` | `verify(*, prompt, completion, target)` | `VerificationResult` |
 | `Metric` | `compute(*, predictions, targets)` | `float` |
-| `DataStore` | `read_jsonl/write_jsonl/read_json/write_json/exists/list` | — |
-| `LogStore` | `log_scalar/log_metrics/log_hyperparams/log_artifact/close` | — |
+| `DataStore` | `read_jsonl/write_jsonl/read_json/write_json/exists/list` | - |
+| `LogStore` | `log_scalar/log_metrics/log_hyperparams/log_artifact/close` | - |
 | `Backend` | `prepare(*, model, run_dir) -> dict`, `teardown(handles)` | handles dict |
 | `InferenceClient` | `generate(*, prompt, max_tokens, temperature, stop)` | `str` |
 | `Transform` | callable `__call__(rows) -> rows` | rows |
@@ -387,16 +387,16 @@ stack with no conversion.
 `VerifierPayload = InProcessVerifier | E2BVerifier | LLMJudgeVerifier`,
 discriminated by `.kind`:
 
-- **`InProcessVerifier`** (`in_process`) — `fn_name`, `expected`, `params`. A
+- **`InProcessVerifier`** (`in_process`) - `fn_name`, `expected`, `params`. A
   registered Python fn called as `fn(completion, expected, **params)`. Sub-ms;
   use for tool-call/exact match.
-- **`E2BVerifier`** (`e2b`) — `dockerfile`, `test_sh`, `test_state_py`. Runs the
+- **`E2BVerifier`** (`e2b`) - `dockerfile`, `test_sh`, `test_state_py`. Runs the
   model output + tests inside an E2B sandbox; pass/fail from exit code.
-- **`LLMJudgeVerifier`** (`llm_judge`) — `judge_model`, `rubric`. Judge scores
+- **`LLMJudgeVerifier`** (`llm_judge`) - `judge_model`, `rubric`. Judge scores
   the completion against the rubric.
 
 > These describe the *verification plan*. The runtime `Verifier` **Protocol**
-> (in `protocols.py`) is what actually executes verification — deliberately
+> (in `protocols.py`) is what actually executes verification - deliberately
 > separate concepts.
 
 ### Multimodal & helpers
@@ -445,7 +445,7 @@ YAML can now use `algorithm: { kind: cosine_toy, params: { steps: 200 } }`.
 **Registry behavior:** duplicate keys raise unless the same class;
 `register(name)` also sets `cls.name = name`; `get` raises a `KeyError` listing
 available keys. `schema_for(kind, name)` returns the `.Config`'s
-`model_json_schema()` — this is exactly what an evolution loop reads to learn the
+`model_json_schema()` - this is exactly what an evolution loop reads to learn the
 legal mutation space.
 
 **Same pattern** for every point: `register_verifier`, `register_metric`,
@@ -454,7 +454,7 @@ legal mutation space.
 
 ### External packages via entry points
 
-No fork needed — declare in your `pyproject.toml`:
+No fork needed - declare in your `pyproject.toml`:
 
 ```toml
 [project.entry-points."evsys_sdk.algorithms"]
@@ -488,7 +488,7 @@ evsys eval model ...                      # evaluate a checkpoint over the eval 
 
 ## 12. Eval harness
 
-`evsys_sdk.eval` — generic, domain-agnostic eval infra for scoring model
+`evsys_sdk.eval` - generic, domain-agnostic eval infra for scoring model
 outputs (pass@k + alias matching). Every inference call is wrapped in
 `call_with_retry` (exponential backoff); exhausted failures surface via a
 `RetryReport` instead of aborting. Project-specific eval harnesses build on this
@@ -496,13 +496,13 @@ infra in their own repos.
 
 Public surface:
 
-- **`evaluate_model(...)`** — score an `InferenceClient` (local/tinker/mock checkpoint).
-- **`AliasMatcher`** — alias matching (predicted vs verified aliases).
-- **`score_rows(...)` / `ModelEvalConfig`** — generic scorer + eval config.
-- **`EvalArtifacts` / `EvalSummary`** — result objects; `summary.retry_report`
+- **`evaluate_model(...)`** - score an `InferenceClient` (local/tinker/mock checkpoint).
+- **`AliasMatcher`** - alias matching (predicted vs verified aliases).
+- **`score_rows(...)` / `ModelEvalConfig`** - generic scorer + eval config.
+- **`EvalArtifacts` / `EvalSummary`** - result objects; `summary.retry_report`
   carries `total_failures`.
-- **`RetryReport` / `RetryFailure` / `call_with_retry`** — the retry layer.
-- **`format_summary_markdown(summary, title=)`** — pretty summary.
+- **`RetryReport` / `RetryFailure` / `call_with_retry`** - the retry layer.
+- **`format_summary_markdown(summary, title=)`** - pretty summary.
 - Prompt helpers: `qwen_chat_prompt`, `qwen3_chat_template_prompt`,
   `extract_predicted_slug`, `DEFAULT_SYSTEM[_NO_THINK]`, `score_rows`,
   `load_eval_dataset`.
@@ -525,11 +525,11 @@ local mirror; a 4xx raises `DashboardClientError`.
 | Var | Default | Purpose |
 |---|---|---|
 | `EVSYS_API_URL` | `http://localhost:8000` | Backend base URL |
-| `EVSYS_API_KEY` | — | Issued at dashboard *Settings → API keys* |
-| `EVSYS_PROJECT_ID` | — | Shared per-project id |
+| `EVSYS_API_KEY` | - | Issued at dashboard *Settings → API keys* |
+| `EVSYS_PROJECT_ID` | - | Shared per-project id |
 | `EVSYS_LOG_DIR` | `./evsys_sdk` | Local mirror dir |
 | `EVSYS_OFFLINE` | `false` | Local-mirror-only, no auth |
-| `EVSYS_LOGGING_LEVEL` | — | SDK log level |
+| `EVSYS_LOGGING_LEVEL` | - | SDK log level |
 
 **`ExperimentRun`** is a context-manager wrapper for the common flow:
 

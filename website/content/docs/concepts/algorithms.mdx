@@ -1,11 +1,11 @@
 ---
 title: Algorithms & Evaluation
-description: One contract — train(ctx) -> RunResult — plus an optional gradient toolkit and a test/validation firewall.
+description: One contract - train(ctx) -> RunResult - plus an optional gradient toolkit and a test/validation firewall.
 ---
 
 The algorithm surface is **one required contract** (`train(ctx) -> RunResult`)
 plus an optional gradient toolkit and pluggable evaluation. It runs over any
-tinker-compatible `Backend` — `mock` for tests, `local` for TRL+peft, `tinker`
+tinker-compatible `Backend` - `mock` for tests, `local` for TRL+peft, `tinker`
 for hosted.
 
 ```mermaid
@@ -25,8 +25,8 @@ flowchart TD
     AL --> RR["RunResult<br/>status · metrics · artifacts"]
 
     subgraph EV["Evaluation"]
-        BMK["Benchmark (test — scored once)"]
-        VAL["Validation (in-loop — every N steps)"]
+        BMK["Benchmark (test - scored once)"]
+        VAL["Validation (in-loop - every N steps)"]
         MET["Metric.compute()"]
         VER["Verifier.verify() / reward"]
     end
@@ -39,16 +39,16 @@ flowchart TD
 ## Algorithm
 
 `Algorithm` (protocol): `name`, `Config`, `train(ctx) -> RunResult`. The only
-required contract — `train()` may do anything. The optional toolkit:
+required contract - `train()` may do anything. The optional toolkit:
 `TrainingLoop` drives the gradient loop; a `StepBuilder` (`build_batch ->
 TrainingBatch`) is the unit of "a new gradient method"; losses are a **named
 string** or a **`LossCallable`** (client-side, via `forward_backward_custom`).
 
-## Evaluation — a test/validation firewall
+## Evaluation - a test/validation firewall
 
-- **Benchmark** — the *test set*, scored **once after** training. Model
+- **Benchmark** - the *test set*, scored **once after** training. Model
   selection must never key off it.
-- **Validation** — scored **in-loop** every N steps to drive selection.
+- **Validation** - scored **in-loop** every N steps to drive selection.
 - Both are harbor-format and scored via the **Metric** / **Verifier** registries.
 
 ## Metrics & Verifiers
@@ -56,11 +56,11 @@ string** or a **`LossCallable`** (client-side, via `forward_backward_custom`).
 - **`Metric`**: `compute(predictions, targets) -> float`.
 - **`Verifier`**: `verify(prompt, completion, target) -> reward` (RL reward or
   per-task scoring).
-- **`InferenceClient`**: `generate(...)` — how eval/RL query a model.
+- **`InferenceClient`**: `generate(...)` - how eval/RL query a model.
 
 <Callout type="warn" title="Keep the firewall intact">
 A `Benchmark` is your held-out test. If you select the best arm using
-benchmark scores, you've leaked the test set — use `Validation` for selection.
+benchmark scores, you've leaked the test set - use `Validation` for selection.
 </Callout>
 
 Next: [Plugins](/docs/concepts/plugins/algorithms) ·

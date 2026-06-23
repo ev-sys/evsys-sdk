@@ -7,7 +7,7 @@ implement every hook.
 
 Hook signatures are positional + typed (not a generic event-bag) so
 IDE autocomplete and static type checking still work. Each hook fires
-at exactly one moment in the loop — see the docstrings.
+at exactly one moment in the loop - see the docstrings.
 
 All hooks are sync (``def``, not ``async``). If you need to schedule
 async work, spawn ``asyncio.create_task(...)`` from inside the hook.
@@ -17,7 +17,7 @@ async work, spawn ``asyncio.create_task(...)`` from inside the hook.
 <PyFunction name={"on_train_start"} type={"(self, state) -> None"}>
 
 Fires once before the for-loop starts. Open log files, register
-a wandb run, snapshot the config — anything that should happen
+a wandb run, snapshot the config - anything that should happen
 before the first step.
 
 <PySourceCode >
@@ -25,7 +25,7 @@ before the first step.
 ```python
 def on_train_start(self, state: LoopState) -> None:
     """Fires once before the for-loop starts. Open log files, register
-    a wandb run, snapshot the config — anything that should happen
+    a wandb run, snapshot the config - anything that should happen
     before the first step."""
 ```
 
@@ -261,7 +261,7 @@ def on_run_start(self, ctx: LogContext) -> None:
 
 <PyFunction name={"on_benchmark_eval"} type={"(self, ctx, eval_result, predictions, *, step=None) -> None"}>
 
-Fires per benchmark scored — in-loop (``step`` = the train step) or
+Fires per benchmark scored - in-loop (``step`` = the train step) or
 post-training (``step=None``). Carries metrics + breakdowns + tags
 (on ``eval_result``) AND the per-task prediction rows. A logger
 creates one eval row per ``(eval_result.name, step)`` and persists the
@@ -278,7 +278,7 @@ def on_benchmark_eval(
     *,
     step: int | None = None,
 ) -> None:
-    """Fires per benchmark scored — in-loop (``step`` = the train step) or
+    """Fires per benchmark scored - in-loop (``step`` = the train step) or
     post-training (``step=None``). Carries metrics + breakdowns + tags
     (on ``eval_result``) AND the per-task prediction rows. A logger
     creates one eval row per ``(eval_result.name, step)`` and persists the
