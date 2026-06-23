@@ -89,6 +89,14 @@ export default function HomePage() {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-16">
       {/* Hero */}
       <section className="flex flex-col items-center text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/logo.png`}
+          alt=""
+          width={88}
+          height={88}
+          className="mb-6 rounded-2xl"
+        />
         <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
           evsys-sdk
         </h1>
