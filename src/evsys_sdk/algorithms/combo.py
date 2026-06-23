@@ -138,7 +138,7 @@ def _phase_context(
     """Build a per-phase RunContext that:
         - writes into phase_dir
         - exposes the previous phase's final_checkpoint via ctx.extras
-        - shares the parent's data_store, log_store, backend
+        - shares the parent's data_store, backend, and logger callbacks
     """
     new_extras = dict(parent.extras)
     # Thread the most recent final_checkpoint forward as `init_checkpoint`.

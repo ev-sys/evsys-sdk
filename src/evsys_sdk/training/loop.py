@@ -8,8 +8,8 @@ The loop owns:
 * routing a callable ``loss_fn`` through ``forward_backward_custom_async``,
 * periodic checkpoint saves via :class:`~evsys_sdk.training.checkpoints.CheckpointManager`,
 * periodic in-loop evaluation via :class:`Evaluator` objects,
-* writing one row per step into ``ctx.log_store`` (so the existing
-  ``forward_step_metrics`` forwarder picks them up unchanged),
+* dispatching per-step / eval metrics to the logger callbacks (``on_step_end`` /
+  ``on_eval``) — the loop holds no log_store of its own,
 * a final "final" checkpoint at the end of training.
 
 What the loop does NOT own: data shaping. A :class:`StepBuilder` decides
