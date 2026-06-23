@@ -1,6 +1,8 @@
 <p align="center">
-  <h1 align="center">evsys-sdk</h1>
+  <img src="assets/logo.png" alt="evsys-sdk" width="200">
 </p>
+
+<h1 align="center">evsys-sdk</h1>
 
 <h3 align="center">
 Infrastructure for thousands of task-specialised models that learn continuously from every interaction.
