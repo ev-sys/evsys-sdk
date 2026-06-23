@@ -139,7 +139,7 @@ export default function HomePage() {
           ['Continually-learning models', 'Easily create continually-learning models on your own data.'],
           ['One declarative YAML', 'Every experiment is a single ExperimentConfig - nothing hidden in scripts.'],
           ['Autoresearch friendly', 'Make your coding agents fine-tune models on your own data on demand.'],
-          ['Pluggable & continual', 'Eight registries for custom parts; weights chain so models keep learning.'],
+          ['Easily customisable', 'Run any algorithm or data ablation, against any Tinker-protocol backend.'],
         ].map(([t, d]) => (
           <div key={t} className="rounded-xl border bg-fd-card p-5">
             <h3 className="mb-1 font-semibold">{t}</h3>
