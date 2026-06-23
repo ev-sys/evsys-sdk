@@ -9,7 +9,7 @@ Infrastructure for thousands of task-specialised models that learn continuously 
 </h3>
 
 <p align="center">
-| <a href="https://ev-sys.github.io/evsys-sdk/"><b>Documentation</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/quickstart"><b>Quickstart</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/autoresearch"><b>Autoresearch</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/concepts/architecture"><b>Architecture</b></a> |
+| <a href="https://ev-sys.github.io/evsys-sdk/"><b>Documentation</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/quickstart"><b>Quickstart</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/autoresearch"><b>Autoresearch</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/concepts/architecture"><b>Architecture</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/whitepaper/"><b>Whitepaper - in depth</b></a> |
 </p>
 
 ---
