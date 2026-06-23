@@ -127,8 +127,9 @@ export default function HomePage() {
       </section>
 
       {/* Main points */}
-      <section className="mt-16 grid gap-4 sm:grid-cols-3">
+      <section className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
+          ['Continually-learning models', 'Easily create continually-learning models on your own data.'],
           ['One declarative YAML', 'Every experiment is a single ExperimentConfig — nothing hidden in scripts.'],
           ['Autoresearch friendly', 'Make your coding agents fine-tune models on your own data on demand.'],
           ['Pluggable & continual', 'Eight registries for custom parts; weights chain so models keep learning.'],
