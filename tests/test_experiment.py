@@ -831,63 +831,7 @@ class _StoreWithLogMetrics(_FakeStore):
         return {"ok": True}
 
 
-def test_step_metrics_forwarded_after_arm(
-    tmp_path: Path, single_run_config: ExperimentConfig
-):
-    """After train_fn returns, Experiment auto-pushes the local metrics.jsonl
-    rows to the store. No backfill_step_metrics call needed."""
-    single_run_config.output_dir = str(tmp_path)
-    # The runner would write to <output_dir>/<safe_name>/logs/metrics.jsonl —
-    # simulate that layout.
-    log_dir = tmp_path / "base" / "logs"
-    log_dir.mkdir(parents=True)
-    (log_dir / "metrics.jsonl").write_text(
-        json.dumps({"ts": 0, "step": 1, "metrics": {"loss": 0.9}}) + "\n"
-        + json.dumps({"ts": 1, "step": 2, "metrics": {"loss": 0.5}}) + "\n"
-    )
 
-    store = _StoreWithLogMetrics()
-    res = Experiment(single_run_config, store=store,
-                     train_fn=_make_train_fn()).run()
-    forwarded = [c[1] for c in store.calls if c[0] == "log_metrics"]
-    assert [c["step"] for c in forwarded] == [1, 2]
-    assert res.status == "completed"
-
-
-def test_step_metrics_use_run_dir_from_artifacts(
-    tmp_path: Path, single_run_config: ExperimentConfig
-):
-    """Algorithms can set RunResult.artifacts['run_dir'] to a custom path;
-    the forwarder reads from there in preference to the inferred path."""
-    alt = tmp_path / "elsewhere"
-    (alt / "logs").mkdir(parents=True)
-    (alt / "logs" / "metrics.jsonl").write_text(
-        json.dumps({"ts": 0, "step": 7, "metrics": {"loss": 0.1}}) + "\n"
-    )
-
-    def train_fn(_cfg):
-        return [RunResult(run_id="x", status="completed", metrics={},
-                          artifacts={"run_dir": str(alt)})]
-
-    store = _StoreWithLogMetrics()
-    Experiment(single_run_config, store=store, train_fn=train_fn).run()
-    forwarded = [c[1] for c in store.calls if c[0] == "log_metrics"]
-    assert len(forwarded) == 1
-    assert forwarded[0]["step"] == 7
-
-
-def test_step_metrics_no_op_without_local_file(single_run_config: ExperimentConfig):
-    """If the runner didn't write a metrics.jsonl (e.g. mock algorithm), the
-    forwarder silently no-ops — no errors, no spurious store calls."""
-    store = _StoreWithLogMetrics()
-    Experiment(single_run_config, store=store, train_fn=_make_train_fn()).run()
-    forwarded = [c[1] for c in store.calls if c[0] == "log_metrics"]
-    assert forwarded == []
-
-
-# ---------------------------------------------------------------------------
-# Multi-benchmark (list-form) eval — task #39 commit 1
-# ---------------------------------------------------------------------------
 
 
 def _make_bench_dir(tmp_path: Path, name: str, expected_a: str, expected_b: str) -> Path:

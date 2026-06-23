@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 
 from evsys_sdk.algorithms import ComboAlgorithm, GEPAPromptAlgorithm
-from evsys_sdk.log_stores.jsonl import JSONLLogStore
 from evsys_sdk.protocols import RunContext
 from evsys_sdk.registry import (
     get_algorithm,
@@ -50,7 +49,6 @@ def _make_ctx(tmp_path: Path, extras: dict | None = None) -> RunContext:
         output_dir=str(tmp_path),
         config=None,
         data_store=_MockDataStore(),                # type: ignore[arg-type]
-        log_store=JSONLLogStore(log_dir=str(tmp_path)),
         backend=_MockBackend(),                     # type: ignore[arg-type]
         extras=extras or {},
     )

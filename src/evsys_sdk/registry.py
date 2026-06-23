@@ -77,7 +77,6 @@ _algorithms = Registry("algorithm")
 _verifiers = Registry("verifier")
 _metrics = Registry("metric")
 _data_stores = Registry("data_store")
-_log_stores = Registry("log_store")
 _backends = Registry("backend")
 _inference = Registry("inference_client")
 _transforms = Registry("transform")
@@ -106,10 +105,6 @@ def register_metric(name: str | None = None):
 
 def register_data_store(name: str | None = None):
     return _data_stores.register(name)
-
-
-def register_log_store(name: str | None = None):
-    return _log_stores.register(name)
 
 
 def register_backend(name: str | None = None):
@@ -156,10 +151,6 @@ def get_data_store(name: str) -> type:
     return _data_stores.get(name)
 
 
-def get_log_store(name: str) -> type:
-    return _log_stores.get(name)
-
-
 def get_backend(name: str) -> type:
     return _backends.get(name)
 
@@ -198,10 +189,6 @@ def list_data_stores() -> list[str]:
     return _data_stores.list()
 
 
-def list_log_stores() -> list[str]:
-    return _log_stores.list()
-
-
 def list_backends() -> list[str]:
     return _backends.list()
 
@@ -225,7 +212,6 @@ def _all_registries() -> dict[str, Registry]:
         "verifier": _verifiers,
         "metric": _metrics,
         "data_store": _data_stores,
-        "log_store": _log_stores,
         "backend": _backends,
         "inference_client": _inference,
         "transform": _transforms,

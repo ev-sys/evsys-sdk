@@ -190,17 +190,6 @@ def test_train_runs_end_to_end_and_returns_run_result(patched_tinker_backend, ct
     assert "final" in patched_tinker_backend.save_sampler_calls
 
 
-def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
-    algo = SFT(max_steps=2, batch_size=4)
-    algo.train(ctx)
-    hp = ctx.log_store.hyperparams
-    assert hp is not None
-    assert hp["algorithm"] == "sft"
-    assert hp["model_name"] == "Qwen/Qwen3-4B"
-    assert hp["n_train_rows"] == 20
-    assert hp["total_steps"] == 2
-
-
 def test_train_writes_one_metric_row_per_step(patched_tinker_backend, ctx):
     # Per-step metrics now flow through callbacks (on_step_end), not the loop's
     # log_store (which BaseAlgorithm hands a no-op store so local_logger is the
@@ -218,11 +207,6 @@ def test_train_writes_one_metric_row_per_step(patched_tinker_backend, ctx):
     algo.train(ctx)
     train_rows = [r for r in rows if r["split"] == "train"]
     assert len(train_rows) == 4
-    # No duplicate: the loop is handed a no-op store, so per-step metrics do NOT
-    # also land in ctx.log_store — callbacks (local_logger) are the single writer.
-    assert ctx.log_store.metric_rows == []
-    # hyperparams + checkpoint artifacts still flow to the store.
-    assert ctx.log_store.hyperparams is not None
     # Each row carries the always-on loop keys.
     for r in train_rows:
         m = r["metrics"]

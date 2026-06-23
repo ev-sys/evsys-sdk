@@ -74,9 +74,6 @@ class LogContext:
 
     output_dir: Path
     config: "ExperimentConfig | None" = None
-    store: Any = None
-    """Resolved store handle (EvsysStore / LocalStore / DashboardClient) or
-    None when no store is configured."""
     run_key: str | None = None
     run_config: "RunConfig | None" = None
     group_name: str | None = None
@@ -107,12 +104,9 @@ class LoopState:
     step: int
     """Current step index (0-based). Advances per iteration."""
     num_steps: int
-    output_dir: Path
-    backend: "Backend"
-    log_store: Any
-    """The same log_store the loop writes to. Callbacks can also write
-    auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
-    checkpoint_mgr: "CheckpointManager"
+    output_dir: "Path | None" = None
+    backend: "Backend | None" = None
+    checkpoint_mgr: "CheckpointManager | None" = None
     stop_requested: bool = False
     ctx: "LogContext | None" = None
     """The experiment-wide :class:`LogContext` (shared with the Experiment-scope
@@ -266,6 +260,24 @@ def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) ->
             logger.exception(
                 "callback %s.%s raised; continuing", type(cb).__name__, hook,
             )
+
+
+def make_loop_state(ctx: Any, *, num_steps: int = 0) -> tuple[list["Callback"], "LoopState"]:
+    """For algorithms that DON'T drive a :class:`TrainingLoop` (mock/local/gepa):
+    pull the threaded logger callbacks off ``ctx.extras`` and build a minimal
+    :class:`LoopState` so they can dispatch loop-scope hooks (``on_step_end`` /
+    ``on_checkpoint``). Mutate ``state.step`` before each dispatch. Returns
+    ``([], state)`` when no callbacks were threaded (bare run), so dispatching is
+    a safe no-op."""
+    extras = getattr(ctx, "extras", {}) or {}
+    cbs = list(extras.get("callbacks") or [])
+    state = LoopState(
+        step=0,
+        num_steps=num_steps,
+        output_dir=Path(str(getattr(ctx, "output_dir", "."))),
+        ctx=extras.get("log_context"),
+    )
+    return cbs, state
 
 
 # ---------------------------------------------------------------------------
@@ -869,12 +881,12 @@ class EvsysLoggerCallback(Callback):
     evals + predictions. Keyed off the shared ``ctx.ids`` it populates
     (``experiment_id`` → ``group:<name>`` → ``run_id``).
 
-    This is the "callbacks own the store" mode: construct ``Experiment`` WITHOUT
-    a ``store=`` (so the orchestrator makes no store calls) and add this
-    callback instead. If ``Experiment`` already has a store (``ctx.store`` set),
-    this callback disables itself to avoid double-writing. The store handle is
-    built lazily from the environment (EvsysStore) unless one is injected
-    (``cb._store = ...``) — the test seam."""
+    This callback OWNS the dashboard writes: it holds its own ``EvsysStore``
+    (built lazily from the environment / ``project_id``), independent of any
+    store the ``Experiment`` keeps for benchmark/dataset resolution. The
+    ``Experiment`` itself makes no dashboard write calls. Auto-added by default
+    when a store is configured; disables itself (no-op) when no creds resolve.
+    Tests inject ``cb._store = ...``."""
 
     name: ClassVar[str] = "evsys_logger"
     Config: ClassVar[type] = EvsysLoggerConfig
@@ -891,20 +903,19 @@ class EvsysLoggerCallback(Callback):
     def _ensure_store(self, ctx: LogContext) -> Any:
         if self._disabled:
             return None
-        if ctx.store is not None:
-            self._disabled = True
-            logger.warning(
-                "evsys_logger: Experiment already has a store; disabling to avoid "
-                "double-writes (drop store= from Experiment to use this callback)"
-            )
-            return None
         if self._store is None:
+            # evsys_logger owns its OWN dashboard client (EvsysStore is a
+            # stateless HTTP client, so a second instance is free). It is
+            # independent of any store the Experiment holds for benchmark /
+            # dataset resolution. Tests inject ``cb._store`` directly.
             try:
                 from ..store import EvsysStore  # noqa: PLC0415
                 self._store = EvsysStore(project_id=self.project_id)
             except Exception:
                 self._disabled = True
-                logger.warning("evsys_logger: no usable store (missing EVSYS_API_KEY?); disabling")
+                logger.warning(
+                    "evsys_logger: no usable store (missing EVSYS_API_KEY?); disabling"
+                )
         return self._store
 
     @staticmethod
@@ -985,6 +996,26 @@ class EvsysLoggerCallback(Callback):
                 patch["error_message"] = err
             self._store.update_run(run_id, **patch)
 
+    def on_experiment_end(self, ctx, result) -> None:
+        if self._disabled or self._store is None:
+            return
+        eid = ctx.ids.get("experiment_id")
+        if not eid:
+            return
+        patch: dict[str, Any] = {
+            "status": getattr(result, "status", None),
+            "conclusion": getattr(result, "conclusion", None),
+        }
+        best = getattr(result, "best_score", None)
+        if best is not None:
+            patch["best_score"] = best
+        update = getattr(self._store, "update_experiment", None)
+        if callable(update):
+            try:
+                update(eid, **patch)
+            except Exception:
+                logger.warning("evsys_logger: update_experiment failed", exc_info=True)
+
     # -- loop scope ---------------------------------------------------------
 
     def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
@@ -1057,7 +1088,6 @@ class DebugLoggerCallback(Callback):
             "run_key": getattr(ctx, "run_key", None),
             "group_name": getattr(ctx, "group_name", None),
             "ids": dict(getattr(ctx, "ids", {}) or {}),
-            "store": type(getattr(ctx, "store", None)).__name__ if getattr(ctx, "store", None) else None,
             "extras": dict(getattr(ctx, "extras", {}) or {}),
             "run_config.name": getattr(rc, "name", None),
             "output_dir": str(getattr(ctx, "output_dir", "")),
