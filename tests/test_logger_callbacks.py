@@ -275,7 +275,6 @@ def test_evsys_logger_owns_full_store_lifecycle():
     ctx = LogContext(
         output_dir=Path("."),
         config=SimpleNamespace(name="exp", metadata={"hypothesis": "h", "tags": ["t"]}),
-        store=None,    # mode B: Experiment has no store
     )
 
     cb.on_experiment_start(ctx)
@@ -310,10 +309,3 @@ def test_evsys_logger_owns_full_store_lifecycle():
     assert pr[0]["eval_id"] == "eval3"
 
 
-def test_evsys_logger_disables_when_experiment_has_store():
-    from evsys_sdk.training.callbacks import EvsysLoggerCallback
-    cb = EvsysLoggerCallback()
-    cb._store = _FakeStore()
-    ctx = LogContext(output_dir=Path("."), store=object())  # Experiment owns a store
-    cb.on_experiment_start(ctx)
-    assert cb._disabled and not cb._store.calls   # no double-write

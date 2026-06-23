@@ -242,6 +242,15 @@ class Experiment:
             if store is not None:
                 specs.append(CallbackSpec(kind="evsys_logger"))
         self._callbacks = build_callbacks(specs)
+        # evsys_logger owns the dashboard writes. By default it builds its OWN
+        # EvsysStore (from the environment). When the caller handed Experiment an
+        # explicit store, reuse that one for logging too (Experiment itself still
+        # makes no write calls — only resolution reads).
+        if store is not None:
+            from .training.callbacks import EvsysLoggerCallback
+            for cb in self._callbacks:
+                if isinstance(cb, EvsysLoggerCallback) and cb._store is None:
+                    cb._store = store
         self._logctx = LogContext(
             output_dir=Path(config.output_dir), config=config,
         )
@@ -697,12 +706,14 @@ class Experiment:
 
         # When repeating, group the seed-replicates of each stage together so
         # mean/stddev is computed per stage across repeats. n == 1 → no groups.
+        # The group records are created by the evsys_logger callback (on_group_start).
         stage_group_ids: list[str | None] = [None] * len(cont.datasets)
         if n > 1:
-            stage_group_ids = [
-                self._create_group(experiment_id, template.format(base=base.name, i=i))
-                for i in range(len(cont.datasets))
-            ]
+            for i in range(len(cont.datasets)):
+                gname = template.format(base=base.name, i=i)
+                self._logctx.group_name = gname
+                dispatch(self._callbacks, "on_group_start", self._logctx, gname)
+                stage_group_ids[i] = self._logctx.ids.get(f"group:{gname}")
 
         arms: list[ArmResult] = []
         for seed in seeds:

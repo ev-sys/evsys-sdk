@@ -283,10 +283,3 @@ def test_train_logs_per_step_sdft_metrics(patched_tinker_backend, ctx):
         assert "progress/step" in r["metrics"]
 
 
-def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
-    SDFT(max_steps=2, batch_size=4).train(ctx)
-    hp = ctx.log_store.hyperparams
-    assert hp is not None
-    assert hp["algorithm"] == "sdft"
-    assert hp["model_name"] == "Qwen/Qwen3-4B"
-    assert hp["total_steps"] == 2

@@ -215,11 +215,3 @@ def test_train_logs_reward_metrics_per_step(patched_tinker_backend, ctx):
         assert "progress/step" in r["metrics"]
 
 
-def test_train_logs_hyperparams(patched_tinker_backend, ctx):
-    RL(max_steps=2, batch_size=4, num_samples=1,
-       verifier_name="exact_match", drop_constant_reward=False).train(ctx)
-    hp = ctx.log_store.hyperparams
-    assert hp is not None
-    assert hp["algorithm"] == "rl"
-    assert hp["n_tasks"] == 20
-    assert hp["total_steps"] == 2

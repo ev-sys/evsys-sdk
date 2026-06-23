@@ -41,14 +41,20 @@ from evsys_sdk.training import (
 
 
 class _StubLogStore:
-    """Captures every log_metrics call for assertion."""
+    """Capture callback: records per-step / eval metrics dispatched to callbacks
+    (the loop no longer writes to a log_store)."""
 
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
 
-    def log_metrics(self, metrics: dict[str, float], *, step: int,
-                    split: str = "train") -> None:
-        self.rows.append({"step": step, "split": split, "metrics": dict(metrics)})
+    def on_step_end(self, state, step_idx, batch, metrics) -> None:
+        self.rows.append({"step": step_idx, "split": "train", "metrics": dict(metrics)})
+
+    def on_eval(self, state, step_idx, eval_name, metrics) -> None:
+        self.rows.append({
+            "step": step_idx + 1, "split": "val",
+            "metrics": {f"val/{eval_name}/{k}": float(v) for k, v in metrics.items()},
+        })
 
 
 def _datum() -> tinker.Datum:
@@ -114,7 +120,7 @@ def _adam() -> tinker.AdamParams:
 def test_rejects_zero_num_steps(tmp_path: Path):
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=10,
     )
     with pytest.raises(ValueError, match="num_steps"):
@@ -124,7 +130,7 @@ def test_rejects_zero_num_steps(tmp_path: Path):
 def test_rejects_start_step_out_of_range(tmp_path: Path):
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=10,
     )
     with pytest.raises(ValueError, match="start_step"):
@@ -137,7 +143,7 @@ def test_single_step_runs_end_to_end(tmp_path: Path):
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=backend, step_builder=sb,
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[log], output_dir=tmp_path, adam_params=_adam(),
         save_every=1,
     )
     artifacts = asyncio.run(loop.run(num_steps=1))
@@ -170,7 +176,7 @@ def test_save_every_triggers_at_correct_steps(tmp_path: Path):
     backend = MockBackend()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=3,
     )
     asyncio.run(loop.run(num_steps=10))
@@ -182,7 +188,7 @@ def test_save_every_zero_only_writes_final(tmp_path: Path):
     backend = MockBackend()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=0,
     )
     asyncio.run(loop.run(num_steps=5))
@@ -193,7 +199,7 @@ def test_manifest_rows_appear_on_disk(tmp_path: Path):
     backend = MockBackend()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=2,
     )
     artifacts = asyncio.run(loop.run(num_steps=4))
@@ -217,7 +223,7 @@ def test_per_evaluator_run_every_calls_each_evaluator_with_snapshot(tmp_path: Pa
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[log], output_dir=tmp_path, adam_params=_adam(),
         save_every=10, evaluators=[ev_a, ev_b],
     )
     asyncio.run(loop.run(num_steps=4))
@@ -235,7 +241,7 @@ def test_eval_skipped_when_evaluators_empty(tmp_path: Path):
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[log], output_dir=tmp_path, adam_params=_adam(),
         save_every=10, evaluators=[],
     )
     asyncio.run(loop.run(num_steps=3))
@@ -252,7 +258,7 @@ def test_failing_evaluator_does_not_kill_loop(tmp_path: Path):
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstantStepBuilder(),
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[log], output_dir=tmp_path, adam_params=_adam(),
         save_every=10, evaluators=[_BoomEv()],
     )
     artifacts = asyncio.run(loop.run(num_steps=2))
@@ -271,7 +277,7 @@ def test_string_loss_routes_through_named_path(tmp_path: Path):
                               loss_fn_config={"label_smoothing": 0.1})
     loop = TrainingLoop(
         backend=backend, step_builder=sb,
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=10,
     )
     asyncio.run(loop.run(num_steps=2))
@@ -290,7 +296,7 @@ def test_callable_loss_routes_through_custom_path(tmp_path: Path):
     sb = _ConstantStepBuilder(loss_fn=_custom_loss, loss_fn_config=None)
     loop = TrainingLoop(
         backend=backend, step_builder=sb,
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=10,
     )
     asyncio.run(loop.run(num_steps=2))
@@ -311,7 +317,7 @@ def test_batch_metrics_appear_in_log_row(tmp_path: Path):
     )
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=sb,
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[log], output_dir=tmp_path, adam_params=_adam(),
         save_every=10,
     )
     asyncio.run(loop.run(num_steps=1))
@@ -328,7 +334,7 @@ def test_artifacts_as_dict_includes_run_dir_and_sampler_uris(tmp_path: Path):
     backend = MockBackend()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=2,
     )
     artifacts = asyncio.run(loop.run(num_steps=4))
@@ -351,7 +357,7 @@ def test_resume_picks_last_state_path_from_manifest(tmp_path: Path):
     backend = MockBackend()
     loop = TrainingLoop(
         backend=backend, step_builder=_ConstantStepBuilder(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        callbacks=[_StubLogStore()], output_dir=tmp_path, adam_params=_adam(),
         save_every=2,
     )
     asyncio.run(loop.run(num_steps=4))
