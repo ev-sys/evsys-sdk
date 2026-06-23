@@ -27,3 +27,4 @@ examples/configs/generated_*.yaml
 docs/whitepaper/*.pdf
 docs/whitepaper/*.aux
 docs/whitepaper/*.log
+!docs/whitepaper/logo.pdf
