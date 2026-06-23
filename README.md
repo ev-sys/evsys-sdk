@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="assets/logo.png" alt="evsys-sdk" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="EvSys" width="300">
+  </picture>
 </p>
-
-<h1 align="center">evsys-sdk</h1>
 
 <h3 align="center">
 Infrastructure for thousands of task-specialised models that learn continuously from every interaction.

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="200" viewBox="0 0 560 200" fill="none" role="img" aria-label="EvSys — evolving systems">
+  
+  <g transform="translate(70 56)">
+    <path d="M14 86 C 30 84, 44 72, 56 52 S 78 20, 86 14" fill="none" stroke="#0B0D12" stroke-width="7" stroke-linecap="round"></path>
+    <circle cx="24" cy="83" r="4.2" fill="#0B0D12" fill-opacity="0.32"></circle>
+    <circle cx="44" cy="71" r="4.2" fill="#0B0D12" fill-opacity="0.5"></circle>
+    <circle cx="86" cy="14" r="9" fill="#2E5BFF"></circle>
+  </g>
+  <text x="190" y="104" dominant-baseline="central" font-family="&#39;Hanken Grotesk&#39;, &#39;Segoe UI&#39;, system-ui, -apple-system, sans-serif" font-size="92" font-weight="700" letter-spacing="-2.3">
+    <tspan fill="#0B0D12">Ev</tspan><tspan fill="#2E5BFF">Sys</tspan>
+  </text>
+</svg>
