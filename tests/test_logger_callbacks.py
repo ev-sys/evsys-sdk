@@ -118,17 +118,22 @@ def test_local_logger_writes_metrics_and_predictions(tmp_path, capsys):
     preds = [{"task_id": "t1", "reward": 1.0}, {"task_id": "t2", "reward": 0.0}]
     cb.on_benchmark_eval(ctx, eval_result, preds, step=None)
     cb.on_run_end(ctx, SimpleNamespace(status="completed"), SimpleNamespace(name="arm0"))
+    cb.on_experiment_end(ctx, SimpleNamespace(hypothesis=None, conclusion="done"))
 
-    run_dir = tmp_path / "arm0"
-    rows = [json.loads(l) for l in (run_dir / "metrics.jsonl").read_text().splitlines()]
+    run_dir = tmp_path / "arm0" / "logs"
+    # train metrics live under training/, never a flat metrics.jsonl
+    assert not (run_dir / "metrics.jsonl").exists()
+    rows = [json.loads(l) for l in (run_dir / "training" / "metrics.jsonl").read_text().splitlines()]
     assert [r["split"] for r in rows] == ["train", "train"]
     assert rows[0]["metrics"]["loss"] == 1.5
-    # predictions file written (name slashes sanitized)
-    pred_lines = (run_dir / "predictions" / "val_full.jsonl").read_text().splitlines()
+    # benchmark (default split=test): aggregate scores + per-example predictions
+    test_metrics = json.loads((run_dir / "test" / "metrics.jsonl").read_text().splitlines()[0])
+    assert test_metrics["metrics"]["pass@3"] == 0.5
+    pred_lines = (run_dir / "test" / "rollouts.jsonl").read_text().splitlines()
     assert len(pred_lines) == 2
-    # summary.md mentions the eval
-    summary = (run_dir / "summary.md").read_text()
-    assert "val/full" in summary and "status: completed" in summary
+    # conclusion.md mentions the eval + run status
+    conclusion = (run_dir / "conclusion.md").read_text()
+    assert "val/full" in conclusion and "status: completed" in conclusion
     # printed a per-step line
     assert "[1/2]" in capsys.readouterr().out
 
@@ -136,6 +141,69 @@ def test_local_logger_writes_metrics_and_predictions(tmp_path, capsys):
 def test_local_logger_registered():
     from evsys_sdk.training.callbacks import LocalLoggerCallback
     assert get_callback("local_logger") is LocalLoggerCallback
+
+
+def test_local_logger_writes_training_data_and_rollouts(tmp_path):
+    """on_train_data persists the rendered training rows; on_rollout persists
+    on-policy rollouts (text + reward + usage) under <run>/logs/."""
+    import json
+
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+    from evsys_sdk.training.trajectory import Trajectory, TrajectoryGroup, Turn
+
+    cb = LocalLoggerCallback(print_every=0)
+    ctx = LogContext(output_dir=tmp_path, run_key="arm0")
+    cb.on_run_start(ctx)
+
+    cb.on_train_data(ctx, [{"messages": [{"role": "user", "content": "hi"}]}])
+    td = (tmp_path / "arm0" / "logs" / "data" / "training_data.jsonl").read_text().splitlines()
+    assert len(td) == 1
+    assert json.loads(td[0])["messages"][0]["content"] == "hi"
+
+    grp = TrajectoryGroup(trajectories=[Trajectory(
+        turns=[Turn(text="hello", prompt_tokens=[1], completion_tokens=[2])],
+        reward=1.0, metadata={"usage": {"cost_usd": 0.01}},
+    )])
+    cb.on_rollout(SimpleNamespace(num_steps=1), 0, [grp])
+    roll = (tmp_path / "arm0" / "logs" / "training" / "rollouts.jsonl").read_text().splitlines()
+    rec = json.loads(roll[0])
+    assert rec["reward"] == 1.0
+    assert rec["text"] == "hello"
+    assert rec["usage"]["cost_usd"] == 0.01
+
+
+def test_local_logger_persists_hypothesis_and_conclusion(tmp_path):
+    """hypothesis (from config metadata at experiment start) and conclusion
+    (from the ExperimentResult at experiment end) are written locally."""
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+
+    cb = LocalLoggerCallback(print_every=0)
+    config = SimpleNamespace(name="exp42", metadata={"hypothesis": "more data helps"})
+    ctx = LogContext(output_dir=tmp_path, config=config, run_key="arm0")
+
+    cb.on_experiment_start(ctx)
+    # experiment.md exists with the hypothesis right away
+    exp_md = (tmp_path / "experiment.md").read_text()
+    assert "hypothesis: more data helps" in exp_md
+
+    # a run gets its own per-run hypothesis.md at run start
+    cb.on_run_start(ctx)
+    cb.on_run_end(ctx, SimpleNamespace(status="completed"), SimpleNamespace(name="arm0"))
+    hyp = (tmp_path / "arm0" / "logs" / "hypothesis.md").read_text()
+    assert "more data helps" in hyp
+
+    # conclusion lands at experiment end — root experiment.md AND per-run conclusion.md
+    result = SimpleNamespace(
+        hypothesis="more data helps",
+        conclusion="Best arm: arm0 at pass_rate=0.9000. 1/1 arms completed.",
+    )
+    cb.on_experiment_end(ctx, result)
+    exp_md = (tmp_path / "experiment.md").read_text()
+    assert "hypothesis: more data helps" in exp_md
+    assert "conclusion: Best arm: arm0 at pass_rate=0.9000." in exp_md
+    run_conclusion = (tmp_path / "arm0" / "logs" / "conclusion.md").read_text()
+    assert "status: completed" in run_conclusion
+    assert "conclusion: Best arm: arm0 at pass_rate=0.9000." in run_conclusion
 
 
 # --- TensorBoardLoggerCallback (no torch → disables cleanly) -----------------

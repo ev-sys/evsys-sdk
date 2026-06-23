@@ -166,6 +166,9 @@ class ExperimentConfig(_Strict):
     description: str = ""
     output_dir: str = "./outputs"
     """Where local artifacts (checkpoints, logs) are written."""
+    log_rollouts: bool = False
+    """When true, on-policy training rollouts (RL/SDFT) are logged via the
+    ``on_rollout`` hook. A ``--dry`` run turns this on (and caps steps)."""
     data_store: DataStoreSpec = Field(default_factory=DataStoreSpec)
     log_store: LogStoreSpec = Field(default_factory=LogStoreSpec)
 

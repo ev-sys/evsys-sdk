@@ -62,6 +62,10 @@ class TrainingBatch:
     metrics: dict[str, float] = field(default_factory=dict)
     """Algorithm-precomputed per-step metrics (e.g. teacher entropy,
     reward stats). Merged into the per-step log row."""
+    rollouts: list[Any] | None = None
+    """Optional on-policy rollouts the algorithm produced this step (RL/SDFT set
+    this to their ``TrajectoryGroup``s; SFT leaves it ``None``). Logged via the
+    ``on_rollout`` hook only when ``log_rollouts`` is on (e.g. a ``--dry`` run)."""
 
 
 @runtime_checkable
@@ -200,6 +204,7 @@ class TrainingLoop:
         callbacks: list[Callback] | None = None,
         log_context: Any = None,
         log_prefix: str = "",
+        log_rollouts: bool = False,
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
         self.backend = backend
@@ -215,6 +220,7 @@ class TrainingLoop:
         # threaded onto LoopState so loop-scope logger hooks reach ctx.ids/store.
         self.log_context = log_context
         self.log_prefix = log_prefix
+        self.log_rollouts = log_rollouts
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
             log_path=self.output_dir, save_every=save_every
@@ -274,6 +280,35 @@ class TrainingLoop:
         t0 = time.time()
 
         batch = await self.step_builder.build_batch(step)
+
+        # Surface on-policy rollouts (RL/SDFT set batch.rollouts) to loggers when
+        # rollout logging is on (e.g. a --dry run). SFT leaves rollouts None.
+        if self.log_rollouts and batch.rollouts and state is not None:
+            self._dispatch("on_rollout", state, step, batch.rollouts)
+
+        # A step can legitimately yield no trainable data — e.g. RL with
+        # ``drop_constant_reward`` when every sampled group has identical reward
+        # (no advantage signal). Skip the gradient update instead of crashing
+        # the backend on an empty batch; still log progress and run any due eval.
+        if not batch.data:
+            logger.warning(
+                "step %d produced an empty batch (no trainable data) — skipping "
+                "the gradient update for this step.", step,
+            )
+            skip_metrics: dict[str, float] = {
+                self._keys.step: float(step),
+                self._keys.done_frac: float(step + 1) / float(num_steps),
+                self._keys.optim_lr: float(self.adam_params.learning_rate),
+                "train/skipped_empty_batch": 1.0,
+            }
+            skip_metrics.update(batch.metrics)
+            self.log_store.log_metrics(skip_metrics, step=step)
+            if state is not None:
+                self._dispatch("on_step_end", state, step, batch, skip_metrics)
+            due = [ev for ev in self.evaluators if self._is_due(ev, step)]
+            if due:
+                await self._run_eval(step, due, state)
+            return
 
         # Dispatch loss based on whether it's a name (server-side) or a
         # callable (client-side custom). Custom losses don't take
@@ -363,10 +398,11 @@ class TrainingLoop:
                     "evaluator %r raised at step %d; continuing", ev.name, step
                 )
                 continue
+            split = getattr(ev, "split", "val")
             self.log_store.log_metrics(
-                {f"val/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
+                {f"{split}/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
                 step=step + 1,
-                split="val",
+                split=split,
             )
             if state is not None:
                 self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))

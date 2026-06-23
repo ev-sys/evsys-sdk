@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .benchmark import Benchmark, BenchmarkScore
-from .config import ExperimentConfig, RunConfig
+from .config import CallbackSpec, ExperimentConfig, RunConfig
 from .inference.chat_templated import ChatTemplatedInference
 from .protocols import InferenceClient, RunResult
 from .registry import get_default_inference_factory
@@ -232,7 +232,11 @@ class Experiment:
         # experiment-scope hooks persist across arms. The SAME instances are
         # threaded into each arm's training loop (via extras) so one logger
         # sees the full lifecycle. The shared LogContext is mutated per arm.
-        self._callbacks = build_callbacks(config.callbacks)
+        # local_logger is ON by default (the single local writer) unless the
+        # user configured their own callbacks.
+        self._callbacks = build_callbacks(
+            config.callbacks or [CallbackSpec(kind="local_logger")]
+        )
         self._logctx = LogContext(
             output_dir=Path(config.output_dir), config=config, store=store,
         )
@@ -459,6 +463,7 @@ class Experiment:
                     # loop so on_step_end/on_eval/on_checkpoint fire on them.
                     "callbacks": self._callbacks,
                     "log_context": self._logctx,
+                    "log_rollouts": self.config.log_rollouts,
                 },
             )
         else:
@@ -627,13 +632,13 @@ class Experiment:
         # One eval per (benchmark, model): the checkpoint and each API model are
         # distinct results, named/tagged by model so they don't collide.
         eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
-        # Persist eval rollouts under the run's output dir — alongside training's
-        # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
-        # trial dirs survive the run instead of vanishing with a tempdir.
+        # Persist eval rollouts under the run's logs/ dir — alongside training's
+        # ``.harbor/train`` and validation's ``.harbor/val`` — so the
+        # eval trial dirs survive the run instead of vanishing with a tempdir.
         run_dir = self._resolve_run_dir(arm)
         if run_dir is not None:
             safe = eval_name.replace("/", "_").replace(" ", "_")
-            workspace = run_dir / "harbor_eval" / safe
+            workspace = run_dir / ".harbor" / "test" / safe
             workspace.mkdir(parents=True, exist_ok=True)
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))

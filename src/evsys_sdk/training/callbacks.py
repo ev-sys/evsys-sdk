@@ -170,6 +170,16 @@ class Callback:
         universal "do something per step" hook (printing, plotting,
         custom metric derivations, gradient debugging)."""
 
+    def on_train_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
+        """Fires once in setup with the FINAL examples fed to the model (after
+        the chat template / rendering). Lets a logger persist exactly what went
+        into training."""
+
+    def on_rollout(self, state: LoopState, step_idx: int, rollouts: list[Any]) -> None:
+        """Fires per step with the algorithm's on-policy rollouts — only when
+        ``log_rollouts`` is on (e.g. a ``--dry`` run) and the algorithm set
+        ``batch.rollouts`` (RL/SDFT do; SFT never does)."""
+
     # --- side events -------------------------------------------------------
 
     def on_checkpoint(self, state: LoopState, row: "ManifestRow") -> None:
@@ -619,40 +629,95 @@ class LocalLoggerConfig(BaseModel):
 @register_callback("local_logger")
 class LocalLoggerCallback(Callback):
     """Human-readable local logging: prints what's happening per step AND
-    persists metrics + benchmark predictions to files under the run dir.
+    persists everything **per run** under ``<output_dir>/<run_key>/logs/``,
+    organised by concern::
 
-    Writes ``<output_dir>/<run_key>/`` : ``metrics.jsonl`` (train + val rows),
-    ``predictions/<name>.jsonl`` (per benchmark), and ``summary.md`` at
-    run end. The "print what's happening" requirement is the per-step one-liner
-    (cadence ``print_every``)."""
+        logs/data/training_data.jsonl   final examples fed to the model
+        logs/training/metrics.jsonl     per-step train metrics
+        logs/training/rollouts.jsonl    on-policy training rollouts (--dry only)
+        logs/validation/metrics.jsonl   in-loop validation scores
+        logs/validation/rollouts.jsonl  validation predictions/rollouts
+        logs/test/metrics.jsonl         final benchmark scores
+        logs/test/rollouts.jsonl        test predictions/rollouts
+        logs/hypothesis.md              the experiment hypothesis (this run)
+        logs/conclusion.md              the experiment conclusion + run status
+
+    harbor's raw rollout workspace lives OUTSIDE ``logs/`` under
+    ``<run_key>/.harbor/<phase>/`` so ``logs/`` stays clean. As the loop is
+    handed a no-op store, this callback is the single local writer — no
+    duplicate ``metrics.jsonl``. The experiment-scope hypothesis/conclusion are
+    also mirrored to ``<output_dir>/experiment.md``."""
 
     name: ClassVar[str] = "local_logger"
     Config: ClassVar[type] = LocalLoggerConfig
+
+    # split label -> per-concern folder
+    _FOLDER: ClassVar[dict[str, str]] = {
+        "train": "training", "val": "validation",
+        "validation": "validation", "test": "test",
+    }
 
     def __init__(self, *, print_every: int = 1, keys: list[str] | None = None) -> None:
         self.print_every = int(print_every)
         self.keys = keys
         self._dir: Path | None = None
-        self._metrics_fp: Any = None
+        self._metrics_fps: dict[str, Any] = {}
         self._evals: list[dict] = []
+        self._hypothesis: str | None = None
+        self._runs: list[dict] = []   # one record per arm: {dir, run_key, status, evals}
 
+    # --- experiment scope -------------------------------------------------
+    def on_experiment_start(self, ctx: LogContext) -> None:
+        meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        self._hypothesis = meta.get("hypothesis")
+        self._write_experiment_md(ctx, conclusion=None)
+
+    def _write_experiment_md(self, ctx: LogContext, *, conclusion: str | None) -> None:
+        out = Path(ctx.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        name = getattr(ctx.config, "name", None) if ctx.config else None
+        lines = [f"# {name or 'experiment'}", ""]
+        lines.append(f"- hypothesis: {self._hypothesis or '(none)'}")
+        if conclusion is not None:
+            lines.append(f"- conclusion: {conclusion}")
+        (out / "experiment.md").write_text("\n".join(lines) + "\n")
+
+    # --- per run ----------------------------------------------------------
     def on_run_start(self, ctx: LogContext) -> None:
-        self._dir = Path(ctx.output_dir) / (ctx.run_key or "run")
+        self._dir = Path(ctx.output_dir) / (ctx.run_key or "run") / "logs"
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._metrics_fp = (self._dir / "metrics.jsonl").open("a")
+        self._metrics_fps = {}
         self._evals = []
+        (self._dir / "hypothesis.md").write_text(
+            f"# {ctx.run_key or 'run'} — hypothesis\n\n{self._hypothesis or '(none)'}\n"
+        )
         if self.print_every:
             print(f"[local_logger] run {ctx.run_key} → {self._dir}", flush=True)
 
+    def _ensure_dir(self, ctx: LogContext) -> Path | None:
+        if self._dir is None and ctx is not None:
+            self._dir = Path(ctx.output_dir) / (ctx.run_key or "run") / "logs"
+            self._dir.mkdir(parents=True, exist_ok=True)
+        return self._dir
+
+    def _phase_dir(self, folder: str) -> Path:
+        d = self._dir / folder        # type: ignore[operator]
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    # --- metrics (one file per concern) -----------------------------------
     def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
-        if self._metrics_fp is None:
+        if self._dir is None:
             return
         import json  # noqa: PLC0415
-        self._metrics_fp.write(
-            json.dumps({"step": step, "split": split,
-                        "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n"
-        )
-        self._metrics_fp.flush()
+        folder = self._FOLDER.get(split, split)
+        fp = self._metrics_fps.get(folder)
+        if fp is None:
+            fp = (self._phase_dir(folder) / "metrics.jsonl").open("a")
+            self._metrics_fps[folder] = fp
+        fp.write(json.dumps({"step": step, "split": split,
+                             "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n")
+        fp.flush()
 
     def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
         self._write_metrics(step_idx, metrics, "train")
@@ -669,39 +734,126 @@ class LocalLoggerCallback(Callback):
             cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
             print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
 
+    # --- data going in ----------------------------------------------------
+    def on_train_data(self, ctx: LogContext, rows: list[dict]) -> None:
+        d = self._ensure_dir(ctx)
+        if d is None:
+            return
+        import json  # noqa: PLC0415
+        fp = self._phase_dir("data") / "training_data.jsonl"
+        with fp.open("w") as f:
+            for r in rows:
+                f.write(json.dumps(r, default=str) + "\n")
+        if self.print_every:
+            print(f"  [training_data] {len(rows)} rows → {fp}", flush=True)
+
+    # --- training rollouts (--dry) ----------------------------------------
+    def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
+        if self._dir is None:
+            return
+        import json  # noqa: PLC0415
+        texts = self._harbor_completion_texts("train")
+        recs: list[dict] = []
+        flat = 0
+        for gi, group in enumerate(rollouts or []):
+            for ti, traj in enumerate(getattr(group, "trajectories", []) or []):
+                turns = getattr(traj, "turns", []) or []
+                text = next((getattr(t, "text", "") for t in reversed(turns)
+                             if getattr(t, "text", "")), "")
+                if not text and flat < len(texts):
+                    text = texts[flat]
+                flat += 1
+                recs.append({
+                    "step": step_idx, "group": gi, "traj": ti,
+                    "reward": getattr(traj, "reward", None),
+                    "text": text,
+                    "usage": (getattr(traj, "metadata", {}) or {}).get("usage"),
+                })
+        fp = self._phase_dir("training") / "rollouts.jsonl"
+        with fp.open("a") as f:
+            for rec in recs:
+                f.write(json.dumps(rec, default=str) + "\n")
+        if self.print_every:
+            print(f"  [rollouts step {step_idx}] {len(recs)} trajectories → {fp}", flush=True)
+
+    def _harbor_completion_texts(self, phase: str) -> list[str]:
+        """Best-effort: read decoded completions harbor wrote to
+        ``<run>/.harbor/<phase>/jobs/<newest>/<trial>/agent/completion.txt``.
+        Token-level Trajectory turns carry only token ids, so this recovers the
+        text for the clean rollouts.jsonl. Order-based, hence best-effort."""
+        if self._dir is None:
+            return []
+        jobs = self._dir.parent / ".harbor" / phase / "jobs"
+        if not jobs.is_dir():
+            return []
+        job_dirs = sorted(p for p in jobs.iterdir() if p.is_dir())
+        if not job_dirs:
+            return []
+        texts: list[str] = []
+        for comp in sorted(job_dirs[-1].glob("*/agent/completion.txt")):
+            try:
+                texts.append(comp.read_text())
+            except OSError:
+                texts.append("")
+        return texts
+
+    # --- benchmark predictions (val / test) -------------------------------
     def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
         if self._dir is None:
             return
         import json  # noqa: PLC0415
         ename = getattr(eval_result, "name", "benchmark")
         metrics = dict(getattr(eval_result, "metrics", {}) or {})
-        self._evals.append({"name": ename, "step": step, "metrics": metrics})
-        if predictions:
-            pdir = self._dir / "predictions"
-            pdir.mkdir(exist_ok=True)
-            safe = ename.replace("/", "_").replace(" ", "_")
-            with (pdir / f"{safe}.jsonl").open("w") as f:
+        split = str(getattr(eval_result, "split", None) or "test")
+        self._evals.append({"name": ename, "step": step, "split": split, "metrics": metrics})
+        if metrics:                       # aggregate scores -> <folder>/metrics.jsonl
+            self._write_metrics(int(step or 0), metrics, split)
+        if predictions:                   # per-example predictions -> <folder>/rollouts.jsonl
+            folder = self._FOLDER.get(split, split)
+            fp = self._phase_dir(folder) / "rollouts.jsonl"
+            with fp.open("a") as f:
                 for p in predictions:
-                    f.write(json.dumps(p, default=str) + "\n")
+                    row = dict(p) if isinstance(p, dict) else {"prediction": p}
+                    row.setdefault("benchmark", ename)
+                    f.write(json.dumps(row, default=str) + "\n")
         if self.print_every:
             cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
-            print(f"  [benchmark {ename}] {cells}  n_pred={len(predictions)}", flush=True)
+            print(f"  [benchmark {ename}/{split}] {cells}  n_pred={len(predictions)}", flush=True)
 
+    # --- close out --------------------------------------------------------
     def on_run_end(self, ctx, run_result, arm) -> None:
         if self._dir is not None:
-            lines = [f"# {ctx.run_key}", ""]
-            status = getattr(run_result, "status", None)
-            lines.append(f"- status: {status}")
-            for ev in self._evals:
+            self._runs.append({
+                "dir": self._dir, "run_key": ctx.run_key,
+                "status": getattr(run_result, "status", None),
+                "evals": list(self._evals),
+            })
+        for fp in self._metrics_fps.values():
+            try:
+                fp.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._metrics_fps = {}
+
+    def on_experiment_end(self, ctx, result) -> None:
+        if self._hypothesis is None:
+            self._hypothesis = getattr(result, "hypothesis", None)
+        conclusion = getattr(result, "conclusion", None)
+        self._write_experiment_md(ctx, conclusion=conclusion)
+        for rec in self._runs:            # per-run conclusion.md
+            lines = [f"# {rec['run_key']} — conclusion", ""]
+            lines.append(f"- hypothesis: {self._hypothesis or '(none)'}")
+            lines.append(f"- status: {rec['status']}")
+            if conclusion is not None:
+                lines.append(f"- conclusion: {conclusion}")
+            for ev in rec["evals"]:
                 cells = ", ".join(f"{k}={v:.4f}" for k, v in ev["metrics"].items()
                                   if isinstance(v, (int, float)))
-                lines.append(f"- eval **{ev['name']}** (step={ev['step']}): {cells}")
-            (self._dir / "summary.md").write_text("\n".join(lines) + "\n")
-        if self._metrics_fp is not None:
+                lines.append(f"- eval **{ev['name']}** ({ev['split']}, step={ev['step']}): {cells}")
             try:
-                self._metrics_fp.close()
-            finally:
-                self._metrics_fp = None
+                (rec["dir"] / "conclusion.md").write_text("\n".join(lines) + "\n")
+            except OSError:
+                pass
 
 
 class EvsysLoggerConfig(BaseModel):

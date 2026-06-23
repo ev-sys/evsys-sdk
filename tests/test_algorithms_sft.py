@@ -202,10 +202,27 @@ def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
 
 
 def test_train_writes_one_metric_row_per_step(patched_tinker_backend, ctx):
+    # Per-step metrics now flow through callbacks (on_step_end), not the loop's
+    # log_store (which BaseAlgorithm hands a no-op store so local_logger is the
+    # single writer). Capture them with a recording callback.
+    from evsys_sdk.training.callbacks import Callback
+
+    rows: list[dict] = []
+
+    class _Rec(Callback):
+        def on_step_end(self, state, step_idx, batch, metrics):
+            rows.append({"step": step_idx, "split": "train", "metrics": dict(metrics)})
+
+    ctx.extras["callbacks"] = [_Rec()]
     algo = SFT(max_steps=4, batch_size=4)
     algo.train(ctx)
-    train_rows = [r for r in ctx.log_store.metric_rows if r["split"] == "train"]
+    train_rows = [r for r in rows if r["split"] == "train"]
     assert len(train_rows) == 4
+    # No duplicate: the loop is handed a no-op store, so per-step metrics do NOT
+    # also land in ctx.log_store — callbacks (local_logger) are the single writer.
+    assert ctx.log_store.metric_rows == []
+    # hyperparams + checkpoint artifacts still flow to the store.
+    assert ctx.log_store.hyperparams is not None
     # Each row carries the always-on loop keys.
     for r in train_rows:
         m = r["metrics"]
