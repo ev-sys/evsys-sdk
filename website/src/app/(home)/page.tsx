@@ -118,6 +118,12 @@ export default function HomePage() {
             How it works
           </Link>
           <a
+            href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/whitepaper.pdf`}
+            className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
+          >
+            Whitepaper
+          </a>
+          <a
             href="https://github.com/ev-sys/evsys-sdk"
             className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
           >
