@@ -569,14 +569,17 @@ class Experiment:
         # One eval per (benchmark, model): the checkpoint and each API model are
         # distinct results, named/tagged by model so they don't collide.
         eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
-        # Persist eval rollouts under the run's output dir — alongside training's
-        # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
-        # trial dirs survive the run instead of vanishing with a tempdir.
+        # Persist eval rollouts under the run's agent track — alongside training's
+        # and validation's harbor jobs — so harbor's own trial dirs (the dense
+        # rollout store) survive the run, referenced not copied. A RunLog also
+        # renders the curated human benchmark view below.
         run_dir = self._resolve_run_dir(arm)
+        run_log = None
         if run_dir is not None:
             safe = eval_name.replace("/", "_").replace(" ", "_")
-            workspace = run_dir / "harbor_eval" / safe
-            workspace.mkdir(parents=True, exist_ok=True)
+            from .run_log import RunLog
+            run_log = RunLog(run_dir, experiment_name=self.config.name, run_name=arm.name)
+            workspace = run_log.harbor_dir(f"eval/{safe}")
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
@@ -608,6 +611,15 @@ class Experiment:
             step=None,
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
+        # Readable eval view: metrics block + decoded rollout predictions,
+        # tagged by the benchmark's split (val / test). The full per-task
+        # rollouts live in harbor's eval jobs dir (referenced).
+        if run_log is not None:
+            from .run_log import split_from_tags
+            split = split_from_tags(bench_meta.get("tags"))
+            run_log.log_validation_metrics(eval_name, dict(score.metrics), split=split)
+            run_log.log_validation_rollouts(eval_name, score.rollouts, split=split, tasks=tasks)
+
         eval_id = self._record_eval(arm, bench, bench_meta, score)
         # Upload eval rollouts only (training rollouts are never uploaded), and
         # only once they have an eval_id to hang off of — orphan predictions

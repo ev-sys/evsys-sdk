@@ -184,14 +184,22 @@ class BaseAlgorithm:
             **self._hyperparams_extra(),
         })
 
-        # 5. compose the loop (self IS the StepBuilder) and run
+        # 5. compose the loop (self IS the StepBuilder) and run. Route harbor's
+        # validation jobs dir into the agent track when a RunLog is present
+        # (referenced, not copied).
+        _run_log = ctx.extras.get("run_log")
+        _val_workspace = (
+            _run_log.harbor_dir("val") if _run_log is not None
+            else Path(ctx.output_dir) / "harbor_val"
+        )
         evaluators = build_in_loop_evaluators(
             ctx.config.metadata if hasattr(ctx, "config") else None,
             tokenizer=backend.get_tokenizer(),
             store=getattr(ctx, "store", None) or ctx.extras.get("store"),
             model_name=model_name,
-            workspace_dir=Path(ctx.output_dir) / "harbor_val",
+            workspace_dir=_val_workspace,
             run_id=ctx.extras.get("dashboard_run_id"),
+            run_log=_run_log,
         )
         loop = TrainingLoop(
             backend=backend,
@@ -207,6 +215,7 @@ class BaseAlgorithm:
             save_every=save_every,
             evaluators=evaluators,
             callbacks=build_callbacks(self.cfg.callbacks),
+            run_log=_run_log,
         )
         artifacts = await loop.run(num_steps=total_steps)
 

@@ -279,3 +279,27 @@ def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
     assert hp["algorithm"] == "sdft"
     assert hp["model_name"] == "Qwen/Qwen3-4B"
     assert hp["total_steps"] == 2
+
+
+def test_format_teacher_topk_decodes_and_skips_prompt_and_none():
+    """The teacher-logprobs run-log helper: decode token ids, skip the
+    teacher-prompt region (< start) and None positions, cap positions/K."""
+    from evsys_sdk.algorithms.sdft import format_teacher_topk
+
+    # positions 0,1 = teacher prompt; 2 = None; 3,4 = completion top-K.
+    topk = [
+        [(1, -0.1)],                 # pos 0 (prompt) — skipped by start=3
+        [(2, -0.2)],                 # pos 1 (prompt) — skipped
+        None,                        # pos 2 — skipped (None)
+        [(7, -0.01), (8, -2.0), (9, -3.0)],   # pos 3
+        [(7, -0.5), (8, -0.6)],               # pos 4
+    ]
+    rows = format_teacher_topk(topk, decode=lambda t: f"<{t}>", start=3, max_k=2)
+    assert [r["pos"] for r in rows] == [3, 4]          # prompt + None skipped
+    assert rows[0]["topk"] == [["<7>", -0.01], ["<8>", -2.0]]   # decoded + capped to K=2
+    assert rows[1]["topk"] == [["<7>", -0.5], ["<8>", -0.6]]
+
+
+def test_format_teacher_topk_handles_none_input():
+    from evsys_sdk.algorithms.sdft import format_teacher_topk
+    assert format_teacher_topk(None, decode=str) == []

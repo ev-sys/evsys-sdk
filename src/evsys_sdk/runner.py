@@ -125,6 +125,20 @@ def _execute_run(
     run_dir = base_output_dir / safe_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # One human-readable log per run, organized into folders (data, rollouts,
+    # metrics, ...). Harbor's full rollout store is referenced via
+    # run_log.harbor_dir(...) — never copied. Set it as the current run log so
+    # user code (custom transforms, build_batch, callbacks) can reach it via
+    # evsys_sdk.get_run_log().
+    from .run_log import RunLog, _CURRENT
+    run_log = RunLog(
+        run_dir,
+        experiment_name=cfg.name,
+        run_name=run.name,
+        hypothesis=(cfg.metadata or {}).get("hypothesis"),
+    )
+    _rl_token = _CURRENT.set(run_log)
+
     # Build stores. Log store gets log_dir wired in from run_dir if not provided.
     ds_cls = get_data_store(cfg.data_store.kind)
     data_store = ds_cls(**(cfg.data_store.params or {}))
@@ -152,6 +166,14 @@ def _execute_run(
     # Data.
     raw_rows = _load_rows(run.data, data_store) # TODO : avoid loading entire dataset into memory
     train_rows = _apply_transforms(raw_rows, run.data)
+    run_log.log_data(
+        train_rows,
+        dataset_meta={
+            "name": run.data.dataset_name or run.data.dataset_id,
+            "source_kind": run.data.source_kind,
+        },
+        transforms=run.data.transforms,
+    )
 
     # Algorithm.
     alg_cls = get_algorithm(run.algorithm.kind)
@@ -172,6 +194,8 @@ def _execute_run(
         result = RunResult(run_id=safe_name, status="failed", error=str(e))
         log_store.close()
         _persist_result(run_dir, result, hparams=run.model_dump())
+        run_log.write_summary(status=result.status)
+        _CURRENT.reset(_rl_token)
         return result
 
     extras: dict[str, Any] = {
@@ -180,6 +204,7 @@ def _execute_run(
         "backend_handles": handles,
         "model_name": run.model.name,
         "tags": run.tags,
+        "run_log": run_log,
     }
     # Dashboard plumbing (store + run_id) so in-loop benchmark eval can upload
     # its rollouts; injected by Experiment, absent for bare run_experiment calls.
@@ -219,6 +244,11 @@ def _execute_run(
 
     log_store.close()
     _persist_result(run_dir, result, hparams=run.model_dump())
+    # Render the readable metrics (train + validation CSVs) + summary from what
+    # the run produced. Best-effort; never fatal.
+    run_log.render_metrics()
+    run_log.write_summary(status=result.status)
+    _CURRENT.reset(_rl_token)
     return result
 
 

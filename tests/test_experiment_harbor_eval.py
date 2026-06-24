@@ -266,7 +266,8 @@ def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
     e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]})
 
     ws = captured["workspace_dir"]
-    assert ws == tmp_path / "r" / "harbor_eval" / "b"   # persisted under the run dir
+    # Routed into the run log's referenced harbor store (harbor/eval/<bench>).
+    assert ws == tmp_path / "r" / "harbor" / "eval" / "b"
     assert ws.exists()                                   # created, not a vanished tempdir
     assert str(ws).startswith(str(tmp_path))             # never a system tempdir
 

@@ -29,6 +29,7 @@ import tinker
 
 from ..benchmark import Benchmark
 from ..inference.chat_templated import ChatTemplatedInference
+from ..run_log import split_from_tags
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,12 @@ class BenchmarkEvaluator:
     store: Any = None
     run_id: str | None = None
     benchmark_id: str | None = None
+    run_log: Any = None
+    """The run's RunLog (or None). When set, each in-loop eval writes its
+    eval rollouts (03_validation_rollouts/{split}) + metrics (05_validation_metrics)."""
+    split: str = "val"
+    """The benchmark's eval tag — ``val`` or ``test`` (from its ``tags``). Used to
+    tag this eval's metrics + rollouts so val and test stay distinct in-loop."""
 
     async def evaluate(
         self, sampler: Any, *,
@@ -191,10 +198,18 @@ class BenchmarkEvaluator:
             metrics=list(self.metrics) or None,
             n_concurrent=self.n_concurrent,
         )
+        tasks = (self.benchmark.tasks if self.limit is None
+                 else self.benchmark.tasks[: max(0, self.limit)])
         if self.store is not None and self.run_id:
-            tasks = (self.benchmark.tasks if self.limit is None
-                     else self.benchmark.tasks[: max(0, self.limit)])
             self._upload(tasks, score.rollouts, dict(score.metrics), step)
+        # Readable eval log for this eval, tagged by split (val / test).
+        if self.run_log is not None:
+            label = f"{self.name}_step_{step}" if step is not None else self.name
+            self.run_log.log_validation_metrics(self.name, dict(score.metrics),
+                                                step=step, split=self.split)
+            self.run_log.log_validation_rollouts(label, score.rollouts,
+                                                 split=self.split, tokenizer=self.tokenizer,
+                                                 tasks=tasks)
         return dict(score.metrics)
 
     def _upload(
@@ -250,6 +265,7 @@ def build_in_loop_evaluators(
     model_name: str | None = None,
     workspace_dir: Any = None,
     run_id: str | None = None,
+    run_log: Any = None,
 ) -> list[BenchmarkEvaluator]:
     """Read ``metadata.benchmark`` and return one
     :class:`BenchmarkEvaluator` per entry whose ``run_every`` > 0.
@@ -307,6 +323,8 @@ def build_in_loop_evaluators(
             n_concurrent=int(spec.get("n_concurrent", 8)),
             store=store,
             run_id=run_id,
+            run_log=run_log,
+            split=split_from_tags(spec.get("tags")),
             benchmark_id=(str(spec["id"]) if spec.get("id") is not None else None),
         ))
     return out

@@ -27,7 +27,10 @@ EVSYS_LOGGING_LEVEL_ENV = "EVSYS_LOGGING_LEVEL"
 # ---------------------------------------------------------------------------
 
 DEFAULT_API_URL = "http://localhost:8000"
-DEFAULT_LOG_DIR = "./evsys_sdk"
+# Single local root for everything the SDK writes (experiment-record mirror,
+# dataset/benchmark cache, run outputs). Matches the Workspace root so all
+# local state lives under one self-ignoring ``.evsys/`` dir.
+DEFAULT_LOG_DIR = "./.evsys"
 DEFAULT_TIMEOUT_S = 30.0
 
 # ---------------------------------------------------------------------------

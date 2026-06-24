@@ -102,20 +102,28 @@ def forward_step_metrics(
         metrics = _extract_metrics(row)
         if metrics is None:
             continue
-        # ``val/``-prefixed keys are in-loop validation metrics — forward them
-        # under split="val" so the dashboard separates the validation curve from
-        # training. Everything else stays on the default (train) split, with the
-        # original call signature preserved for back-compat.
-        val_metrics = {k: v for k, v in metrics.items() if k.startswith("val/")}
-        train_metrics = {k: v for k, v in metrics.items() if not k.startswith("val/")}
+        # In-loop eval metrics are keyed ``val/...`` or ``test/...`` (the
+        # benchmark's tag); forward each under its own split so the dashboard
+        # separates train / val / test curves. Fall back to the row's ``split``
+        # field, else train. Train keeps the original (split-less) call for
+        # back-compat.
+        row_split = str(row.get("split", "") or "").lower()
+        by_split: dict[str, dict[str, float]] = {}
+        for k, v in metrics.items():
+            seg = k.split("/", 1)[0].lower()
+            if seg in ("val", "test"):
+                split = seg
+            elif row_split in ("val", "test"):
+                split = row_split
+            else:
+                split = "train"
+            by_split.setdefault(split, {})[k] = v
         try:
-            if train_metrics:
-                store.log_metrics(run_id=run_id, step=int(step), metrics=dict(train_metrics))
-                sent += 1
-            if val_metrics:
-                store.log_metrics(
-                    run_id=run_id, step=int(step), metrics=dict(val_metrics), split="val"
-                )
+            for split, m in by_split.items():
+                if split == "train":
+                    store.log_metrics(run_id=run_id, step=int(step), metrics=dict(m))
+                else:
+                    store.log_metrics(run_id=run_id, step=int(step), metrics=dict(m), split=split)
                 sent += 1
         except Exception:
             logger.exception(

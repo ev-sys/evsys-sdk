@@ -29,9 +29,10 @@ class TensorBoardLogStore:
     def log_scalar(self, key: str, value: float, step: int) -> None:
         self._writer.add_scalar(key, value, global_step=step)
 
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None:
+    def log_metrics(self, metrics: dict[str, float], step: int, *, split: str = "train") -> None:
+        prefix = "" if split == "train" else f"{split}/"
         for k, v in metrics.items():
-            self._writer.add_scalar(k, v, global_step=step)
+            self._writer.add_scalar(f"{prefix}{k}", v, global_step=step)
 
     def log_hyperparams(self, params: dict[str, Any]) -> None:
         # add_hparams is finicky; persist as text instead

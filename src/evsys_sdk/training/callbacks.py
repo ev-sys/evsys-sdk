@@ -75,6 +75,10 @@ class LoopState:
     """The same log_store the loop writes to. Callbacks can also write
     auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
     checkpoint_mgr: "CheckpointManager"
+    run_log: Any = None
+    """The run's :class:`~evsys_sdk.run_log.RunLog` (or ``None``). Callbacks can
+    log custom files into their own named folder, e.g.
+    ``state.run_log.note("my_cb", ...)``."""
     stop_requested: bool = False
 
     def request_stop(self) -> None:
