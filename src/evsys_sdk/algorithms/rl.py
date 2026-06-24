@@ -83,6 +83,8 @@ class RL(BaseAlgorithm):
         # disk; training rollouts are NOT uploaded to the dashboard (only eval
         # rollouts are — see harbor_eval).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+        # The run's rollout harness (registered `agent` plugin) — same one eval uses.
+        self._agent_spec = ctx.extras.get("agent")
         self._steps_per_epoch = max(1, len(self._tasks) // self.cfg.batch_size)
 
     async def build_batch(self, step_idx: int) -> TrainingBatch:
@@ -108,6 +110,7 @@ class RL(BaseAlgorithm):
             max_tokens=self.cfg.max_tokens,
             temperature=self.cfg.temperature,
             system_prompt=self.cfg.system_prompt,
+            agent_spec=self._agent_spec,
             agent_import_path=self.cfg.agent_import_path,
             n_concurrent=self.cfg.n_concurrent,
             max_retries=self.cfg.max_retries,

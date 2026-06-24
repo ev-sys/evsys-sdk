@@ -580,6 +580,9 @@ class Experiment:
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
 
+        # Eval through the SAME harness the run trained with, unless this benchmark
+        # overrides it with its own `agent:` spec.
+        eval_agent = bench_meta.get("agent") or run_cfg.agent
         t0 = time.time()
         score = asyncio.run(bench.score_via_harbor(
             model_name=api_model or run_cfg.model.name,
@@ -595,6 +598,7 @@ class Experiment:
             breakdown_keys=list(bench_meta.get("breakdown_keys") or []),
             metrics=bench_meta.get("metrics"),
             n_concurrent=int(bench_meta.get("n_concurrent", 8)),
+            agent_spec=eval_agent,
         ))
         seconds = time.time() - t0
 

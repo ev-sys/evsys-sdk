@@ -31,6 +31,7 @@ External packages can extend any registry via Python entry points
 """
 
 from .config import (
+    AgentSpec,
     AlgorithmConfig,
     BackendConfig,
     CallbackSpec,
@@ -56,6 +57,7 @@ from .protocols import (
     Verifier,
 )
 from .registry import (
+    get_agent,
     get_algorithm,
     get_backend,
     get_callback,
@@ -74,6 +76,8 @@ from .registry import (
     list_metrics,
     list_transforms,
     list_verifiers,
+    list_agents,
+    register_agent,
     register_algorithm,
     register_backend,
     register_callback,
@@ -141,6 +145,7 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     # Config
+    "AgentSpec",
     "AlgorithmConfig",
     "BackendConfig",
     "DataConfig",
@@ -164,6 +169,7 @@ __all__ = [
     "Transform",
     "Verifier",
     # Registry
+    "get_agent",
     "get_algorithm",
     "get_backend",
     "get_callback",
@@ -173,6 +179,7 @@ __all__ = [
     "get_metric",
     "get_transform",
     "get_verifier",
+    "list_agents",
     "list_algorithms",
     "list_backends",
     "list_callbacks",
@@ -182,6 +189,7 @@ __all__ = [
     "list_metrics",
     "list_transforms",
     "list_verifiers",
+    "register_agent",
     "register_algorithm",
     "register_backend",
     "register_callback",

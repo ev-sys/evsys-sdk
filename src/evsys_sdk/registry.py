@@ -28,11 +28,17 @@ class Registry:
 
     def register(self, name: str | None = None) -> Callable[[type[T]], type[T]]:
         def decorator(cls: type[T]) -> type[T]:
-            key = name or getattr(cls, "name", None)
+            # The registry key is THE name — exactly the ``kind:`` used in config.
+            # It is the decorator arg, or a string ``name`` class attribute as a
+            # fallback. (A ``name()`` METHOD — e.g. harbor's BaseAgent — is not a key,
+            # so those classes must pass an explicit name to the decorator.) The
+            # class is never mutated; the registry dict is the single source of truth.
+            declared = getattr(cls, "name", None)
+            key = name or (declared if isinstance(declared, str) else None)
             if not key:
                 raise ValueError(
-                    f"{self._kind} class {cls.__name__} has no `name` and "
-                    f"register_{self._kind} was called without a name."
+                    f"register_{self._kind}: {cls.__name__} needs a name — pass one to "
+                    f"register_{self._kind}('<name>') or set a string `name` class attribute."
                 )
             if key in self._items and self._items[key] is not cls:
                 raise ValueError(
@@ -40,11 +46,6 @@ class Registry:
                     f"(existing={self._items[key].__module__}.{self._items[key].__name__}, "
                     f"new={cls.__module__}.{cls.__name__})"
                 )
-            # Best-effort: ensure the class declares its name attribute
-            try:
-                setattr(cls, "name", key)
-            except (TypeError, AttributeError):
-                pass
             self._items[key] = cls
             return cls
 
@@ -82,6 +83,7 @@ _backends = Registry("backend")
 _inference = Registry("inference_client")
 _transforms = Registry("transform")
 _callbacks = Registry("callback")
+_agents = Registry("agent")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -126,6 +128,10 @@ def register_transform(name: str | None = None):
 
 def register_callback(name: str | None = None):
     return _callbacks.register(name)
+
+
+def register_agent(name: str | None = None):
+    return _agents.register(name)
 
 
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -176,6 +182,10 @@ def get_callback(name: str) -> type:
     return _callbacks.get(name)
 
 
+def get_agent(name: str) -> type:
+    return _agents.get(name)
+
+
 def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
     """Return the registered default factory for ``backend_kind`` or ``None``."""
     return _DEFAULT_INFERENCE_FACTORIES.get(backend_kind)
@@ -218,6 +228,10 @@ def list_callbacks() -> list[str]:
     return _callbacks.list()
 
 
+def list_agents() -> list[str]:
+    return _agents.list()
+
+
 # Internal helpers used by yaml_loader / runner
 def _all_registries() -> dict[str, Registry]:
     return {
@@ -230,6 +244,7 @@ def _all_registries() -> dict[str, Registry]:
         "inference_client": _inference,
         "transform": _transforms,
         "callback": _callbacks,
+        "agent": _agents,
     }
 
 

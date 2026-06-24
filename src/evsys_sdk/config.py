@@ -56,6 +56,16 @@ class CallbackSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentSpec(_Strict):
+    """The rollout harness (a registered ``agent``) used for this run's training
+    rollouts AND its val/test eval — so the model is trained and scored through the
+    same harness. A benchmark may override it per-eval via its own ``agent:`` key.
+    e.g. ``{kind: basic_loop, params: {max_turns: 1}}``. Defaults to ``basic_loop``."""
+
+    kind: str = "basic_loop"
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # Stores
 # ---------------------------------------------------------------------------
@@ -141,6 +151,8 @@ class RunConfig(_Strict):
     model: ModelConfig
     algorithm: AlgorithmConfig
     backend: BackendConfig = Field(default_factory=BackendConfig)
+    agent: AgentSpec = Field(default_factory=AgentSpec)
+    """Rollout harness for this run — training rollouts + default eval harness."""
     seed: int = 42
     tags: list[str] = Field(default_factory=list)
 
