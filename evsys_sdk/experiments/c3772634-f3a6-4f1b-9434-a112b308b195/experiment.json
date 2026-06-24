@@ -1,0 +1,9 @@
+{
+  "id": "c3772634-f3a6-4f1b-9434-a112b308b195",
+  "_created_at": 1781662341.169287,
+  "experiment_name": "dotted",
+  "status": "completed",
+  "conclusion": "Best arm: base__lora_rank4 at test_set.pass_rate=1.0000. 2/2 arms completed.",
+  "best_score": 1.0,
+  "_updated_at": 1781662341.172149
+}

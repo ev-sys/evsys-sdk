@@ -1,0 +1,13 @@
+{
+  "id": "c42530b6-ffd7-4ea2-be31-4720340aad30",
+  "_created_at": 1781662341.07412,
+  "experiment_name": "rank_sweep",
+  "hypothesis": "higher rank \u2192 higher reward",
+  "tags": [
+    "sft",
+    "test"
+  ],
+  "status": "failed",
+  "conclusion": "All 3 arms failed.",
+  "_updated_at": 1781662341.078571
+}

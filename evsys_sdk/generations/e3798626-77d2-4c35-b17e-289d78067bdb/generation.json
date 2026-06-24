@@ -1,0 +1,52 @@
+{
+  "id": "e3798626-77d2-4c35-b17e-289d78067bdb",
+  "_created_at": 1781662341.1746418,
+  "experiment_id": "a132873a-a83b-4b2e-8ac8-93f4da851e17",
+  "seed": 42,
+  "recipe_kind": "mock_sft",
+  "run_config": {
+    "name": "base",
+    "data": {
+      "source_kind": "in_memory",
+      "dataset_id": null,
+      "dataset_name": null,
+      "path": null,
+      "rows": [
+        {
+          "q": "Q",
+          "a": "A"
+        }
+      ],
+      "hf_dataset": null,
+      "hf_split": "train",
+      "transforms": []
+    },
+    "model": {
+      "name": "m",
+      "load_checkpoint_path": null,
+      "init_from_checkpoint": null,
+      "renderer_name": null
+    },
+    "algorithm": {
+      "kind": "mock_sft",
+      "params": {
+        "lora_rank": 0
+      }
+    },
+    "backend": {
+      "kind": "mock",
+      "params": {}
+    },
+    "eval": {
+      "enabled": true,
+      "metrics": [],
+      "inference": null,
+      "eval_data": null,
+      "n_samples": null
+    },
+    "seed": 42,
+    "tags": []
+  },
+  "status": "completed",
+  "_updated_at": 1781662341.1751091
+}

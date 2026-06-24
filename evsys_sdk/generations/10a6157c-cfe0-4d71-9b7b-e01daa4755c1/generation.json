@@ -1,0 +1,53 @@
+{
+  "id": "10a6157c-cfe0-4d71-9b7b-e01daa4755c1",
+  "_created_at": 1781662341.09159,
+  "experiment_id": "3576c4bc-e0b1-4ee5-a41b-dcefb2c634ec",
+  "seed": 42,
+  "recipe_kind": "mock_sft",
+  "run_config": {
+    "name": "base",
+    "data": {
+      "source_kind": "in_memory",
+      "dataset_id": null,
+      "dataset_name": null,
+      "path": null,
+      "rows": [
+        {
+          "q": "Q",
+          "a": "A"
+        }
+      ],
+      "hf_dataset": null,
+      "hf_split": "train",
+      "transforms": []
+    },
+    "model": {
+      "name": "m",
+      "load_checkpoint_path": null,
+      "init_from_checkpoint": null,
+      "renderer_name": null
+    },
+    "algorithm": {
+      "kind": "mock_sft",
+      "params": {
+        "lora_rank": 0
+      }
+    },
+    "backend": {
+      "kind": "mock",
+      "params": {}
+    },
+    "eval": {
+      "enabled": true,
+      "metrics": [],
+      "inference": null,
+      "eval_data": null,
+      "n_samples": null
+    },
+    "seed": 42,
+    "tags": []
+  },
+  "status": "failed",
+  "error_message": "RuntimeError: boom on arm 'base'",
+  "_updated_at": 1781662341.092333
+}

@@ -1,0 +1,14 @@
+{
+  "id": "82dac3e9-c87b-4a4d-a774-520aabb3ddba",
+  "_created_at": 1781662341.142602,
+  "experiment_name": "rank_sweep",
+  "hypothesis": "higher rank \u2192 higher reward",
+  "tags": [
+    "sft",
+    "test"
+  ],
+  "status": "completed",
+  "conclusion": "Best arm: base__lora_rank16 at reward=0.4000. 2/3 arms completed. Failed: base__lora_rank4.",
+  "best_score": 0.4,
+  "_updated_at": 1781662341.145909
+}

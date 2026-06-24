@@ -257,4 +257,29 @@ class EvsysStore:
         return self._call("get_metrics", run_id=run_id, name=name, split=split)
 
 
-__all__ = ["EvsysStore", "EvsysStoreError"]
+def resolve_store(explicit: Any = None, *, log_dir: str | None = None) -> Any:
+    """Pick the store for a run — one toggle for dashboard ↔ local.
+
+    Precedence (the user-facing switch):
+      1. ``explicit`` store passed in → use it;
+      2. ``EVSYS_OFFLINE`` truthy → ``LocalStore`` (writes ``.evsys``, no creds);
+      3. ``EVSYS_API_KEY`` present → ``EvsysStore`` (remote dashboard);
+      4. otherwise (no creds) → ``LocalStore`` (graceful local default).
+
+    So the default is **auto** (creds → dashboard, none → local), and
+    ``EVSYS_OFFLINE=1`` forces local. Both stores honor the same contract, so
+    the only thing that changes between modes is which object is returned.
+    """
+    if explicit is not None:
+        return explicit
+    from .constants import EVSYS_API_KEY_ENV, EVSYS_OFFLINE_ENV, truthy_env
+    from .local_store import LocalStore
+
+    if truthy_env(os.environ.get(EVSYS_OFFLINE_ENV)):
+        return LocalStore(log_dir=log_dir)
+    if os.environ.get(EVSYS_API_KEY_ENV):
+        return EvsysStore()
+    return LocalStore(log_dir=log_dir)
+
+
+__all__ = ["EvsysStore", "EvsysStoreError", "resolve_store"]

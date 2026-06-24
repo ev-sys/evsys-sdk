@@ -52,9 +52,15 @@ from .inference.chat_templated import ChatTemplatedInference
 from .protocols import InferenceClient, RunResult
 from .registry import get_default_inference_factory
 from .step_metrics import forward_step_metrics
+from .store import resolve_store
 from .sweep import expand_runs
 
 logger = logging.getLogger(__name__)
+
+# Sentinel: lets ``store=None`` mean "no store" (records nothing — used by
+# tests) while a *bare* ``Experiment(config)`` auto-resolves a store
+# (dashboard if creds, else local). See ``resolve_store``.
+_AUTO_STORE = object()
 
 
 TrainFn = Callable[[ExperimentConfig], list[RunResult]]
@@ -197,13 +203,15 @@ class Experiment:
         self,
         config: ExperimentConfig,
         *,
-        store: Any | None = None,
+        store: Any = _AUTO_STORE,
         train_fn: TrainFn | None = None,
         benchmark: Benchmark | None = None,
         inference_factory: InferenceFactory | None = None,
     ) -> None:
         self.config = config
-        self.store = store
+        # Bare Experiment(config) → auto store (creds → dashboard, else local);
+        # explicit store=None → no records (tests); explicit store → as given.
+        self.store = resolve_store() if store is _AUTO_STORE else store
         self.train_fn = train_fn or _default_train_fn
         self._train_fn_is_default = train_fn is None
         self._benchmark_override = benchmark

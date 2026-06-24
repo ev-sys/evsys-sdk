@@ -99,7 +99,8 @@ from .dashboard_client import (
     EvsysAuthError,
 )
 from .logger import configure_logger, get_logger, set_level
-from .store import EvsysStore, EvsysStoreError
+from .store import EvsysStore, EvsysStoreError, resolve_store
+from .local_store import LocalStore
 from .workspace import MaterializedDataset, Workspace
 from .data_types import (
     TargetFormat,
@@ -231,6 +232,8 @@ __all__ = [
     # Backend-routed data-access (project → … → runs → evals/metrics)
     "EvsysStore",
     "EvsysStoreError",
+    "resolve_store",
+    "LocalStore",
     # Local cache for remote datasets/benchmarks
     "Workspace",
     "MaterializedDataset",
