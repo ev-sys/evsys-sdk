@@ -112,6 +112,12 @@ export default function HomePage() {
           >
             Get started
           </Link>
+          <a
+            href="https://join.slack.com/t/evsys-community/shared_invite/zt-41tnfb6vb-qpVnWw59wP5LcViww_2A4Q"
+            className="rounded-lg border border-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary transition-colors hover:bg-fd-primary hover:text-fd-primary-foreground"
+          >
+            Join our community
+          </a>
           <Link
             href="/docs/concepts/architecture"
             className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"

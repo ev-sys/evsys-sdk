@@ -17,6 +17,14 @@ export function baseOptions(): BaseLayoutProps {
         </>
       ),
     },
+    links: [
+      {
+        type: 'button',
+        text: 'Join our community',
+        url: 'https://join.slack.com/t/evsys-community/shared_invite/zt-41tnfb6vb-qpVnWw59wP5LcViww_2A4Q',
+        external: true,
+      },
+    ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }
