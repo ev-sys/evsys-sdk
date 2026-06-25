@@ -20,15 +20,17 @@ def fw_recorder(monkeypatch):
     """Mock the IO seams: weight download, model upload, deployment create."""
     calls: dict[str, list] = {"upload": [], "deploy": []}
 
-    def fake_upload(*, account_id, model_id, local_dir, kind, base_model, api_key):
+    def fake_upload(*, account_id, model_id, local_dir, kind, base_model, api_key,
+                    display_name=None):
         calls["upload"].append(
             {"account_id": account_id, "model_id": model_id, "kind": kind,
-             "base_model": base_model})
+             "base_model": base_model, "display_name": display_name})
         return f"accounts/{account_id}/models/{model_id}"
 
-    def fake_create_deployment(*, model_ref, account_id, api_key, params):
-        calls["deploy"].append({"model_ref": model_ref, "params": params})
-        return f"{model_ref}#deployment"
+    def fake_create_deployment(*, model_ref, base_model=None, account_id, api_key, params):
+        calls["deploy"].append(
+            {"model_ref": model_ref, "base_model": base_model, "params": params})
+        return f"accounts/{account_id}/deployments/dep"
 
     monkeypatch.setattr("evsys_sdk.deploy.fireworks._download_weights", lambda uri, out: out)
     monkeypatch.setattr("evsys_sdk.deploy.fireworks._upload_model", fake_upload)
@@ -98,6 +100,131 @@ def test_deploy_checkpoint_standalone(fw_recorder):
     )
     assert res.deployed is True
     assert fw_recorder["upload"][0]["account_id"] == "acct"
+
+
+# --- payload shape + adapter prep (the live-API fixes) ---------------------
+
+
+def test_peft_addon_create_payload_has_required_fields_and_no_file_list():
+    """HF_PEFT_ADDON create must carry displayName + peftDetails{r,targetModules}
+    and must NOT include a top-level file list (files go via the upload endpoint)."""
+    from evsys_sdk.deploy.fireworks import _model_data
+
+    data = _model_data(
+        kind="HF_PEFT_ADDON",
+        base_model="accounts/fireworks/models/llama-v3p2-3b",
+        files=["adapter_model.safetensors", "adapter_config.json"],
+        peft={"baseModel": "accounts/fireworks/models/llama-v3p2-3b",
+              "r": 8, "targetModules": ["q_proj"], "baseModelType": "llama"},
+        display_name="dn",
+    )
+    assert data["kind"] == "HF_PEFT_ADDON"
+    assert "huggingFaceFiles" not in data          # the field Fireworks rejects
+    assert data["displayName"] == "dn"
+    assert data["peftDetails"]["r"] == 8
+    assert data["peftDetails"]["targetModules"] == ["q_proj"]
+    assert data["peftDetails"]["baseModelType"] == "llama"
+
+
+def test_base_model_create_payload_keeps_file_list():
+    from evsys_sdk.deploy.fireworks import _model_data
+
+    data = _model_data(kind="HF_BASE_MODEL", base_model=None,
+                       files=["config.json", "model.safetensors"], display_name="m")
+    assert data["kind"] == "HF_BASE_MODEL"
+    assert data["baseModelDetails"]["huggingfaceFiles"] == ["config.json", "model.safetensors"]
+    assert data["baseModelDetails"]["checkpointFormat"] == "HUGGINGFACE"
+
+
+def test_prune_lora_adapter_strips_lm_head(tmp_path):
+    """tinker trains all-linear LoRA (incl. lm_head); tied-embedding bases reject
+    it. The deployer must drop those tensors + target_modules before upload."""
+    torch = pytest.importorskip("torch")
+    import json
+
+    from safetensors.torch import load_file, save_file
+
+    from evsys_sdk.deploy.fireworks import _prune_lora_adapter
+
+    save_file({
+        "base_model.model.layers.0.q_proj.lora_A.weight": torch.zeros(2, 2),
+        "base_model.model.lm_head.lora_A.weight": torch.zeros(2, 2),
+        "base_model.model.lm_head.lora_B.weight": torch.zeros(2, 2),
+    }, str(tmp_path / "adapter_model.safetensors"))
+    (tmp_path / "adapter_config.json").write_text(
+        json.dumps({"r": 8, "target_modules": "all-linear"}))
+
+    removed = _prune_lora_adapter(str(tmp_path), ["lm_head", "embed_tokens"])
+
+    assert removed and all("lm_head" in k for k in removed)
+    kept = load_file(str(tmp_path / "adapter_model.safetensors"))
+    assert not any("lm_head" in k for k in kept)
+    assert any("q_proj" in k for k in kept)
+    cfg = json.loads((tmp_path / "adapter_config.json").read_text())
+    assert "lm_head" not in cfg["target_modules"] and "q_proj" in cfg["target_modules"]
+
+
+class _Resp:
+    def __init__(self, body):
+        import json as _json
+        self.status_code = 200
+        self.text = ""
+        self._body = body
+        self.content = _json.dumps(body).encode()
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        pass
+
+
+def test_create_deployment_merged_posts_unwrapped_resource(monkeypatch):
+    """Merged/full model (no base_model): the Deployment resource is posted
+    DIRECTLY (not under a 'deployment' key), baseModel == the model, no attach."""
+    import requests
+
+    from evsys_sdk.deploy.fireworks import _create_deployment
+
+    posts: list = []
+    monkeypatch.setattr(requests, "post", lambda url, headers=None, json=None:
+                        posts.append((url, json)) or _Resp({"name": "accounts/a/deployments/d"}))
+
+    ref = _create_deployment(model_ref="accounts/a/models/m", base_model=None,
+                             account_id="a", api_key="k", params={})
+    assert ref == "accounts/a/deployments/d"
+    assert len(posts) == 1                       # no deployedModels attach
+    url, payload = posts[0]
+    assert "deployment" not in payload           # the wrapper bug
+    assert payload["baseModel"] == "accounts/a/models/m"
+    assert payload["acceleratorType"] == "NVIDIA_H100_80GB"
+
+
+def test_create_deployment_addon_waits_then_attaches(monkeypatch):
+    """LoRA addon: deploy the BASE (enableAddons), wait for READY, then attach
+    the addon as a deployedModel (attaching before READY is rejected)."""
+    import requests
+
+    from evsys_sdk.deploy.fireworks import _create_deployment
+
+    posts: list = []
+    monkeypatch.setattr(requests, "post", lambda url, headers=None, json=None:
+                        posts.append((url, json)) or _Resp({"name": "accounts/a/deployments/d"}))
+    # Base deployment polls READY immediately.
+    monkeypatch.setattr(requests, "get",
+                        lambda url, headers=None: _Resp({"state": "READY"}))
+
+    ref = _create_deployment(model_ref="accounts/a/models/addon",
+                             base_model="accounts/fireworks/models/llama-v3p2-3b",
+                             account_id="a", api_key="k", params={})
+    assert ref == "accounts/a/deployments/d"
+    dep_url, dep_payload = posts[0]
+    assert dep_payload["baseModel"] == "accounts/fireworks/models/llama-v3p2-3b"
+    assert dep_payload["enableAddons"] is True
+    attach_url, attach_payload = posts[1]
+    assert attach_url.endswith("/deployedModels")
+    assert attach_payload == {"model": "accounts/a/models/addon",
+                              "deployment": "accounts/a/deployments/d"}
 
 
 # --- inline hook in Experiment.run -----------------------------------------
