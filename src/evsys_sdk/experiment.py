@@ -246,11 +246,27 @@ class Experiment:
         # EvsysStore (from the environment). When the caller handed Experiment an
         # explicit store, reuse that one for logging too (Experiment itself still
         # makes no write calls — only resolution reads).
+        from .training.callbacks import EvsysLoggerCallback
         if store is not None:
-            from .training.callbacks import EvsysLoggerCallback
             for cb in self._callbacks:
                 if isinstance(cb, EvsysLoggerCallback) and cb._store is None:
                     cb._store = store
+        # Warn UP FRONT (not mid-run) if an evsys_logger is configured but has no
+        # usable store: no instance reused from Experiment AND no EVSYS_API_KEY in
+        # the env to build its own → dashboard logging will silently no-op.
+        import os as _os
+
+        from .constants import EVSYS_API_KEY_ENV
+        if any(
+            isinstance(cb, EvsysLoggerCallback) and cb._store is None
+            for cb in self._callbacks
+        ) and not _os.environ.get(EVSYS_API_KEY_ENV):
+            logger.warning(
+                "evsys_logger is configured but no store was passed and %s is not "
+                "set — dashboard logging will be disabled (experiment/run/eval/"
+                "predictions won't be written to the dashboard).",
+                EVSYS_API_KEY_ENV,
+            )
         self._logctx = LogContext(
             output_dir=Path(config.output_dir), config=config,
         )
