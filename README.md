@@ -13,6 +13,12 @@ Infrastructure for thousands of task-specialised models that learn continuously 
 | <a href="https://ev-sys.github.io/evsys-sdk/"><b>Documentation</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/quickstart"><b>Quickstart</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/autoresearch"><b>Autoresearch</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/docs/concepts/architecture"><b>Architecture</b></a> | <a href="https://ev-sys.github.io/evsys-sdk/whitepaper/"><b>Whitepaper - in depth</b></a> |
 </p>
 
+<p align="center">
+  <a href="https://join.slack.com/t/evsys-community/shared_invite/zt-41tnfb6vb-qpVnWw59wP5LcViww_2A4Q">
+    <img src="https://img.shields.io/badge/Slack-Join%20our%20community-4A154B?style=for-the-badge&logo=slack&logoColor=white" alt="Join our community on Slack">
+  </a>
+</p>
+
 ---
 
 ## About
