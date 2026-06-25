@@ -88,3 +88,25 @@ def test_adapter_writes_instruction_verbatim_when_no_system_prompt(tmp_path: Pat
     written = (Path(cfgs[0].path) / "instruction.md").read_text()
     assert written == "the user query"
     assert he._SYSTEM_PROMPT_SENTINEL not in written
+
+
+# --- completion content normalization --------------------------------------
+#
+# Some renderers (e.g. qwen3 with thinking) return ``resp.content`` as a LIST of
+# segments, not a str; the agent must normalize it to text before writing the
+# completion the verifier reads (else write_text raises and the trial fails).
+
+
+def test_content_to_text_normalizes_shapes():
+    from evsys_sdk.training.harbor_agents import _content_to_text
+
+    assert _content_to_text(None) == ""
+    assert _content_to_text("hello") == "hello"
+    # list of strings
+    assert _content_to_text(["a", "b"]) == "ab"
+    # list of segment dicts (text / content keys)
+    assert _content_to_text(
+        [{"type": "text", "text": "<tool_call>"}, {"content": "{}"}, "</tool_call>"]
+    ) == "<tool_call>{}</tool_call>"
+    # anything else → str()
+    assert _content_to_text(42) == "42"

@@ -227,10 +227,13 @@ class BasicLoopAgent(BaseAgent):
         context.cost_usd = chat.total_cost
         # Write the completion to the agent dir so the host-side EvsysVerifier
         # (run by harbor) can read it (self.logs_dir == trial_paths.agent_dir).
+        # ``resp.content`` is usually a str, but some renderers (e.g. qwen3 with
+        # thinking) return structured content as a list of segments — normalize to
+        # text so the verifier always gets a plain string.
         logs_dir = getattr(self, "logs_dir", None)
         if logs_dir is not None:
             Path(logs_dir).mkdir(parents=True, exist_ok=True)
-            (Path(logs_dir) / _COMPLETION_FILE).write_text(resp.content or "")
+            (Path(logs_dir) / _COMPLETION_FILE).write_text(_content_to_text(resp.content))
 
 
 class EvsysVerifier(BaseVerifier):
@@ -254,6 +257,31 @@ class EvsysVerifier(BaseVerifier):
             except Exception:  # pragma: no cover - a bad fn shouldn't crash the trial
                 reward = 0.0
         return VerifierResult(rewards={"reward": reward})
+
+
+def _content_to_text(content: Any) -> str:
+    """Normalize an LLM response's ``content`` to plain text for the verifier.
+
+    Usually a ``str``. Some renderers (e.g. qwen3 with thinking) return content as
+    a list of segments — strings and/or dicts like ``{"type": "text", "text": ...}``
+    or ``{"content": ...}``. Flatten those to their text; anything else is
+    ``str()``-ed. ``None`` → ``""``. The verifier parses ``<tool_call>`` blocks out
+    of whatever text the model produced, so concatenating the segments is correct."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for seg in content:
+            if isinstance(seg, str):
+                parts.append(seg)
+            elif isinstance(seg, dict):
+                parts.append(str(seg.get("text") or seg.get("content") or ""))
+            else:
+                parts.append(str(seg))
+        return "".join(parts)
+    return str(content)
 
 
 def _read_text(path: Path) -> str:
