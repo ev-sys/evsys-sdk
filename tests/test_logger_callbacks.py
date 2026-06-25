@@ -256,6 +256,11 @@ class _FakeStore:
     def update_run(self, run_id, **patch):
         self.calls.append(("update_run", run_id, patch)); return {"id": run_id}
 
+    def add_checkpoint(self, *, run_id, uri, label=None, step=None, **kw):
+        # keyword-only run_id, mirroring the real EvsysStore.add_checkpoint
+        self.calls.append(("add_checkpoint", {"run_id": run_id, "uri": uri,
+                                              "label": label, "step": step})); return {"ok": True}
+
 
 def _run_config_stub():
     return SimpleNamespace(
@@ -309,3 +314,18 @@ def test_evsys_logger_owns_full_store_lifecycle():
     assert pr[0]["eval_id"] == "eval3"
 
 
+
+
+def test_evsys_logger_on_checkpoint_uses_keyword_run_id():
+    """Regression: EvsysStore.add_checkpoint is keyword-only on run_id, so
+    on_checkpoint must pass run_id= (not positionally)."""
+    from evsys_sdk.training.callbacks import EvsysLoggerCallback
+    cb = EvsysLoggerCallback()
+    fake = _FakeStore()
+    cb._store = fake
+    ctx = LogContext(output_dir=Path("."), ids={"run_id": "run9"})
+    row = SimpleNamespace(name="final", batch=10, sampler_path="tinker://ckpt/s10", state_path=None)
+    state = SimpleNamespace(ctx=ctx)
+    cb.on_checkpoint(state, row)   # must NOT raise (the bug raised TypeError)
+    call = next(c for c in fake.calls if c[0] == "add_checkpoint")
+    assert call[1] == {"run_id": "run9", "uri": "tinker://ckpt/s10", "label": "final", "step": 10}
