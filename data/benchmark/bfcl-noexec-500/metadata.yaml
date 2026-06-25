@@ -1,0 +1,50 @@
+name: bfcl-noexec-500
+description: "Berkeley Function-Call Leaderboard \u2014 sandbox-free subset (AST +\
+  \ abstention), stratified 500-task sample."
+source: gorilla BFCL_v4
+source_commit: dac44e7ac9db5ff26a01ab0c1ec5de5a1e703b7a
+verifier_fn: bfcl_match
+seed: 20240624
+n_tasks: 500
+categories:
+- simple_python
+- simple_java
+- simple_javascript
+- multiple
+- parallel
+- parallel_multiple
+- irrelevance
+- live_simple
+- live_multiple
+- live_parallel
+- live_parallel_multiple
+- live_relevance
+- live_irrelevance
+pool_counts:
+  simple_python: 400
+  simple_java: 100
+  simple_javascript: 50
+  multiple: 200
+  parallel: 200
+  parallel_multiple: 200
+  irrelevance: 240
+  live_simple: 258
+  live_multiple: 1053
+  live_parallel: 16
+  live_parallel_multiple: 24
+  live_relevance: 16
+  live_irrelevance: 884
+sampled_counts:
+  simple_python: 55
+  simple_java: 14
+  simple_javascript: 7
+  multiple: 28
+  parallel: 28
+  parallel_multiple: 27
+  irrelevance: 33
+  live_simple: 35
+  live_multiple: 145
+  live_parallel: 2
+  live_parallel_multiple: 3
+  live_relevance: 2
+  live_irrelevance: 121

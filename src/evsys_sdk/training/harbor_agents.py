@@ -37,7 +37,11 @@ from harbor.models.agent.context import AgentContext
 from harbor.models.verifier.result import VerifierResult
 from harbor.verifier.base import BaseVerifier
 
-from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
+from .harbor_engine import (
+    _COMPLETION_FILE,
+    _VERIFIER_SPEC_FILE,
+    split_system_instruction,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +208,14 @@ class BasicLoopAgent(BaseAgent):
         context: AgentContext,
     ) -> None:
         chat = Chat(await self._shared_llm())
-        if self._system_prompt:
-            chat.messages.append({"role": "system", "content": self._system_prompt})
+        # A per-task system prompt (carried inside the instruction behind a
+        # sentinel) wins over the job-level one; absent it, fall back to
+        # self._system_prompt. This is what lets one job mix tasks that each need
+        # their own system message (e.g. per-task tool schemas).
+        per_task_system, instruction = split_system_instruction(instruction)
+        system_prompt = per_task_system if per_task_system is not None else self._system_prompt
+        if system_prompt:
+            chat.messages.append({"role": "system", "content": system_prompt})
         resp = await chat.chat(instruction)
         context.rollout_details = chat.rollout_details   # token-level (tinker); empty for API models
         # Propagate usage/cost onto the AgentContext so harbor records it on the

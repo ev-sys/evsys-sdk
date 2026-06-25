@@ -40,6 +40,28 @@ _AGENTS_PATH = "evsys_sdk.training.harbor_agents"
 _COMPLETION_FILE = "completion.txt"        # agent dir: the model's completion
 _VERIFIER_SPEC_FILE = "evsys_verifier.json"  # task dir: {fn_name, expected, params}
 
+# Per-task system-prompt carrier. harbor passes the agent ONLY the per-task
+# instruction string (read from instruction.md) — the agent has no handle to the
+# task dir — so a per-task system prompt has to ride inside that instruction.
+# When a task sets ``system_prompt``, the adapter writes
+# ``<system_prompt>\n<_SYSTEM_PROMPT_SENTINEL>\n<instruction>`` into instruction.md;
+# BasicLoopAgent splits on the sentinel back into (system, user). The sentinel is
+# a control-char-fenced marker no real prompt would contain.
+_SYSTEM_PROMPT_SENTINEL = "\x00\x00evsys:system-prompt:end\x00\x00"
+
+
+def split_system_instruction(instruction: str) -> tuple[str | None, str]:
+    """Split an instruction that may carry a per-task system prompt.
+
+    Returns ``(system_prompt, user_instruction)``. If the sentinel is absent,
+    ``system_prompt`` is ``None`` and the instruction is returned unchanged — so
+    plain tasks (the common case) are untouched and fully backward compatible.
+    """
+    if _SYSTEM_PROMPT_SENTINEL in instruction:
+        system, _, user = instruction.partition(_SYSTEM_PROMPT_SENTINEL)
+        return system, user.lstrip("\n")
+    return None, instruction
+
 # Rollout task.toml — SHARED verifier mode (default). Our EvsysVerifier (the
 # job-level verifier) runs host-side; a dummy tests/test.sh satisfies harbor's
 # load check and is never executed.
@@ -91,7 +113,17 @@ class HarborTaskAdapter:
             name = _safe(task.task_id)
             dest = output_dir / name
             dest.mkdir(parents=True, exist_ok=True)
-            (dest / "instruction.md").write_text(task.instruction)
+            # A per-task system prompt rides inside instruction.md behind a
+            # sentinel (the agent has no task-dir handle; instruction is its only
+            # per-task input). BasicLoopAgent splits it back into (system, user).
+            # When unset, the instruction is written verbatim (backward compatible).
+            sys_prompt = getattr(task, "system_prompt", None)
+            written_instruction = (
+                f"{sys_prompt}{_SYSTEM_PROMPT_SENTINEL}\n{task.instruction}"
+                if sys_prompt
+                else task.instruction
+            )
+            (dest / "instruction.md").write_text(written_instruction)
             (dest / "task.toml").write_text(_ROLLOUT_TASK_TOML)
             tests = dest / "tests"
             tests.mkdir(exist_ok=True)

@@ -131,12 +131,21 @@ class HarborTask:
     dataset, or a generated rollout corpus. Runners materialize the prompt by
     feeding ``instruction`` to the policy, generate a rollout, and score it
     using ``verifier`` (whichever variant — see ``VerifierPayload``).
+
+    ``system_prompt`` is an optional **per-task** system message. When set, the
+    rollout's messages are ``[{system: system_prompt}, {user: instruction}]`` for
+    this task specifically — overriding any job-level system prompt the runner
+    was given. This is what lets one job mix tasks that each need a different
+    system message (e.g. function-calling tasks where every task carries its own
+    tool schemas in the system turn). ``None`` falls back to the job-level system
+    prompt (or no system message at all).
     """
 
     task_id: str
     instruction: str
     verifier: VerifierPayload
     metadata: dict = field(default_factory=dict)
+    system_prompt: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +289,7 @@ def harbor_task_from_dict(d: dict) -> HarborTask:
         instruction=d["instruction"],
         verifier=_verifier_from_dict(d["verifier"]),
         metadata=dict(d.get("metadata") or {}),
+        system_prompt=d.get("system_prompt"),
     )
 
 
