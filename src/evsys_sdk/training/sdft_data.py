@@ -221,6 +221,7 @@ def build_topk_targets(
     topk: int = 20,
     vocab_size: int | None = None,
     skip_first_n: int = 3,
+    diagnostics: list[list[dict]] | None = None,
 ) -> tuple[list[tinker.Datum], dict[str, float]]:
     """Build cross_entropy Datums with ``(N, K)`` soft targets from a
     batch of teacher top-K responses. Pure function — no I/O.
@@ -267,6 +268,7 @@ def build_topk_targets(
         slice_ = completion_slices[i]
         if slice_.truncated:
             truncated_count += 1
+        per_datum_diag: list[dict] = []
 
         N = datum.model_input.length
         target_tokens_NK = torch.zeros(N, topk, dtype=torch.long)
@@ -277,11 +279,15 @@ def build_topk_targets(
         completion_len = len(slice_.tokens)
         if completion_len == 0 or len(completion_mask_indices) == 0:
             new_datums.append(_make_topk_datum(datum, target_tokens_NK, weights_NK))
+            if diagnostics is not None:
+                diagnostics.append(per_datum_diag)
             continue
 
         topk_all = teacher_topk_logprobs[i] if i < len(teacher_topk_logprobs) else None
         if topk_all is None:
             new_datums.append(_make_topk_datum(datum, target_tokens_NK, weights_NK))
+            if diagnostics is not None:
+                diagnostics.append(per_datum_diag)
             continue
 
         n_positions = min(completion_len, len(completion_mask_indices))
@@ -313,10 +319,27 @@ def build_topk_targets(
             student_pos = int(completion_mask_indices[t].item())
             target_tokens_NK[student_pos, :k_actual] = token_ids
             weights_NK[student_pos, :k_actual] = probs
-            total_teacher_entropy += -(probs * logprobs).sum().item()
+            entropy = -(probs * logprobs).sum().item()
+            total_teacher_entropy += entropy
+
+            if diagnostics is not None:
+                top1 = int(probs.argmax().item())
+                per_datum_diag.append({
+                    "pos": student_pos,                       # datum index → join with fb logprobs
+                    "completion_idx": t,                      # position within the completion
+                    "student_token_id": int(slice_.tokens[t]),
+                    "teacher_top1_token_id": int(token_ids[top1].item()),
+                    "teacher_top1_logprob": float(logprobs[top1].item()),
+                    "teacher_entropy": float(entropy),
+                    # teacher's self cross-entropy term = -H (for the KL = CE - H
+                    # identity); step_metrics adds student_logprob + kl.
+                    "teacher_logprob": float(-entropy),
+                })
 
         total_completion_tokens += n_positions
         new_datums.append(_make_topk_datum(datum, target_tokens_NK, weights_NK))
+        if diagnostics is not None:
+            diagnostics.append(per_datum_diag)
 
     metrics: dict[str, float] = {
         "sdft/teacher_truncated_count": float(truncated_count),

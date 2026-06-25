@@ -280,3 +280,39 @@ def test_build_topk_targets_zero_completion_returns_zero_target_datum():
     )
     weights = new_datums[0].loss_fn_inputs["weights"].to_torch()
     assert (weights == 0).all()
+
+
+def test_build_topk_targets_collects_token_diagnostics():
+    """The opt-in `diagnostics` out-param records one entry per kept completion
+    position: student token, teacher top-1, teacher entropy, and teacher_logprob
+    (= -entropy, the CE-H identity term that step_metrics uses for KL)."""
+    student = [_make_student_datum()]
+    slice_ = CompletionSlice(tokens=[5, 6, 7, 8], teacher_prompt_len=2, truncated=False)
+    teacher = [[None] * 2 + [[(50, -0.1), (51, -1.0)]] * 4]
+    diag: list = []
+    build_topk_targets(
+        student_data=student, completion_slices=[slice_],
+        teacher_topk_logprobs=teacher, topk=2, skip_first_n=0,
+        diagnostics=diag,
+    )
+    assert len(diag) == 1            # one example
+    recs = diag[0]
+    assert len(recs) == 4           # 4 completion positions (skip_first_n=0)
+    r = recs[0]
+    assert r["student_token_id"] == 5             # slice_.tokens[0]
+    assert r["teacher_top1_token_id"] == 50       # -0.1 > -1.0
+    assert r["teacher_entropy"] >= 0.0
+    assert r["teacher_logprob"] == pytest.approx(-r["teacher_entropy"])
+    assert "pos" in r and "completion_idx" in r
+
+
+def test_build_topk_targets_no_diagnostics_by_default():
+    student = [_make_student_datum()]
+    slice_ = CompletionSlice(tokens=[5, 6], teacher_prompt_len=2, truncated=False)
+    teacher = [[None] * 2 + [[(50, -0.1)], [(51, -0.2)]]]
+    # No diagnostics list passed → 2-tuple return unchanged, no error.
+    datums, metrics = build_topk_targets(
+        student_data=student, completion_slices=[slice_],
+        teacher_topk_logprobs=teacher, topk=1, skip_first_n=0,
+    )
+    assert len(datums) == 1 and "sdft/topk" in metrics

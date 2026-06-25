@@ -64,6 +64,13 @@ class SDFTConfig(BaseAlgorithmConfig):
     max_tokens: int = 256
     temperature: float = 1.0
 
+    # Diagnostics
+    log_token_logprobs: bool = False
+    """When true, emit per-token student/teacher logprobs + KL each step on
+    ``batch.token_diagnostics`` (persisted by debug_logger to
+    ``<run>/debug/token_logprobs.jsonl``). Verbose + a little extra work, so
+    off by default."""
+
 
 # ---------------------------------------------------------------------------
 # Algorithm
@@ -188,6 +195,7 @@ class SDFT(BaseAlgorithm):
         ]
 
         # 5. Build CE Datums with (N, K) soft targets.
+        diag: list[list[dict]] | None = [] if self.cfg.log_token_logprobs else None
         ce_datums, sdft_metrics = build_topk_targets(
             student_data=student_datums,
             completion_slices=completion_slices,
@@ -195,6 +203,7 @@ class SDFT(BaseAlgorithm):
             topk=self.cfg.topk,
             vocab_size=None,
             skip_first_n=self.cfg.skip_first_n_tokens,
+            diagnostics=diag,
         )
 
         return TrainingBatch(
@@ -202,7 +211,34 @@ class SDFT(BaseAlgorithm):
             loss_fn="cross_entropy",
             metrics=sdft_metrics,
             rollouts=groups,
+            token_diagnostics=self._decode_token_diag(diag) if diag is not None else None,
         )
+
+    def _decode_token_diag(self, diag: list[list[dict]]) -> list[dict]:
+        """Teacher-side per-token records from build_topk_targets, with tokens
+        decoded to strings. The student logprob + KL are filled in later by
+        ``step_metrics`` (once the forward-backward result is available)."""
+        def _tok(tid: int) -> str:
+            try:
+                return self._tokenizer.decode([int(tid)])
+            except Exception:
+                return f"<{tid}>"
+        out: list[dict] = []
+        for ex_i, recs in enumerate(diag):
+            tokens = [
+                {
+                    "completion_idx": r["completion_idx"],
+                    "pos": r["pos"],
+                    "token": _tok(r["student_token_id"]),
+                    "teacher_top1_token": _tok(r["teacher_top1_token_id"]),
+                    "teacher_top1_logprob": r["teacher_top1_logprob"],
+                    "teacher_entropy": r["teacher_entropy"],
+                    "teacher_logprob": r["teacher_logprob"],
+                }
+                for r in recs
+            ]
+            out.append({"example": ex_i, "tokens": tokens})
+        return out
 
     def step_metrics(
         self, step_idx: int, batch: TrainingBatch, fb_result: Any,
@@ -228,6 +264,24 @@ class SDFT(BaseAlgorithm):
                 if v != 0.0:
                     total_logprob += v
                     n_tokens += 1
+        # Per-token diagnostics: join the student logprobs (this fb_result) onto
+        # the teacher-side records build_batch stashed, and derive the per-token
+        # KL via the identity  KL(teacher‖student)_t = CE_t − H(teacher)_t
+        #   CE_t = −student_logprob_t  (the loss_fn_output at that position),
+        #   H(teacher)_t = teacher_entropy.
+        if batch.token_diagnostics:
+            for ex in batch.token_diagnostics:
+                out = outputs[ex["example"]] if ex["example"] < len(outputs) else None
+                lps = coerce_floats(out.get("logprobs") if isinstance(out, dict)
+                                    else getattr(out, "logprobs", None)) if out else None
+                for tok in ex["tokens"]:
+                    pos = tok["pos"]
+                    slp = lps[pos] if (lps and 0 <= pos < len(lps)) else None
+                    if slp is None:
+                        continue
+                    tok["student_logprob"] = float(slp)
+                    tok["kl"] = float(-slp - tok["teacher_entropy"])  # CE − H ≥ 0
+
         if n_tokens == 0:
             return {}
         mean_lp = total_logprob / n_tokens

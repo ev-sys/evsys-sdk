@@ -1320,14 +1320,37 @@ class DebugLoggerCallback(Callback):
         self._emit("on_train_start", {"state": self._state(state)})
 
     def on_step_end(self, state, step_idx, batch, metrics):
+        diag = getattr(batch, "token_diagnostics", None)
         self._emit("on_step_end", {
             "step_idx": step_idx,
             "metrics": metrics,
             "batch.loss_fn": getattr(batch, "loss_fn", None),
             "batch.n_data": len(getattr(batch, "data", []) or []),
             "batch.metrics": getattr(batch, "metrics", None),
+            "batch.token_diagnostics": f"{len(diag)} example(s)" if diag else None,
             "state": self._state(state),
         })
+        if diag:
+            self._persist_token_logprobs(state, step_idx, diag)
+
+    def _persist_token_logprobs(self, state, step_idx, diag) -> None:
+        """Append this step's per-token student/teacher logprobs + KL to
+        ``<output_dir>/<run_key>/debug/token_logprobs.jsonl`` so the full
+        per-token sequence is inspectable after the run."""
+        ctx = getattr(state, "ctx", None)
+        if ctx is None or getattr(ctx, "output_dir", None) is None:
+            return
+        import json  # noqa: PLC0415
+        d = Path(ctx.output_dir) / (getattr(ctx, "run_key", None) or "run") / "debug"
+        d.mkdir(parents=True, exist_ok=True)
+        with (d / "token_logprobs.jsonl").open("a") as f:
+            f.write(json.dumps({"step": step_idx, "examples": diag}, default=str) + "\n")
+        # compact stdout summary: mean KL per example
+        for ex in diag:
+            kls = [t["kl"] for t in ex.get("tokens", []) if "kl" in t]
+            if kls:
+                print(f"      [token_logprobs] step {step_idx} ex{ex['example']}: "
+                      f"{len(kls)} tok, mean_kl={sum(kls) / len(kls):.4f}", flush=True)
 
     def on_eval(self, state, step_idx, eval_name, metrics):
         self._emit("on_eval", {"step_idx": step_idx, "eval_name": eval_name, "metrics": metrics})
