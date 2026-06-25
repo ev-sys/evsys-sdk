@@ -1,0 +1,2 @@
+{"kind": "eval", "task_id": "t1", "instruction": "Q1", "expected": "A", "reward": 1.0, "output": "A", "metadata": {}, "benchmark": "benchmark"}
+{"kind": "eval", "task_id": "t2", "instruction": "Q2", "expected": "B", "reward": 1.0, "output": "B", "metadata": {}, "benchmark": "benchmark"}

@@ -40,15 +40,21 @@ def _read_yaml(source: str | Path | dict[str, Any]) -> dict[str, Any]:
 def load_yaml(source: str | Path | dict[str, Any]) -> ExperimentConfig:
     """Parse and validate a YAML experiment file."""
     data = _read_yaml(source)
-    # Default output_dir to the config file's OWN directory (the "experiment
-    # directory" where config + runner live) instead of ./outputs, so logs/ land
-    # next to the experiment. Only when the user didn't set it explicitly.
+    # When output_dir isn't set, default to a fresh timestamped run dir under
+    # the EXPERIMENT directory itself (the config file's own dir) — i.e.
+    # <experiment_dir>/.evsys/<YYYY-MM-DD_HH-MM-SS> — so a run's local logging is
+    # self-contained next to its config, not in a repo-root .evsys/. (Direct,
+    # file-less construction falls back to a cwd-relative dir via
+    # ExperimentConfig.model_post_init.)
     if (
         isinstance(source, (str, Path))
         and isinstance(data, dict)
         and "output_dir" not in data
     ):
-        data["output_dir"] = str(Path(source).resolve().parent)
+        from datetime import datetime
+
+        stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
+        data["output_dir"] = str(Path(source).resolve().parent / ".evsys" / stamp)
     cfg = ExperimentConfig.model_validate(data)
     if cfg.matrix is not None:
         cfg = _expand_matrix(cfg)

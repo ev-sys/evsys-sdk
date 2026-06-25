@@ -1,0 +1,4 @@
+{"kind": "eval", "task_id": "val-t1", "instruction": "Q1", "expected": "A", "reward": 1.0, "output": "A", "metadata": {}, "benchmark": "val_set"}
+{"kind": "eval", "task_id": "val-t2", "instruction": "Q2", "expected": "B", "reward": 1.0, "output": "B", "metadata": {}, "benchmark": "val_set"}
+{"kind": "eval", "task_id": "test-t1", "instruction": "Q1", "expected": "A", "reward": 0.0, "output": "X", "metadata": {}, "benchmark": "test_set"}
+{"kind": "eval", "task_id": "test-t2", "instruction": "Q2", "expected": "B", "reward": 0.0, "output": "Y", "metadata": {}, "benchmark": "test_set"}

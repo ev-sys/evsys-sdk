@@ -158,8 +158,10 @@ class ExperimentConfig(_Strict):
     """Schema version. Bumped when breaking changes are made."""
     name: str
     description: str = ""
-    output_dir: str = "./outputs"
-    """Where local artifacts (checkpoints, logs) are written."""
+    output_dir: str | None = None
+    """Where local artifacts (checkpoints, logs) are written. When unset,
+    defaults to ``.evsys/<YYYY-MM-DD_HH-MM-SS>_<name>`` (a fresh timestamped
+    run dir under ``.evsys/``) — see :meth:`model_post_init`."""
     log_rollouts: bool = False
     """When true, on-policy training rollouts (RL/SDFT) are logged via the
     ``on_rollout`` hook. A ``--dry`` run turns this on (and caps steps)."""
@@ -214,6 +216,13 @@ class ExperimentConfig(_Strict):
             raise ValueError(
                 "continual requires a single `run` as the base (not runs/matrix)."
             )
+        if self.output_dir is None:
+            # Default: a fresh timestamped run dir under .evsys/ so every run's
+            # local logging is self-contained and never clobbers a prior run.
+            from datetime import datetime
+
+            safe = self.name.replace("/", "_").replace(" ", "_")
+            self.output_dir = f".evsys/{datetime.now():%Y-%m-%d_%H-%M-%S}_{safe}"
 
 
 class MatrixSpec(_Strict):
