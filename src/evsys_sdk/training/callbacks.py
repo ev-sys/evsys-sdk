@@ -1040,7 +1040,8 @@ class EvsysLoggerCallback(Callback):
         uri = getattr(row, "sampler_path", None) or getattr(row, "state_path", None)
         if run_id and uri:
             self._store.add_checkpoint(
-                run_id, uri=uri, label=getattr(row, "name", None), step=getattr(row, "batch", None),
+                run_id=run_id, uri=uri, label=getattr(row, "name", None),
+                step=getattr(row, "batch", None),
             )
 
     def _flush(self, ctx: LogContext | None) -> None:
