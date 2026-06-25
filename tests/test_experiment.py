@@ -990,3 +990,29 @@ def test_run_every_entries_are_skipped_post_training(
     # in-loop entry is the algorithm composer's job; _eval_arm does NOT
     # attach an EvalResult for it.
     assert res.arms[0].evals == []
+
+
+def test_evsys_logger_warns_when_configured_without_key(monkeypatch, caplog, single_run_config):
+    """An evsys_logger with no store + no EVSYS_API_KEY warns up front (so the
+    user knows dashboard logging is disabled before the run, not mid-run)."""
+    import logging
+    from evsys_sdk.config import CallbackSpec
+
+    monkeypatch.delenv("EVSYS_API_KEY", raising=False)
+    monkeypatch.setattr(logging.getLogger("evsys_sdk"), "propagate", True)  # SDK logger is propagate=False
+    cfg = single_run_config.model_copy(update={"callbacks": [CallbackSpec(kind="evsys_logger")]})
+    with caplog.at_level(logging.WARNING, logger="evsys_sdk.experiment"):
+        Experiment(cfg)
+    assert any("EVSYS_API_KEY is not set" in r.getMessage() for r in caplog.records)
+
+
+def test_no_warning_when_evsys_logger_has_key(monkeypatch, caplog, single_run_config):
+    import logging
+    from evsys_sdk.config import CallbackSpec
+
+    monkeypatch.setenv("EVSYS_API_KEY", "sk-test")
+    monkeypatch.setattr(logging.getLogger("evsys_sdk"), "propagate", True)
+    cfg = single_run_config.model_copy(update={"callbacks": [CallbackSpec(kind="evsys_logger")]})
+    with caplog.at_level(logging.WARNING, logger="evsys_sdk.experiment"):
+        Experiment(cfg)
+    assert not any("EVSYS_API_KEY is not set" in r.getMessage() for r in caplog.records)
