@@ -62,12 +62,6 @@ class ComboAlgorithm:
         out_root = Path(ctx.output_dir)
         out_root.mkdir(parents=True, exist_ok=True)
 
-        ctx.log_store.log_hyperparams({
-            "algorithm": self.name,
-            "n_phases":  len(self.cfg.phases),
-            "phases":    [p.kind for p in self.cfg.phases],
-        })
-
         last_artifacts: dict[str, str] = {}
         last_metrics: dict[str, float] = {}
         last_result: RunResult | None = None
@@ -144,7 +138,7 @@ def _phase_context(
     """Build a per-phase RunContext that:
         - writes into phase_dir
         - exposes the previous phase's final_checkpoint via ctx.extras
-        - shares the parent's data_store, log_store, backend
+        - shares the parent's data_store, backend, and logger callbacks
     """
     new_extras = dict(parent.extras)
     # Thread the most recent final_checkpoint forward as `init_checkpoint`.

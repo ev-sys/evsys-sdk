@@ -174,29 +174,31 @@ class BaseAlgorithm:
         total_steps = self._resolve_total_steps()
         save_every = self._resolve_save_every(total_steps)
 
-        # 4. log hyperparams once so the experiment record carries them
-        ctx.log_store.log_hyperparams({
-            "algorithm": self.name,
-            **self.cfg.model_dump(),
-            "model_name": model_name,
-            "total_steps": total_steps,
-            "save_every": save_every,
-            **self._hyperparams_extra(),
-        })
-
         # 5. compose the loop (self IS the StepBuilder) and run
         evaluators = build_in_loop_evaluators(
             ctx.config.metadata if hasattr(ctx, "config") else None,
             tokenizer=backend.get_tokenizer(),
             store=getattr(ctx, "store", None) or ctx.extras.get("store"),
             model_name=model_name,
-            workspace_dir=Path(ctx.output_dir) / "harbor_val",
+            workspace_dir=Path(ctx.output_dir) / ".harbor" / "val",
             run_id=ctx.extras.get("dashboard_run_id"),
         )
+        # Algorithm's own loop-only callbacks (e.g. early_stopping) PLUS the
+        # experiment's shared logger instances threaded down via extras, so one
+        # logger sees both the loop-scope and experiment-scope hooks.
+        callbacks = build_callbacks(self.cfg.callbacks) + list(
+            ctx.extras.get("callbacks") or []
+        )
+
+        # Surface the final training data (post-transform / chat-template rows)
+        # to loggers so they can persist exactly what went into the model.
+        self._dispatch_train_data(ctx, callbacks)
+
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
-            log_store=ctx.log_store,
+            # Per-step / eval metrics flow ONLY through the callbacks
+            # (-> local_logger): there is no log_store on the loop path.
             output_dir=Path(ctx.output_dir),
             adam_params=tinker.AdamParams(
                 learning_rate=self.cfg.learning_rate,
@@ -206,16 +208,18 @@ class BaseAlgorithm:
             ),
             save_every=save_every,
             evaluators=evaluators,
-            callbacks=build_callbacks(self.cfg.callbacks),
+            callbacks=callbacks,
+            log_context=ctx.extras.get("log_context"),
+            log_rollouts=bool(ctx.extras.get("log_rollouts")),
         )
         artifacts = await loop.run(num_steps=total_steps)
 
         # 6. record run_dir + per-checkpoint sampler URIs so downstream
         # consumers (TinkerInference.from_run_result, Experiment._eval_arm)
         # keep working unchanged.
+        # Checkpoint URIs ride out on RunResult.artifacts (consumed by
+        # TinkerInference.from_run_result, Experiment._eval_arm).
         artifacts_dict = artifacts.as_dict()
-        for key, value in artifacts_dict.items():
-            ctx.log_store.log_artifact(key, value, kind="checkpoint")
 
         return RunResult(
             run_id=ctx.run_id,
@@ -225,6 +229,36 @@ class BaseAlgorithm:
         )
 
     # --- hooks / helpers ---------------------------------------------------
+
+    def _train_data_rows(self, ctx: RunContext) -> list[dict[str, Any]]:
+        """Best-effort: the final examples fed to the model (post-transform /
+        chat-template rows). Default returns ``ctx.extras['train_rows']`` coerced
+        to dicts — which for SFT are the standardized chat-message rows. Override
+        for algorithm-specific shapes."""
+        rows = ctx.extras.get("train_rows") or []
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            if isinstance(r, dict):
+                out.append(r)
+            elif hasattr(r, "model_dump"):
+                out.append(r.model_dump())
+            else:
+                out.append({"value": str(r)})
+        return out
+
+    def _dispatch_train_data(self, ctx: RunContext, callbacks: list[Any]) -> None:
+        """Fire ``on_train_data`` on each callback with the final training rows.
+        Never raises — logging must not break training."""
+        log_ctx = ctx.extras.get("log_context")
+        try:
+            rows = self._train_data_rows(ctx)
+        except Exception:  # pragma: no cover
+            return
+        for cb in callbacks:
+            try:
+                cb.on_train_data(log_ctx, rows)
+            except Exception:  # pragma: no cover
+                pass
 
     def _check_inputs(self, ctx: RunContext) -> None:
         """Validate ``ctx.extras`` before the backend is allocated. Override to

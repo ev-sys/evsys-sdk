@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("harbor")  # harbor_engine imports harbor at module top
 pytest.importorskip("tinker")
 pytest.importorskip("torch")
 

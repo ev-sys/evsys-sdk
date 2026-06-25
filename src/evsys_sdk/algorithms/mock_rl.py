@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm, get_verifier
+from ..training.callbacks import dispatch, make_loop_state
 
 
 class MockRLConfig(BaseModel):
@@ -37,20 +38,20 @@ class MockRL:
     def train(self, ctx: RunContext) -> RunResult:
         out = Path(ctx.output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
 
         # Instantiate verifier just to prove the wiring works.
         v_cls = get_verifier(self.cfg.verifier_kind)
         verifier = v_cls(**self.cfg.verifier_params)
 
+        cbs, state = make_loop_state(ctx, num_steps=self.cfg.num_steps)
         artifacts: dict[str, str] = {}
         reward = 0.1
         for step in range(1, self.cfg.num_steps + 1):
             # Deterministic upward curve toward ~0.9, with plateau.
             reward = 0.9 - 0.8 * math.exp(-step / max(1, self.cfg.num_steps / 4))
-            ctx.log_store.log_metrics(
-                {"train/reward": reward, "train/kl": 0.0}, step=step
-            )
+            state.step = step
+            dispatch(cbs, "on_step_end", state, step, None,
+                     {"train/reward": reward, "train/kl": 0.0})
             if step % max(1, self.cfg.save_every) == 0:
                 ckpt = out / f"checkpoint-{step}"
                 ckpt.mkdir(exist_ok=True)
@@ -58,7 +59,6 @@ class MockRL:
                     json.dumps({"step": step, "reward": reward})
                 )
                 artifacts[f"ckpt_step_{step}"] = str(ckpt)
-                ctx.log_store.log_artifact(f"ckpt_step_{step}", str(ckpt), kind="checkpoint")
 
         final_dir = out / "final"
         final_dir.mkdir(exist_ok=True)
@@ -66,7 +66,6 @@ class MockRL:
             json.dumps({"final": True, "step": self.cfg.num_steps, "reward": reward})
         )
         artifacts["final_checkpoint"] = str(final_dir)
-        ctx.log_store.log_artifact("final_checkpoint", str(final_dir), kind="checkpoint")
 
         # Probe the verifier so it's actually exercised.
         probe = verifier.verify(prompt="x", completion="<think>t</think>\n<answer>X</answer>", target={})

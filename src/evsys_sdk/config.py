@@ -67,12 +67,6 @@ class DataStoreSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class LogStoreSpec(_Strict):
-    kind: str = "jsonl"
-    """e.g. 'jsonl', 'tensorboard', 'multiplex', 'supabase'."""
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
 # ---------------------------------------------------------------------------
 # Data, Model, Backend, Eval
 # ---------------------------------------------------------------------------
@@ -166,8 +160,17 @@ class ExperimentConfig(_Strict):
     description: str = ""
     output_dir: str = "./outputs"
     """Where local artifacts (checkpoints, logs) are written."""
+    log_rollouts: bool = False
+    """When true, on-policy training rollouts (RL/SDFT) are logged via the
+    ``on_rollout`` hook. A ``--dry`` run turns this on (and caps steps)."""
     data_store: DataStoreSpec = Field(default_factory=DataStoreSpec)
-    log_store: LogStoreSpec = Field(default_factory=LogStoreSpec)
+
+    # Logger callbacks ({kind, params}) built ONCE per experiment and shared
+    # across all arms + their training loops. Each subscribes to the full
+    # lifecycle (on_experiment_start → on_run_start → on_step_end /
+    # on_benchmark_eval → on_run_end) and persists to its backend. e.g.
+    #   callbacks: [{kind: wandb_logger}, {kind: tensorboard_logger}]
+    callbacks: list[CallbackSpec] = Field(default_factory=list)
 
     # Exactly one of these three.
     run: RunConfig | None = None

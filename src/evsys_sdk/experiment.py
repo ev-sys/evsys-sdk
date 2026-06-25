@@ -47,12 +47,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .benchmark import Benchmark, BenchmarkScore
-from .config import ExperimentConfig, RunConfig
+from .config import CallbackSpec, ExperimentConfig, RunConfig
 from .inference.chat_templated import ChatTemplatedInference
 from .protocols import InferenceClient, RunResult
 from .registry import get_default_inference_factory
-from .step_metrics import forward_step_metrics
 from .sweep import expand_runs
+from .training.callbacks import LogContext, build_callbacks, dispatch
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,24 @@ def _benchmark_models(bench_meta: dict) -> list[str]:
     if not raw:
         return []
     return [str(raw)] if isinstance(raw, str) else [str(m) for m in raw]
+
+
+def _predictions_from_score(score: BenchmarkScore) -> list[dict]:
+    """Prediction rows for the in-process (non-harbor) eval path, one per task,
+    in the same shape ``harbor_eval.eval_predictions`` produces — so logger
+    callbacks get the model output + reward regardless of engine."""
+    return [
+        {
+            "kind": "eval",
+            "task_id": r.task_id,
+            "instruction": r.instruction,
+            "expected": r.expected,
+            "reward": r.reward,
+            "output": r.model_output,
+            "metadata": dict(r.metadata or {}),
+        }
+        for r in (score.per_task or [])
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +226,50 @@ class Experiment:
         self._train_fn_is_default = train_fn is None
         self._benchmark_override = benchmark
         self.inference_factory = inference_factory
+        # Logger callbacks: built ONCE for the whole experiment so the
+        # dashboard ids (experiment_id → group_id → run_id) created in the
+        # experiment-scope hooks persist across arms. The SAME instances are
+        # threaded into each arm's training loop (via extras) so one logger
+        # sees the full lifecycle. The shared LogContext is mutated per arm.
+        # Default loggers when the user didn't configure their own: local_logger
+        # (the single local writer) always, plus evsys_logger when a dashboard
+        # store is available (it then owns ALL dashboard writes — experiment /
+        # run / metrics / evals / predictions). With explicit `callbacks:` the
+        # user is in full control.
+        specs = list(config.callbacks or [])
+        if not specs:
+            specs = [CallbackSpec(kind="local_logger")]
+            if store is not None:
+                specs.append(CallbackSpec(kind="evsys_logger"))
+        self._callbacks = build_callbacks(specs)
+        # evsys_logger owns the dashboard writes. By default it builds its OWN
+        # EvsysStore (from the environment). When the caller handed Experiment an
+        # explicit store, reuse that one for logging too (Experiment itself still
+        # makes no write calls — only resolution reads).
+        from .training.callbacks import EvsysLoggerCallback
+        if store is not None:
+            for cb in self._callbacks:
+                if isinstance(cb, EvsysLoggerCallback) and cb._store is None:
+                    cb._store = store
+        # Warn UP FRONT (not mid-run) if an evsys_logger is configured but has no
+        # usable store: no instance reused from Experiment AND no EVSYS_API_KEY in
+        # the env to build its own → dashboard logging will silently no-op.
+        import os as _os
+
+        from .constants import EVSYS_API_KEY_ENV
+        if any(
+            isinstance(cb, EvsysLoggerCallback) and cb._store is None
+            for cb in self._callbacks
+        ) and not _os.environ.get(EVSYS_API_KEY_ENV):
+            logger.warning(
+                "evsys_logger is configured but no store was passed and %s is not "
+                "set — dashboard logging will be disabled (experiment/run/eval/"
+                "predictions won't be written to the dashboard).",
+                EVSYS_API_KEY_ENV,
+            )
+        self._logctx = LogContext(
+            output_dir=Path(config.output_dir), config=config,
+        )
 
     # -- entry points -----------------------------------------------------
 
@@ -230,18 +292,22 @@ class Experiment:
         # still contains them so the test for "is there ANY benchmark?"
         # works; _eval_arm skips them at post-training time.
 
-        experiment_id = self._create_experiment(hypothesis, tags, meta)
+        # The experiment record is created by the evsys_logger callback (when a
+        # store is configured); we read the id it stashes on the shared context.
+        dispatch(self._callbacks, "on_experiment_start", self._logctx)
+        experiment_id = self._logctx.ids.get("experiment_id")
 
         # When n_repeats > 1, register one dashboard group per primary
         # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
-        # previous behavior — no groups, no group_id on runs. 
-        # TODO : even when n_repeats == 1, we should create a group.
+        # previous behavior — no groups, no group_id on runs.
         primaries = self._iter_runs()
         n_repeats = self.config.n_repeats
         group_id_by_name: dict[str, str | None] = {}
         if n_repeats > 1:
             for p in primaries:
-                group_id_by_name[p.name] = self._create_group(experiment_id, p.name)
+                self._logctx.group_name = p.name
+                dispatch(self._callbacks, "on_group_start", self._logctx, p.name)
+                group_id_by_name[p.name] = self._logctx.ids.get(f"group:{p.name}")
 
         if self.config.continual is not None:
             arms = self._run_continual(experiment_id, benchmarks, meta)
@@ -260,9 +326,7 @@ class Experiment:
         conclusion = self._build_conclusion(arms, best_arm, success_metric)
         status = "completed" if any(a.status == "completed" for a in arms) else "failed"
 
-        self._finalize_experiment(experiment_id, status, best_score, conclusion)
-
-        return ExperimentResult(
+        result = ExperimentResult(
             name=self.config.name,
             status=status,
             arms=arms,
@@ -272,6 +336,8 @@ class Experiment:
             experiment_id=experiment_id,
             hypothesis=hypothesis,
         )
+        dispatch(self._callbacks, "on_experiment_end", self._logctx, result)
+        return result
 
     # -- internals: orchestration steps; safe to override in subclasses ---
 
@@ -348,19 +414,6 @@ class Experiment:
             out.append((bench, spec))
         return out
 
-    def _create_experiment(
-        self, hypothesis: str | None, tags: list[str], meta: dict
-    ) -> str | None:
-        if self.store is None:
-            return None
-        exp = self.store.create_experiment(
-            experiment_name=self.config.name,
-            hypothesis=hypothesis,
-            tags=tags or None,
-            project_goal_id=meta.get("project_goal_id"),
-        )
-        return exp.get("id") if isinstance(exp, dict) else None
-
     def _execute_arm(
         self,
         experiment_id: str | None,
@@ -372,25 +425,34 @@ class Experiment:
         group_name: str | None = None,
         score_api_models: bool = True,
     ) -> ArmResult:
-        run_id = self._create_run(experiment_id, run_cfg, group_id=group_id)
         arm = ArmResult(
             name=run_cfg.name,
             run_config=run_cfg,
             status="failed",
-            run_id=run_id,
+            run_id=None,
             group_id=group_id,
             group_name=group_name,
         )
+        # Point the shared LogContext at this arm (sequential, so reused). The
+        # local run_key is name-based (matches the runner's output dir); the
+        # dashboard run_id is created by the evsys_logger callback in
+        # on_run_start and read back off ctx.ids.
+        self._logctx.run_config = run_cfg
+        self._logctx.group_name = group_name
+        self._logctx.run_key = run_cfg.name
+        self._logctx.ids.pop("run_id", None)
+        dispatch(self._callbacks, "on_run_start", self._logctx)
+        arm.run_id = self._logctx.ids.get("run_id")
         try:
             arm = self._train_arm(arm, run_cfg)
             if arm.status == "completed" and benchmarks:
                 arm = self._eval_arm(arm, run_cfg, benchmarks, meta, score_api_models=score_api_models)
-            self._mark_run_completed(run_id, arm)
         except Exception as e:
             logger.exception("arm %r failed", run_cfg.name)
             arm.status = "failed"
             arm.error = f"{type(e).__name__}: {e}"
-            self._mark_run_failed(run_id, arm.error)
+        # on_run_end → evsys_logger updates the run's final status on the dashboard.
+        dispatch(self._callbacks, "on_run_end", self._logctx, arm.run_result, arm)
         return arm
 
     def _train_arm(self, arm: ArmResult, run_cfg: RunConfig) -> ArmResult:
@@ -405,7 +467,15 @@ class Experiment:
             # with this run. Custom train_fns get the plain (cfg) contract.
             results = run_experiment(
                 single_cfg,
-                extra_context={"store": self.store, "dashboard_run_id": arm.run_id},
+                extra_context={
+                    "store": self.store,
+                    "dashboard_run_id": arm.run_id,
+                    # Thread the SAME logger instances + shared context into the
+                    # loop so on_step_end/on_eval/on_checkpoint fire on them.
+                    "callbacks": self._callbacks,
+                    "log_context": self._logctx,
+                    "log_rollouts": self.config.log_rollouts,
+                },
             )
         else:
             results = self.train_fn(single_cfg)
@@ -415,21 +485,12 @@ class Experiment:
         result = results[0]
         arm.run_result = result
         arm.metrics = dict(result.metrics)
-        self._forward_step_metrics(arm)
+        # Per-step metrics reach the dashboard live via the evsys_logger
+        # callback's on_step_end (no post-run batch forward needed).
         if result.status != "completed":
             raise RuntimeError(result.error or f"train_fn status={result.status}")
         arm.status = "completed"
         return arm
-
-    def _forward_step_metrics(self, arm: ArmResult) -> None:
-        """Push the arm's local metrics.jsonl rows to the store.
-
-        Runner-time logging writes locally; this batch-forwards to the
-        dashboard so the script doesn't have to call backfill_step_metrics
-        manually after training.
-        """
-        run_dir = self._resolve_run_dir(arm)
-        forward_step_metrics(self.store, arm.run_id, run_dir)
 
     def _resolve_run_dir(self, arm: ArmResult) -> Path | None:
         """Reconstruct the run output dir the runner wrote into."""
@@ -534,7 +595,10 @@ class Experiment:
                     step=None,
                     tags=list(bench_meta.get("tags") or []),
                 ))
-                self._record_eval(arm, bench, bench_meta, score)
+                dispatch(
+                    self._callbacks, "on_benchmark_eval", self._logctx,
+                    arm.evals[-1], _predictions_from_score(score), step=None,
+                )
 
         # Pick the primary post-training eval to mirror into the flat fields.
         post = [e for e in arm.evals if e.step is None]
@@ -569,13 +633,13 @@ class Experiment:
         # One eval per (benchmark, model): the checkpoint and each API model are
         # distinct results, named/tagged by model so they don't collide.
         eval_name = bench_name if api_model is None else f"{bench_name}@{api_model}"
-        # Persist eval rollouts under the run's output dir — alongside training's
-        # ``harbor_rollouts/`` and validation's ``harbor_val/`` — so the eval
-        # trial dirs survive the run instead of vanishing with a tempdir.
+        # Persist eval rollouts under the run's logs/ dir — alongside training's
+        # ``.harbor/train`` and validation's ``.harbor/val`` — so the
+        # eval trial dirs survive the run instead of vanishing with a tempdir.
         run_dir = self._resolve_run_dir(arm)
         if run_dir is not None:
             safe = eval_name.replace("/", "_").replace(" ", "_")
-            workspace = run_dir / "harbor_eval" / safe
+            workspace = run_dir / ".harbor" / "test" / safe
             workspace.mkdir(parents=True, exist_ok=True)
         else:  # no resolvable run dir → fall back to an ephemeral workspace
             workspace = Path(tempfile.mkdtemp(prefix="evsys_eval_"))
@@ -608,19 +672,14 @@ class Experiment:
             step=None,
             tags=list(bench_meta.get("tags") or []) + model_tags,
         ))
-        eval_id = self._record_eval(arm, bench, bench_meta, score)
-        # Upload eval rollouts only (training rollouts are never uploaded), and
-        # only once they have an eval_id to hang off of — orphan predictions
-        # can't be told apart from other evals on the same run.
-        if self.store is not None and arm.run_id:
-            if eval_id is None:
-                logger.warning(
-                    "skipping eval rollout upload for arm %r: create_eval gave no id",
-                    arm.name,
-                )
-            else:
-                preds = eval_predictions(tasks, score.rollouts, eval_id=eval_id, step=None)
-                upload_eval_rollouts(self.store, arm.run_id, preds)
+        # Build prediction rows once (harbor-free) and hand them to the logger
+        # callbacks. evsys_logger's on_benchmark_eval creates the eval record
+        # (create_eval) and uploads the predictions — no direct store call here.
+        preds = eval_predictions(tasks, score.rollouts, eval_id=None, step=None)
+        dispatch(
+            self._callbacks, "on_benchmark_eval", self._logctx,
+            arm.evals[-1], preds, step=None,
+        )
 
     @staticmethod
     def _final_checkpoint(arm: ArmResult) -> str | None:
@@ -663,12 +722,14 @@ class Experiment:
 
         # When repeating, group the seed-replicates of each stage together so
         # mean/stddev is computed per stage across repeats. n == 1 → no groups.
+        # The group records are created by the evsys_logger callback (on_group_start).
         stage_group_ids: list[str | None] = [None] * len(cont.datasets)
         if n > 1:
-            stage_group_ids = [
-                self._create_group(experiment_id, template.format(base=base.name, i=i))
-                for i in range(len(cont.datasets))
-            ]
+            for i in range(len(cont.datasets)):
+                gname = template.format(base=base.name, i=i)
+                self._logctx.group_name = gname
+                dispatch(self._callbacks, "on_group_start", self._logctx, gname)
+                stage_group_ids[i] = self._logctx.ids.get(f"group:{gname}")
 
         arms: list[ArmResult] = []
         for seed in seeds:
@@ -724,89 +785,6 @@ class Experiment:
             arts.get("state-final")
             or next((v for k, v in arts.items() if str(k).startswith("state-")), None)
         )
-
-    # -- store passthroughs (each guarded so store=None is fine) ---------
-
-    def _create_group(self, experiment_id: str | None, name: str) -> str | None:
-        """Register a run group for variance studies; returns its id (or None)."""
-        if self.store is None or experiment_id is None:
-            return None
-        try:
-            grp = self.store.create_group(experiment_id, name)
-        except Exception:
-            logger.exception("failed to create group %r", name)
-            return None
-        return grp.get("id") if isinstance(grp, dict) else None
-
-    def _create_run(
-        self,
-        experiment_id: str | None,
-        run_cfg: RunConfig,
-        *,
-        group_id: str | None = None,
-    ) -> str | None:
-        if self.store is None or experiment_id is None:
-            return None
-        run = self.store.create_run(
-            experiment_id=experiment_id,
-            group_id=group_id,
-            recipe_kind=run_cfg.algorithm.kind,
-            run_config=run_cfg.model_dump(),
-            seed=run_cfg.seed,
-            status="running",
-        )
-        return run.get("id") if isinstance(run, dict) else None
-
-    def _mark_run_completed(self, run_id: str | None, arm: ArmResult) -> None:
-        if self.store is None or run_id is None:
-            return
-        self.store.update_run(run_id, status="completed")
-
-    def _mark_run_failed(self, run_id: str | None, error: str) -> None:
-        if self.store is None or run_id is None:
-            return
-        try:
-            self.store.update_run(run_id, status="failed", error_message=error)
-        except Exception:
-            logger.exception("failed to mark run %r failed", run_id)
-
-    def _record_eval(
-        self,
-        arm: ArmResult,
-        benchmark: Benchmark,
-        bench_meta: dict,
-        score: BenchmarkScore,
-    ) -> None:
-        if self.store is None or arm.run_id is None:
-            return None
-        try:
-            ev = self.store.create_eval(
-                run_id=arm.run_id,
-                benchmark_id=bench_meta.get("id"),
-                metrics=dict(score.metrics),
-                breakdowns=dict(score.breakdowns) or None,
-            )
-            return ev.get("id") if isinstance(ev, dict) else None
-        except Exception:
-            logger.exception("failed to record eval for arm %r", arm.name)
-            return None
-
-    def _finalize_experiment(
-        self,
-        experiment_id: str | None,
-        status: str,
-        best_score: float | None,
-        conclusion: str,
-    ) -> None:
-        if self.store is None or experiment_id is None:
-            return
-        patch: dict[str, Any] = {"status": status, "conclusion": conclusion}
-        if best_score is not None:
-            patch["best_score"] = best_score
-        try:
-            self.store.update_experiment(experiment_id, **patch)
-        except Exception:
-            logger.exception("failed to finalize experiment %r", experiment_id)
 
     # -- aggregation -----------------------------------------------------
 

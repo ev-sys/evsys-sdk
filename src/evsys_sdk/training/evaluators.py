@@ -115,6 +115,10 @@ class BenchmarkEvaluator:
     benchmark: Benchmark
     tokenizer: Any
     run_every: int = 0
+    split: str = "val"
+    """Metric namespace + log split tag (e.g. ``val`` / ``test``). Comes from the
+    benchmark spec's ``split`` field — the only thing that tells validation and
+    test metrics apart in the log store."""
     max_tokens: int = 256
     temperature: float = 0.0
     breakdown_keys: list[str] = field(default_factory=list)
@@ -294,6 +298,7 @@ def build_in_loop_evaluators(
             benchmark=bench,
             tokenizer=tokenizer,
             run_every=run_every,
+            split=str(spec.get("split", "val")),
             max_tokens=int(spec.get("max_tokens", 256)),
             temperature=float(spec.get("temperature", 0.0)),
             breakdown_keys=list(spec.get("breakdown_keys") or []),

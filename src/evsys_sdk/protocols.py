@@ -36,8 +36,6 @@ class RunContext:
     """The full parsed ExperimentConfig (kept generic to avoid circular import)."""
     data_store: DataStore
     """Datastore handle (read inputs, write outputs)."""
-    log_store: LogStore
-    """Log store (metrics, scalars, artifacts)."""
     backend: Backend
     """Backend handle (Tinker / Local / Mock)."""
     extras: dict[str, Any] = field(default_factory=dict)
@@ -148,35 +146,6 @@ class DataStore(Protocol):
     def exists(self, path: str) -> bool: ...
 
     def list(self, prefix: str) -> list[str]: ...
-
-
-# ---------------------------------------------------------------------------
-# LogStore — receives metrics & scalars as training proceeds.
-# ---------------------------------------------------------------------------
-
-
-@runtime_checkable
-class LogStore(Protocol):
-    """Where metrics, hyperparams, and artifact pointers go.
-
-    Implementations:
-      * ``JSONLLogStore``      — append-only metrics.jsonl.
-      * ``TensorBoardLogStore``— wraps SummaryWriter (optional dep).
-      * ``SupabaseLogStore``   — persists rows to training_metrics table.
-      * ``MultiplexLogStore``  — fan out to several stores at once.
-    """
-
-    name: ClassVar[str]
-
-    def log_scalar(self, key: str, value: float, step: int) -> None: ...
-
-    def log_metrics(self, metrics: dict[str, float], step: int) -> None: ...
-
-    def log_hyperparams(self, params: dict[str, Any]) -> None: ...
-
-    def log_artifact(self, name: str, path: str, *, kind: str = "file") -> None: ...
-
-    def close(self) -> None: ...
 
 
 # ---------------------------------------------------------------------------
