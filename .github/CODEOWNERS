@@ -1,0 +1,12 @@
+# Code owners are auto-requested for review on PRs touching matching paths,
+# and (with branch protection's "require review from Code Owners" enabled) must
+# approve before merge. Order matters — the LAST matching pattern wins.
+#
+# Both owners must have write access to the repo for required-review to work.
+
+# Default owners for everything in the repo.
+*                       @Harsh-Sensei @shreymodi1
+
+# Area-specific owners can be added below as the team grows, e.g.:
+# /src/evsys_sdk/        @Harsh-Sensei
+# /skills/               @shreymodi1

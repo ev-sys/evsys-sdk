@@ -1,0 +1,52 @@
+name: ✨ Feature request
+description: Propose a new capability, extension point, or improvement.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Please check the backlog / existing issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that the SDK doesn't support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: >
+        What should it look like? If it's a new selectable component, note which
+        extension *kind* (algorithm / transform / callback / verifier / metric /
+        store / backend / …) and sketch its `{kind, params}` YAML surface.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried or other designs you weighed.
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Surface
+      description: Which part of the project does this touch?
+      options:
+        - SDK library (src/evsys_sdk)
+        - Plugin skills / agents
+        - CLI (evsys ...)
+        - Docs
+        - Other / not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and the backlog and this isn't a duplicate.
+          required: true
