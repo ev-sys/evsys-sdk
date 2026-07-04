@@ -62,8 +62,8 @@ The full suite must stay green before a PR can merge. CI runs these on every PR;
 run them locally first.
 
 ```bash
-# tests
-.venv/bin/python -m pytest -q
+# tests (same deselection as CI — integration markers need secrets)
+.venv/bin/python -m pytest -q -m "not tinker and not supabase and not gpu"
 
 # coverage for a module you changed (new modules target >= 90% line coverage)
 .venv/bin/python -m coverage run --include='src/evsys_sdk/<module>.py' \

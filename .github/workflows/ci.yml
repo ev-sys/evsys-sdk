@@ -8,20 +8,15 @@ on:
 
 jobs:
   test:
-    name: pytest (Python ${{ matrix.python-version }})
+    name: pytest
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12"]
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           cache: pip
 
       - name: Install package + dev deps
@@ -30,4 +25,4 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest -q
+        run: pytest -q -m "not tinker and not supabase and not gpu"
