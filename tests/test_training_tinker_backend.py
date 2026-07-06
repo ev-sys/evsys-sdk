@@ -20,7 +20,6 @@ pytest.importorskip("tinker_cookbook")
 import evsys_sdk.training.tinker_backend as tb_module
 from evsys_sdk.training.tinker_backend import TinkerBackend, TinkerSamplingClient
 
-
 # ---------------------------------------------------------------------------
 # Doubles for tinker.ServiceClient + training_client + sampling_client
 # ---------------------------------------------------------------------------
@@ -180,7 +179,7 @@ def test_create_requires_tinker_api_key(monkeypatch):
 
 def test_forward_backward_async_passes_loss_fn_config_when_set(patched_tinker):
     backend = asyncio.run(TinkerBackend.create(model_name="m"))
-    fut = backend.forward_backward_async(
+    backend.forward_backward_async(
         ["d1", "d2"], loss_fn="cross_entropy",
         loss_fn_config={"label_smoothing": 0.1},
     )

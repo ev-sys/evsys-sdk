@@ -14,8 +14,8 @@ contract.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Any, Protocol, runtime_checkable
 
 import tinker
 

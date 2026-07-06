@@ -25,7 +25,6 @@ import torch
 
 from evsys_sdk.training.sdft_data import (
     CompletionSlice,
-    DEFAULT_DEMO_TEMPLATE,
     build_teacher_forced_sequence,
     build_teacher_prompt,
     build_topk_targets,
@@ -196,7 +195,7 @@ def test_build_topk_targets_writes_NK_tensors_at_completion_positions():
     # Set top-2 entries per completion position; skip_first_n=3 means only the
     # 4th completion position writes anything.
     teacher_resp = [None] * 3 + [None, None, None, [(50, -0.1), (51, -1.0)]]
-    new_datums, metrics = build_topk_targets(
+    new_datums, _metrics = build_topk_targets(
         student_data=student, completion_slices=[slice_],
         teacher_topk_logprobs=[teacher_resp],
         topk=2, skip_first_n=3,
@@ -210,7 +209,7 @@ def test_build_topk_targets_writes_NK_tensors_at_completion_positions():
     # only one with non-zero weights. Find which student_pos that maps to.
     # mask positions (from student datum) are indices [1, 2, 3, 4] (4 completion tokens
     # after the 2-token prompt → 4 positions where mask=1).
-    mask = new_datums[0].loss_fn_inputs.get
+    new_datums[0].loss_fn_inputs.get
     # Verify SOMETHING got written
     assert (weights > 0).any()
     # Renormalized probs over top-K should sum to ~1 at the written position.

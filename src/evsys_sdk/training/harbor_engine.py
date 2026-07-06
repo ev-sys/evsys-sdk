@@ -10,7 +10,7 @@ Flow (harbor 0.13.2): a producer's **adapter** (:class:`HarborTaskAdapter` for
 scored rollouts, :class:`PromptAdapter` for generation) writes each task dir
 (``instruction.md`` + ``task.toml`` [+ ``evsys_verifier.json`` spec + a dummy
 ``tests/test.sh`` when scored]) and returns harbor-native ``TaskConfig``\\s →
-:func:`run_harbor_rollouts` builds a ``JobConfig`` over those ``TaskConfig``\\s ×
+:func:`run_harbor_rollouts` builds a ``JobConfig`` over those ``TaskConfig``\\s x
 one ``agent``, ``n_attempts = num_samples`` → ``Job.run()`` → harvest each
 trial's ``agent_result`` (``rollout_details`` + completion + token/cost usage)
 and ``verifier_result`` (reward) into a :class:`Trajectory`.
@@ -27,8 +27,9 @@ verifier and use ``environment_mode="separate"`` so no ``test.sh`` is needed.)
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from ..data_types import HarborTask, InProcessVerifier
 from .trajectory import Trajectory, TrajectoryGroup, Turn
@@ -208,7 +209,7 @@ async def run_harbor_rollouts(
     max_retries: int = 2,
     _job_factory: Any | None = None,
 ) -> list[TrajectoryGroup]:
-    """Roll out ``items`` (× ``num_samples``) through harbor's ``Job`` engine —
+    """Roll out ``items`` (x ``num_samples``) through harbor's ``Job`` engine —
     one :class:`TrajectoryGroup` per item, in order.
 
     ``outcome_reward`` is the agent-meaningful knob — does the rollout get scored

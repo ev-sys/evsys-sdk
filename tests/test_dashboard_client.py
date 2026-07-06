@@ -20,8 +20,8 @@ import pytest
 from evsys_sdk.dashboard_client import (
     DashboardClient,
     DashboardClientError,
-    ExperimentRun,
     EvsysAuthError,
+    ExperimentRun,
 )
 
 
@@ -253,7 +253,9 @@ class TestLogging:
 class TestErrors:
     def test_non_2xx_raises(self):
         sess = mock.MagicMock()
-        resp = mock.MagicMock(); resp.status_code = 401; resp.text = "invalid api key"
+        resp = mock.MagicMock()
+        resp.status_code = 401
+        resp.text = "invalid api key"
         sess.post.return_value = resp
         client = _make_client(sess)
         with pytest.raises(DashboardClientError) as exc:
@@ -265,7 +267,9 @@ class TestErrors:
     def test_5xx_degrades_gracefully(self):
         # A server error is treated like an outage: no raise, local fallback.
         sess = mock.MagicMock()
-        resp = mock.MagicMock(); resp.status_code = 500; resp.text = "boom"
+        resp = mock.MagicMock()
+        resp.status_code = 500
+        resp.text = "boom"
         sess.post.return_value = resp
         client = _make_client(sess)
         result = client.log_step_metric("g1", step=1, loss=0.1)
@@ -295,8 +299,11 @@ class TestExperimentRun:
         ]
         sess = mock.MagicMock()
         def _post(*a, **kw):
-            r = mock.MagicMock(); r.status_code = 201
-            payload = responses.pop(0); r.text = json.dumps(payload); r.json.return_value = payload
+            r = mock.MagicMock()
+            r.status_code = 201
+            payload = responses.pop(0)
+            r.text = json.dumps(payload)
+            r.json.return_value = payload
             return r
         sess.post.side_effect = _post
         client = _make_client(sess)
@@ -331,8 +338,11 @@ class TestExperimentRun:
         ]
         sess = mock.MagicMock()
         def _post(*a, **kw):
-            r = mock.MagicMock(); r.status_code = 201
-            payload = responses.pop(0); r.text = json.dumps(payload); r.json.return_value = payload
+            r = mock.MagicMock()
+            r.status_code = 201
+            payload = responses.pop(0)
+            r.text = json.dumps(payload)
+            r.json.return_value = payload
             return r
         sess.post.side_effect = _post
         client = _make_client(sess)
@@ -357,8 +367,11 @@ class TestExperimentRun:
         ]
         sess = mock.MagicMock()
         def _post(*a, **kw):
-            r = mock.MagicMock(); r.status_code = 201
-            payload = responses.pop(0); r.text = json.dumps(payload); r.json.return_value = payload
+            r = mock.MagicMock()
+            r.status_code = 201
+            payload = responses.pop(0)
+            r.text = json.dumps(payload)
+            r.json.return_value = payload
             return r
         sess.post.side_effect = _post
         client = _make_client(sess)
@@ -388,8 +401,11 @@ class TestExperimentRun:
         ]
         sess = mock.MagicMock()
         def _post(*a, **kw):
-            r = mock.MagicMock(); r.status_code = 201
-            payload = responses.pop(0); r.text = json.dumps(payload); r.json.return_value = payload
+            r = mock.MagicMock()
+            r.status_code = 201
+            payload = responses.pop(0)
+            r.text = json.dumps(payload)
+            r.json.return_value = payload
             return r
         sess.post.side_effect = _post
         client = _make_client(sess)

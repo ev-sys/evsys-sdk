@@ -17,12 +17,9 @@ search eval) build on this infra in their own repos.
 
 from .matcher import AliasMatcher
 from .model_eval import (
-    DEFAULT_SYSTEM,
-    DEFAULT_SYSTEM_NO_THINK,
     ModelEvalConfig,
     ModelEvalResult,
     extract_predicted_slug,
-    qwen3_chat_template_prompt,
     qwen_chat_prompt,
     run_model_eval,
 )

@@ -9,14 +9,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 import yaml
 
 from evsys_sdk import (
     AlgorithmConfig,
     BackendConfig,
     DataConfig,
-    DataStoreSpec,
     ExperimentConfig,
     LogStoreSpec,
     ModelConfig,
@@ -60,7 +58,7 @@ def test_runner_mock_sft_end_to_end(tmp_path: Path, sample_rows):
     # Logs landed.
     metrics_path = tmp_path / "out" / "mock_run" / "logs" / "metrics.jsonl"
     assert metrics_path.exists()
-    rows = [json.loads(l) for l in metrics_path.read_text().splitlines() if l.strip()]
+    rows = [json.loads(line) for line in metrics_path.read_text().splitlines() if line.strip()]
     assert any("train/loss" in row.get("metrics", {}) for row in rows)
 
 

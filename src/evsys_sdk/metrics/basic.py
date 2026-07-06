@@ -22,7 +22,8 @@ The interface is one method::
 
 from __future__ import annotations
 
-from typing import ClassVar, Sequence
+from collections.abc import Sequence
+from typing import ClassVar
 
 from ..registry import register_metric
 
@@ -115,10 +116,10 @@ class PassHat3(_PassHatK):
 
 
 __all__ = [
-    "MeanReward",
     "Avg",
-    "PassRate",
+    "MeanReward",
     "PassAt1",
     "PassAt3",
     "PassHat3",
+    "PassRate",
 ]

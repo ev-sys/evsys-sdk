@@ -48,8 +48,10 @@ class OpenAIInference:
                 f"OpenAIInference: env var {self.cfg.api_key_env} is not set"
             )
         ctor: dict = {"api_key": key, "timeout": self.cfg.timeout_s}
-        if self.cfg.base_url:     ctor["base_url"]     = self.cfg.base_url
-        if self.cfg.organization: ctor["organization"] = self.cfg.organization
+        if self.cfg.base_url:
+            ctor["base_url"] = self.cfg.base_url
+        if self.cfg.organization:
+            ctor["organization"] = self.cfg.organization
         self._client = OpenAI(**ctor)
 
     def generate(

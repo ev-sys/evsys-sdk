@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .store import EvsysStore
 
@@ -149,4 +150,4 @@ def read_jsonl_rows(path: str) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["Workspace", "MaterializedDataset", "read_jsonl_rows"]
+__all__ = ["MaterializedDataset", "Workspace", "read_jsonl_rows"]

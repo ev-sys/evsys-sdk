@@ -12,15 +12,15 @@ import logging
 from pathlib import Path
 from typing import ClassVar
 
+from datasets import Dataset
+from peft import LoraConfig
 from pydantic import BaseModel, ConfigDict, Field
+
+# Raise ImportError if TRL is missing
+from trl import SFTConfig, SFTTrainer
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
-
-# Raise ImportError if TRL is missing
-from trl import SFTConfig, SFTTrainer  # noqa: E402
-from peft import LoraConfig  # noqa: E402
-from datasets import Dataset  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

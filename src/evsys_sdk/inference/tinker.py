@@ -5,12 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any, ClassVar
 
+import tinker
 from pydantic import BaseModel, ConfigDict
 
 from ..checkpoint import Checkpoint, find_manifest, read_manifest
 from ..registry import register_default_inference_factory, register_inference
-
-import tinker  # noqa: E402
 
 
 class TinkerInferenceConfig(BaseModel):
@@ -94,7 +93,7 @@ class TinkerInference:
 
     @classmethod
     def from_run_result(cls, run_result: Any, run_cfg: Any, *,
-                        label: str = "final") -> "TinkerInference":
+                        label: str = "final") -> TinkerInference:
         """Build a TinkerInference pointing at the run's final sampler checkpoint.
 
         Reads ``run_result.artifacts["run_dir"]``, locates ``checkpoints.jsonl``

@@ -15,7 +15,6 @@ from evsys_sdk.cli import main as cli_main
 from evsys_sdk.config import ExperimentConfig
 from evsys_sdk.new_experiment import new_experiment
 
-
 # ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------

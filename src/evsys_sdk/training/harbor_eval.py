@@ -16,7 +16,8 @@ The metrics / prediction builders are pure functions over
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from ..data_types import HarborTask
 from .trajectory import TrajectoryGroup

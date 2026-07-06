@@ -21,7 +21,6 @@ from evsys_sdk.benchmark import (
 )
 from evsys_sdk.data_types import HarborTask, InProcessVerifier
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -118,7 +117,7 @@ def test_from_dir_missing_dir(tmp_path: Path):
 def test_from_dir_missing_tasks_jsonl(tmp_path: Path):
     root = tmp_path / "empty"
     root.mkdir()
-    with pytest.raises(FileNotFoundError, match="missing tasks.jsonl"):
+    with pytest.raises(FileNotFoundError, match=r"missing tasks\.jsonl"):
         Benchmark.from_dir(root)
 
 
@@ -389,7 +388,6 @@ def test_task_result_dataclass_shape():
 
 def test_score_via_harbor_builds_benchmarkscore_with_rollouts(monkeypatch, tmp_path):
     import asyncio
-    from pathlib import Path
 
     # score_via_harbor pulls in evsys_sdk.training (loop/data_processing/...), which
     # imports tinker at module level. CI runs without the [tinker] extra, so skip

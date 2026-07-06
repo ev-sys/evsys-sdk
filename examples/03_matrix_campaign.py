@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
 from evsys_sdk import load_yaml, run_experiment
 
 HERE = Path(__file__).parent

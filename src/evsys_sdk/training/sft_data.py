@@ -18,7 +18,8 @@ see ``training_client.forward_backward_async(loss_fn="cross_entropy")``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Sequence
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import tinker
 import torch

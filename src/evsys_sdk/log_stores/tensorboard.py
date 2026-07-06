@@ -6,10 +6,10 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from ..registry import register_log_store
-
 # raise ImportError at module load if tensorboard is missing — caller handles it
-from torch.utils.tensorboard import SummaryWriter  # noqa: E402
+from torch.utils.tensorboard import SummaryWriter
+
+from ..registry import register_log_store
 
 
 class TensorBoardLogStoreConfig(BaseModel):

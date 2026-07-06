@@ -55,6 +55,10 @@ from .constants import (
     EP_LOG_PREDICTIONS,
     EP_UPDATE_EXPERIMENT,
     EP_UPDATE_RUN,
+    EVSYS_API_KEY_ENV,
+    EVSYS_API_URL_ENV,
+    EVSYS_OFFLINE_ENV,
+    EVSYS_PROJECT_ID_ENV,
     FIELD_BEST_SCORE,
     FIELD_CONCLUSION,
     FIELD_ERROR_MESSAGE,
@@ -68,10 +72,6 @@ from .constants import (
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_RUNNING,
-    EVSYS_API_KEY_ENV,
-    EVSYS_API_URL_ENV,
-    EVSYS_OFFLINE_ENV,
-    EVSYS_PROJECT_ID_ENV,
     bearer,
     truthy_env,
 )
@@ -433,7 +433,7 @@ class ExperimentRun:
         self._best_score: float | None = None
         self._conclusion: str | None = None
 
-    def __enter__(self) -> "ExperimentRun":
+    def __enter__(self) -> ExperimentRun:
         if self._given_experiment_id:
             self.experiment_id = self._given_experiment_id
         else:

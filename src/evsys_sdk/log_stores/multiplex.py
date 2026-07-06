@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..registry import register_log_store, get_log_store
+from ..registry import get_log_store, register_log_store
 
 
 class MultiplexLogStoreConfig(BaseModel):

@@ -16,7 +16,6 @@ import pytest
 pytest.importorskip("tinker")  # optional dep; not installed in base CI
 pytest.importorskip("torch")
 
-import tinker
 
 import evsys_sdk.algorithms.rl as rl_module
 from evsys_sdk.algorithms.rl import RL, RLConfig

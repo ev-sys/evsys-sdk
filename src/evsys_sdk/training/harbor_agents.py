@@ -39,7 +39,6 @@ from harbor.verifier.base import BaseVerifier
 
 from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
 
-
 # ---------------------------------------------------------------------------
 # Shared LLM cache
 #
@@ -56,8 +55,8 @@ from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
 # into multiple sampling clients.
 # ---------------------------------------------------------------------------
 
-_LLM_CACHE: "weakref.WeakKeyDictionary[Any, dict[tuple, Any]]" = weakref.WeakKeyDictionary()
-_LLM_LOCKS: "weakref.WeakKeyDictionary[Any, asyncio.Lock]" = weakref.WeakKeyDictionary()
+_LLM_CACHE: weakref.WeakKeyDictionary[Any, dict[tuple, Any]] = weakref.WeakKeyDictionary()
+_LLM_LOCKS: weakref.WeakKeyDictionary[Any, asyncio.Lock] = weakref.WeakKeyDictionary()
 
 
 class NoOpEnvironment(BaseEnvironment):

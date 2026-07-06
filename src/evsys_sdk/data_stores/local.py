@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, ClassVar, Iterable
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 

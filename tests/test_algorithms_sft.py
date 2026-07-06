@@ -7,7 +7,6 @@ no real tinker session is needed; the wiring is what matters.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +17,9 @@ pytest.importorskip("torch")
 
 import evsys_sdk.algorithms.sft as sft_module
 from evsys_sdk.algorithms.sft import SFT, SFTConfig
-from evsys_sdk.protocols import RunContext, RunResult
+from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
 from evsys_sdk.training import MockBackend
-
 
 # ---------------------------------------------------------------------------
 # Doubles
@@ -245,9 +243,10 @@ def test_explicit_save_every_overrides_fractions():
 def test_callbacks_from_config_fire_during_train(patched_tinker_backend, ctx):
     """A callback declared in `algorithm.params.callbacks` is resolved through
     the registry and attached to the loop, so its hooks fire end-to-end."""
+    from pydantic import BaseModel
+
     from evsys_sdk.registry import _callbacks, register_callback
     from evsys_sdk.training import Callback
-    from pydantic import BaseModel
 
     seen: dict[str, int] = {"start": 0, "steps": 0, "end": 0}
 

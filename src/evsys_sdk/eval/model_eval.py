@@ -17,7 +17,6 @@ from typing import Any, Protocol
 from ..protocols import InferenceClient
 from .retry import RetryReport, call_with_retry
 
-
 _ANSWER_RE = re.compile(r"<answer>\s*([\w]+)\s*</answer>")
 _FALLBACK_SLUG_RE = re.compile(r"\b[A-Z][A-Z0-9_]{6,}\b")
 

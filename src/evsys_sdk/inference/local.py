@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
+import torch
 from pydantic import BaseModel, ConfigDict
 
 from ..registry import register_inference
-
-import torch  # noqa: E402
 
 
 class LocalInferenceConfig(BaseModel):

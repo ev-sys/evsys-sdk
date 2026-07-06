@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 VerifierFn = Callable[[str, Any, dict], float]
 
@@ -136,12 +137,12 @@ def list_fns() -> list[str]:
 
 __all__ = [
     "VerifierFn",
-    "tool_calls_match",
-    "exact_match",
     "contains",
-    "regex_match",
+    "exact_match",
     "get",
+    "list_fns",
+    "regex_match",
     "register",
     "register_fn",
-    "list_fns",
+    "tool_calls_match",
 ]

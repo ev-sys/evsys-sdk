@@ -8,8 +8,9 @@ can surface them in the final report rather than aborting.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -82,7 +83,7 @@ class RetryReport:
         return counts
 
 
-def call_with_retry(
+def call_with_retry[T](
     fn: Callable[..., T],
     *args: Any,
     max_attempts: int = 5,

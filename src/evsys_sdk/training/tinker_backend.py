@@ -134,7 +134,7 @@ class TinkerBackend:
         init_weights_path: str | None = None,
         api_key_env: str = "TINKER_API_KEY",
         user_metadata: dict[str, str] | None = None,
-    ) -> "TinkerBackend":
+    ) -> TinkerBackend:
         """Async factory.
 
         ``resume_state_path``: when provided, the training client is created

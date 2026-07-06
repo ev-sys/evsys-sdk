@@ -1,6 +1,6 @@
 """REAL (un-mocked) harbor rollout smoke test — runs an actual harbor 0.13.2
 ``Job`` end to end with a no-model EchoAgent, exercising the real JobConfig
-(tasks × n_attempts), the no-op environment, the agent→context harvest, and our
+(tasks x n_attempts), the no-op environment, the agent→context harvest, and our
 Python scoring. No tinker/litellm credentials needed.
 
 This is the test that would have caught the 0.13.2 JobConfig API drift (the

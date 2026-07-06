@@ -1,0 +1,58 @@
+name: 🐛 Bug report
+description: Report a reproducible defect in the SDK or plugin.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please search existing issues first, then fill in
+        the details below so we can reproduce it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including the actual vs expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, config, or code snippet that triggers it.
+      placeholder: |
+        1. `Experiment.from_yaml("config.yaml").run()` with ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / traceback
+      description: Paste the error. This will be formatted as code.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: evsys-sdk version or git SHA, and how it's installed (pip, editable, plugin).
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Python version, OS, and backend (tinker / mock / local).
+      placeholder: "Python 3.12, Linux, backend=tinker"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is a defect, not a usage question (questions go to Discussions).
+          required: true

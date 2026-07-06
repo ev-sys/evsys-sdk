@@ -110,7 +110,9 @@ def test_agent_reads(monkeypatch):
 
 def test_gateway_error_raises(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
-        r = mock.MagicMock(); r.status_code = 403; r.text = "not a member of this project"
+        r = mock.MagicMock()
+        r.status_code = 403
+        r.text = "not a member of this project"
         return r
     monkeypatch.setattr("evsys_sdk.store.requests.post", fake_post)
     store = EvsysStore(base_url="http://test.local", api_key="sk_test", project_id="p1")

@@ -26,14 +26,10 @@ pytest.importorskip("torch")
 import tinker
 
 from evsys_sdk.training import (
-    LoopArtifacts,
     MockBackend,
-    MockSamplingClient,
-    StepBuilder,
     TrainingBatch,
     TrainingLoop,
 )
-
 
 # ---------------------------------------------------------------------------
 # Doubles
@@ -225,7 +221,7 @@ def test_per_evaluator_run_every_calls_each_evaluator_with_snapshot(tmp_path: Pa
     assert len(ev_a.calls) == 2
     assert len(ev_b.calls) == 2
     eval_rows = [r for r in log.rows if r.get("split") == "val"]
-    assert len(eval_rows) == 4  # 2 evaluators × 2 fires
+    assert len(eval_rows) == 4  # 2 evaluators x 2 fires
     keys = {k for r in eval_rows for k in r["metrics"]}
     assert {"val/val_a/pass_rate", "val/val_b/pass_rate"} <= keys
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from evsys_sdk.transforms.identity import IdentityTransform
 from evsys_sdk.transforms.jsonl_to_chat import JSONLToChatTransform
 

@@ -22,7 +22,6 @@ pytest.importorskip("torch")
 
 from evsys_sdk.training.batch_utils import coerce_floats
 
-
 # ---------------------------------------------------------------------------
 # coerce_floats
 # ---------------------------------------------------------------------------

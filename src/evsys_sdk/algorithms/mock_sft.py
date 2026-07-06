@@ -49,7 +49,7 @@ class MockSFT:
             else steps_per_epoch * self.cfg.num_epochs
         )
 
-        save_steps = sorted({max(1, int(round(f * total_steps))) for f in self.cfg.save_at_fractions})
+        save_steps = sorted({max(1, round(f * total_steps)) for f in self.cfg.save_at_fractions})
 
         artifacts: dict[str, str] = {}
         for step in range(1, total_steps + 1):

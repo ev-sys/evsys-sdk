@@ -16,14 +16,15 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from typing import ClassVar
 
 from .constants import (
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
     DEFAULT_LOGGING_LEVEL,
+    EVSYS_LOGGING_LEVEL_ENV,
     LOGGER_NAME,
     SUPPORTED_LOGGING_LEVELS,
-    EVSYS_LOGGING_LEVEL_ENV,
 )
 
 RESET = "\033[0m"
@@ -35,7 +36,7 @@ GRAY = "\033[90m"
 class ColorFormatter(logging.Formatter):
     """Wrap formatted records in ANSI color based on level (TTY only)."""
 
-    COLORS = {
+    COLORS: ClassVar[dict[int, str]] = {
         logging.DEBUG: GRAY,
         logging.INFO: GRAY,
         logging.WARNING: YELLOW,
@@ -123,4 +124,4 @@ def get_logger(name: str | None = None) -> logging.Logger:
 _root_logger = configure_logger()
 
 
-__all__ = ["configure_logger", "set_level", "get_logger", "ColorFormatter"]
+__all__ = ["ColorFormatter", "configure_logger", "get_logger", "set_level"]

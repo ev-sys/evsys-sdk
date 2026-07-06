@@ -44,7 +44,7 @@ from pydantic import BaseModel, ConfigDict
 from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
-    from .backend import Backend, SamplingClient
+    from .backend import Backend
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
 
@@ -70,11 +70,11 @@ class LoopState:
     """Current step index (0-based). Advances per iteration."""
     num_steps: int
     output_dir: Path
-    backend: "Backend"
+    backend: Backend
     log_store: Any
     """The same log_store the loop writes to. Callbacks can also write
     auxiliary rows (e.g. ``log_metrics({"debug/x": 1}, step=...)``)."""
-    checkpoint_mgr: "CheckpointManager"
+    checkpoint_mgr: CheckpointManager
     stop_requested: bool = False
 
     def request_stop(self) -> None:
@@ -111,7 +111,7 @@ class Callback:
         a wandb run, snapshot the config — anything that should happen
         before the first step."""
 
-    def on_train_end(self, state: LoopState, artifacts: "LoopArtifacts") -> None:
+    def on_train_end(self, state: LoopState, artifacts: LoopArtifacts) -> None:
         """Fires once after the loop completes (including the final
         checkpoint save). Flush summary writes, close files."""
 
@@ -121,7 +121,7 @@ class Callback:
         self,
         state: LoopState,
         step_idx: int,
-        batch: "TrainingBatch",
+        batch: TrainingBatch,
         metrics: dict[str, float],
     ) -> None:
         """Fires after every train step's metric row is written. The
@@ -130,7 +130,7 @@ class Callback:
 
     # --- side events -------------------------------------------------------
 
-    def on_checkpoint(self, state: LoopState, row: "ManifestRow") -> None:
+    def on_checkpoint(self, state: LoopState, row: ManifestRow) -> None:
         """Fires after each checkpoint manifest row is recorded. Useful
         for shipping to S3, pruning old checkpoints, kicking a side eval."""
 

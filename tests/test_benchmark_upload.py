@@ -18,7 +18,6 @@ from evsys_sdk.benchmark_upload import (
 )
 from evsys_sdk.cli import main as cli_main
 
-
 # ---------------------------------------------------------------------------
 # Fake store + benchmark fixtures
 # ---------------------------------------------------------------------------
@@ -185,7 +184,7 @@ def test_missing_dir(tmp_path: Path):
 def test_missing_tasks_jsonl(tmp_path: Path):
     bad = tmp_path / "bad"
     bad.mkdir()
-    with pytest.raises(FileNotFoundError, match="missing tasks.jsonl"):
+    with pytest.raises(FileNotFoundError, match=r"missing tasks\.jsonl"):
         upload_benchmark(_FakeStore(), bad)
 
 

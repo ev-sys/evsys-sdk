@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .benchmark import Benchmark, BenchmarkScore
 from .config import ExperimentConfig, RunConfig
@@ -234,7 +235,7 @@ class Experiment:
 
         # When n_repeats > 1, register one dashboard group per primary
         # RunConfig; replicates share the group_id. n_repeats == 1 keeps the
-        # previous behavior — no groups, no group_id on runs. 
+        # previous behavior — no groups, no group_id on runs.
         # TODO : even when n_repeats == 1, we should create a group.
         primaries = self._iter_runs()
         n_repeats = self.config.n_repeats
@@ -855,6 +856,6 @@ __all__ = [
     "EvalResult",
     "Experiment",
     "ExperimentResult",
-    "TrainFn",
     "InferenceFactory",
+    "TrainFn",
 ]

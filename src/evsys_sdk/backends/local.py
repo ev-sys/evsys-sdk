@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+# raise ImportError if torch isn't available
+import torch
 from pydantic import BaseModel, ConfigDict
 
 from ..registry import register_backend
-
-# raise ImportError if torch isn't available
-import torch  # noqa: E402
 
 
 class LocalBackendConfig(BaseModel):
