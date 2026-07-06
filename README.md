@@ -100,30 +100,57 @@ Visit the [documentation](https://ev-sys.github.io/evsys-sdk/) to learn more:
 
 ## Use it as a coding-agent plugin
 
-The SDK ships a single set of **skills** (in `skills/`) that drive the
-autoresearch loop: read the full history of past experiments (hypotheses,
-conclusions, metrics), decide the next educated experiment, scaffold the config
-plus any custom verifier / metric / transform, launch it, and write back a
-conclusion. There are no subagents — everything is skills, so the same source
-works in both Claude Code and Cursor.
+The Python SDK is installed with `pip`; the **agent context** — a single set of
+**skills** in `skills/` — is installed separately through your coding agent's own
+plugin flow. There are no subagents; everything is a skill, so the same source
+works in both **Claude Code** and **Cursor**. The skills drive the autoresearch
+loop: read the history of past experiments (hypotheses, conclusions, metrics),
+decide the next educated experiment, scaffold the config plus any custom verifier
+/ metric / transform, launch it, and write back a conclusion.
 
-**Claude Code.** Point Claude at the repo directly, or add it as a plugin
-marketplace:
+| Skill | What it does |
+|---|---|
+| `deciding-experiments` | Decide the next training experiment and launch it. |
+| `set-up-research-project` | Scaffold / migrate a repo into the research-project layout. |
+| `using-the-sdk` | Read/write experiments, datasets, benchmarks, and metrics via the SDK. |
+
+### Install into Claude Code
+
+Add the repo as a plugin marketplace, then install the plugin:
 
 ```bash
-claude --plugin-dir /path/to/evsys-sdk           # load in place from a checkout
-# or, as a marketplace:
 /plugin marketplace add ev-sys/evsys-sdk
 /plugin install evsys-sdk@evsys-sdk
 ```
 
-**Cursor.** The same repo is a Cursor plugin (`.cursor-plugin/`). Add it from
-Customize → Plugins (import the git repo as a marketplace), or drop the skills
-into a skills directory Cursor scans. Cursor also reads Claude's skill
-directories, so `.claude/skills/` and `~/.claude/skills/` are discovered too.
+Or, to load it in place from a local checkout (no marketplace):
 
-Both wrappers point at the same `skills/` directory — edit a skill once and both
-agents pick it up.
+```bash
+claude --plugin-dir /path/to/evsys-sdk
+```
+
+### Install into Cursor
+
+The same repo is a Cursor plugin (`.cursor-plugin/`). Either:
+
+- **Plugin import** — Customize → Plugins → import `ev-sys/evsys-sdk` as a git
+  marketplace (one-click, uses `.cursor-plugin/` → `skills/`); **or**
+- **Drop-in skills** — copy or symlink the skill folders into a directory Cursor
+  scans (`~/.cursor/skills/` global, or `./.cursor/skills/` per project):
+
+  ```bash
+  git clone https://github.com/ev-sys/evsys-sdk.git
+  mkdir -p ~/.cursor/skills
+  cp -r evsys-sdk/skills/* ~/.cursor/skills/
+  ```
+
+Cursor also reads Claude's skill directories (`.claude/skills/`,
+`~/.claude/skills/`), so a Claude install is discovered by Cursor too.
+
+Both plugin manifests point at the same `skills/` directory — edit a skill once
+and both agents pick it up. After installing, invoke a skill in chat with
+`/deciding-experiments` (or let the agent pick it up automatically), or review
+what loaded under the agent's skills/plugins settings.
 
 ## Contributing
 
