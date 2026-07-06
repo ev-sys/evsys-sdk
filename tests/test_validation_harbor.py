@@ -6,6 +6,7 @@ a harbor install."""
 from __future__ import annotations
 
 import asyncio
+from typing import ClassVar
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_harbor_validation_uploads_eval_per_step(monkeypatch):
     assert [e["step"] for e in store.evals] == [5, 10]
     assert all(e["run_id"] == "run123" for e in store.evals)
     assert all(e["benchmark_id"] == "bench9" for e in store.evals)
-    # Two tasks × two validations = 4 eval predictions, eval_id threaded through.
+    # Two tasks x two validations = 4 eval predictions, eval_id threaded through.
     assert len(store.preds) == 4
     assert {p["eval_id"] for p in store.preds} == {"eval_5", "eval_10"}
     assert all(p["kind"] == "eval" for p in store.preds)
@@ -137,7 +138,7 @@ def test_non_harbor_engine_uses_sampler_path(monkeypatch):
 
     # benchmark.score is what the sampler path calls — stub it via a fake bench.
     class _Bench:
-        tasks: list = []
+        tasks: ClassVar[list] = []
 
         def score(self, client, **kw):
             from evsys_sdk.benchmark import BenchmarkScore
@@ -146,7 +147,7 @@ def test_non_harbor_engine_uses_sampler_path(monkeypatch):
     class _Sampler:
         async def sample_async(self, **kw):
             class _R:
-                sequences = []
+                sequences: ClassVar[list] = []
             return _R()
 
     ev = BenchmarkEvaluator(name="val", benchmark=_Bench(), tokenizer=object(), engine="")

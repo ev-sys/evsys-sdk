@@ -8,9 +8,7 @@ without a real tinker session.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -21,8 +19,7 @@ import evsys_sdk.algorithms.sdft as sdft_module
 from evsys_sdk.algorithms.sdft import SDFT, SDFTConfig
 from evsys_sdk.protocols import RunResult
 from evsys_sdk.registry import get_algorithm
-from evsys_sdk.training import MockBackend, MockSamplingClient
-
+from evsys_sdk.training import MockBackend
 
 # ---------------------------------------------------------------------------
 # Doubles
@@ -89,7 +86,10 @@ class _SDFTMockSampler:
         self.calls.append(kwargs)
         # Build a fake sequence with 4 tokens.
         class _Seq:
-            tokens = [11, 12, 13, 14]
+            __slots__ = ("tokens",)
+
+            def __init__(self):
+                self.tokens = [11, 12, 13, 14]
         topk = kwargs.get("topk_prompt_logprobs", 0)
         topk_resp = None
         if topk > 0:

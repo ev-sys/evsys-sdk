@@ -11,10 +11,8 @@ import pytest
 pytest.importorskip("tinker")  # optional dep; not installed in base CI
 pytest.importorskip("torch")
 
-import tinker
 
 from evsys_sdk.training.data_processing import (
-    DatumMetadata,
     assemble_training_data,
     compute_advantages,
     compute_trajectory_metrics,

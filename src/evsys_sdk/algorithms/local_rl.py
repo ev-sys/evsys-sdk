@@ -6,14 +6,13 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
+from datasets import Dataset
+from peft import LoraConfig
 from pydantic import BaseModel, ConfigDict, Field
+from trl import GRPOConfig, GRPOTrainer
 
 from ..protocols import RunContext, RunResult
 from ..registry import get_verifier, register_algorithm
-
-from trl import GRPOConfig, GRPOTrainer  # noqa: E402
-from peft import LoraConfig  # noqa: E402
-from datasets import Dataset  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -26,6 +26,7 @@ from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
 from ..training.batch_utils import coerce_floats
+from ..training.loop import TrainingBatch
 from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
     CompletionSlice,
@@ -36,11 +37,9 @@ from ..training.sdft_data import (
     extract_completion_tokens,
     student_datum_from_rollout,
 )
-from ..training.loop import TrainingBatch
 from ..training.tinker_backend import TinkerBackend, TinkerSamplingClient
 from ..training.trajectory import Trajectory
 from .base import BaseAlgorithm, BaseAlgorithmConfig
-
 
 # ---------------------------------------------------------------------------
 # Config

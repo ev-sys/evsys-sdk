@@ -16,7 +16,6 @@ from evsys_sdk.project_init import (
     init_project,
 )
 
-
 # ---------------------------------------------------------------------------
 # init_project — golden tree
 # ---------------------------------------------------------------------------
@@ -94,7 +93,7 @@ def test_src_package_is_importable(tmp_path: Path, monkeypatch):
     monkeypatch.delitem(sys.modules, "src.verifiers", raising=False)
     monkeypatch.delitem(sys.modules, "src.metrics", raising=False)
     monkeypatch.delitem(sys.modules, "src.transforms", raising=False)
-    import src  # noqa: F401
+    import src
     # The commented examples shouldn't accidentally execute.
     assert src.__doc__
 

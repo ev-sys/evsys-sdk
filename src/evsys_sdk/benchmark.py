@@ -28,8 +28,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger(__name__)
-
 from .data_types import (
     E2BVerifier,
     HarborTask,
@@ -40,6 +38,8 @@ from .data_types import (
 from .protocols import InferenceClient
 from .registry import get_metric
 from .verifiers import fns as verifier_fns
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .training.trajectory import TrajectoryGroup
@@ -75,7 +75,7 @@ class BenchmarkScore:
 
     Populated when `score(..., breakdown_keys=[...])` is passed. Each bucket
     field is an attribute path into a task's `metadata` (e.g. `"toolkit"`)."""
-    rollouts: list["TrajectoryGroup"] = field(default_factory=list)
+    rollouts: list[TrajectoryGroup] = field(default_factory=list)
     """Raw per-(task, sample) harbor rollouts (token ids + reward + usage), in
     task order; populated by `score_via_harbor`, empty for in-process `score()`.
     Lets callers upload per-sample eval predictions without re-running."""
@@ -186,7 +186,7 @@ class Benchmark:
         max_tokens: int = 512,
         temperature: float = 0.0,
         stop: list[str] | None = None,
-        prompt_builder: "callable | None" = None,
+        prompt_builder: callable | None = None,
         breakdown_keys: list[str] | None = None,
         limit: int | None = None,
         metrics: list[str] | None = None,

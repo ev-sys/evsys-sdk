@@ -14,7 +14,6 @@ import pytest
 
 from evsys_sdk.inference.chat_templated import ChatTemplatedInference
 
-
 # ---------------------------------------------------------------------------
 # Doubles
 # ---------------------------------------------------------------------------

@@ -145,7 +145,7 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
         "n_tasks": result.n_tasks,
     }
     print(json.dumps(payload, indent=2))
-    print(f"\n# paste into your experiment config.yaml:")
+    print("\n# paste into your experiment config.yaml:")
     print(f"# metadata.benchmark.id: {result.benchmark_id}")
     return 0
 

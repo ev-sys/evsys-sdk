@@ -38,7 +38,7 @@ def test_pull_writes_jsonl_and_manifest(tmp_path):
     assert mat.transform == [{"kind": "jsonl_to_chat", "params": {}}]
 
     lines = open(mat.path).read().splitlines()
-    assert len(lines) == 1200                                   # paged across 3×500
+    assert len(lines) == 1200                                   # paged across 3x500
     assert json.loads(lines[0]) == {"q": "row0"}                # raw payload only
     assert store.row_calls >= 3                                  # 1200/500 → 3 pages
 
@@ -81,7 +81,8 @@ def test_nrows_mismatch_invalidates_cache(tmp_path):
     mat = ws.pull_dataset("ds1")
     # Corrupt the manifest's n_rows → next pull must re-fetch.
     man_path = mat.path.replace(".jsonl", ".meta.json")
-    man = json.loads(open(man_path).read()); man["n_rows"] = 999
+    man = json.loads(open(man_path).read())
+    man["n_rows"] = 999
     open(man_path, "w").write(json.dumps(man))
     n = store.row_calls
     mat2 = ws.pull_dataset("ds1")

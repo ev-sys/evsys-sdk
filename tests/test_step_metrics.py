@@ -9,9 +9,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from evsys_sdk.step_metrics import forward_step_metrics
 

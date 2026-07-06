@@ -43,7 +43,6 @@ from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
 from ..training.tinker_backend import TinkerBackend
 
-
 # ---------------------------------------------------------------------------
 # Shared config base
 # ---------------------------------------------------------------------------
@@ -249,7 +248,7 @@ class BaseAlgorithm:
         if self.cfg.save_every:
             return self.cfg.save_every
         marks = sorted({
-            max(1, int(round(f * total_steps)))
+            max(1, round(f * total_steps))
             for f in self.cfg.save_at_fractions
         })
         if not marks:

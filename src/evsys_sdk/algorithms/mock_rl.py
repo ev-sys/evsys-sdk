@@ -10,7 +10,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict
 
 from ..protocols import RunContext, RunResult
-from ..registry import register_algorithm, get_verifier
+from ..registry import get_verifier, register_algorithm
 
 
 class MockRLConfig(BaseModel):

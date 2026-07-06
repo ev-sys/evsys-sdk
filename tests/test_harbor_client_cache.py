@@ -23,7 +23,6 @@ pytest.importorskip("tinker")  # harbor_agents imports TinkerLLM at module top
 from evsys_sdk.training import harbor_agents as ha
 from evsys_sdk.training import harbor_engine as he
 
-
 # --- _to_agent_config: model_name lifted out of kwargs ----------------------
 
 

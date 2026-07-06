@@ -94,7 +94,7 @@ class AliasMatcher:
         secondary_path: str | Path | None = None,
         *,
         bidirectional: bool = True,
-    ) -> "AliasMatcher":
+    ) -> AliasMatcher:
         primary = json.loads(Path(primary_path).read_text()) if primary_path else {}
         secondary = (
             json.loads(Path(secondary_path).read_text())
@@ -108,7 +108,7 @@ class AliasMatcher:
         if expected in self._equivalence:
             # Preserve a stable order: expected first, then sorted rest.
             others = sorted(s for s in self._equivalence[expected] if s != expected)
-            return [expected] + others
+            return [expected, *others]
         return [expected]
 
     def matches(self, expected: str, predicted: str) -> bool:

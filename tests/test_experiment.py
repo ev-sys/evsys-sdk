@@ -31,7 +31,6 @@ from evsys_sdk.experiment import (
 )
 from evsys_sdk.protocols import RunResult
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -239,7 +238,7 @@ def test_run_sweep_happy_path_writes_to_store(sweep_config: ExperimentConfig):
     assert kinds.count("update_run") == 3
     assert kinds.count("update_experiment") == 1
 
-    exp_call = [c for c in store.calls if c[0] == "create_experiment"][0][1]
+    exp_call = next(c for c in store.calls if c[0] == "create_experiment")[1]
     assert exp_call["hypothesis"] == "higher rank → higher reward"
     assert exp_call["tags"] == ["sft", "test"]
 
@@ -369,7 +368,8 @@ def test_benchmark_eval_per_arm_uses_factory(
 ):
     bench = Benchmark.from_dir(benchmark_dir)
     # benchmark expects answers "A" then "B"
-    inference_factory = lambda result, run_cfg: _ScriptedInference(["A", "B"])
+    def inference_factory(result, run_cfg):
+        return _ScriptedInference(["A", "B"])
     store = _FakeStore()
     res = Experiment(
         single_run_config, store=store, train_fn=_make_train_fn(),
@@ -417,7 +417,8 @@ def test_benchmark_from_metadata_path_is_loaded(
 ):
     """If config.metadata.benchmark.path is set, Experiment loads it."""
     single_run_config.metadata["benchmark"] = {"path": str(benchmark_dir)}
-    factory = lambda r, c: _ScriptedInference(["A", "B"])
+    def factory(r, c):
+        return _ScriptedInference(["A", "B"])
     res = Experiment(
         single_run_config, train_fn=_make_train_fn(),
         inference_factory=factory,
@@ -445,7 +446,8 @@ def test_benchmark_breakdown_keys_propagate(
         "path": str(benchmark_dir),
         "breakdown_keys": ["toolkit"],  # toy tasks have empty metadata so all → __missing__
     }
-    factory = lambda r, c: _ScriptedInference(["A", "B"])
+    def factory(r, c):
+        return _ScriptedInference(["A", "B"])
     res = Experiment(single_run_config, train_fn=_make_train_fn(),
                      inference_factory=factory).run()
     assert "toolkit" in res.arms[0].eval_breakdowns
@@ -512,10 +514,10 @@ def test_n_repeats_replicates_single_run(base_run: RunConfig):
     # One group; all three arms share its id.
     create_groups = [c[1] for c in store.calls if c[0] == "create_group"]
     assert len(create_groups) == 1 and create_groups[0]["name"] == "base"
-    group_id = next(c[1] for c in store.calls if c[0] == "create_group"
+    next(c[1] for c in store.calls if c[0] == "create_group"
                     and c[1]["name"] == "base")
     # group_id_by_arm matches the created group's id
-    expected_id = [c for c in store.calls if c[0] == "create_group"][0]
+    next(c for c in store.calls if c[0] == "create_group")
     # the fake store returns the assigned id; pull from the create_run calls
     create_runs = [c[1] for c in store.calls if c[0] == "create_run"]
     assert len({cr["group_id"] for cr in create_runs}) == 1
@@ -537,7 +539,7 @@ def test_n_repeats_with_runs_list_groups_per_entry(base_run: RunConfig):
     assert kinds.count("create_group") == 2
     assert kinds.count("create_run") == 6
     # each arm's group_id matches its group_name's id
-    grp_by_name = {c[1]["name"]: None for c in store.calls if c[0] == "create_group"}
+    {c[1]["name"]: None for c in store.calls if c[0] == "create_group"}
     # the fake store assigns ids in order; reverse-engineer mapping from the
     # arm-side group_id (which came from the create_group return)
     by_name = {a.group_name: a.group_id for a in res.arms}
@@ -683,10 +685,11 @@ def test_eval_arm_skips_wrap_when_chat_template_absent(
 
 def test_resolve_inference_factory_user_supplied_wins(sweep_config: ExperimentConfig):
     """When the caller passes inference_factory=…, the registry default is ignored."""
-    sentinel = lambda rr, rc: object()
+    def sentinel(rr, rc):
+        return object()
     exp = Experiment(sweep_config, inference_factory=sentinel)
     # Pick any run config to test against; factory is independent of run_cfg.
-    run_cfg = list(exp._iter_runs())[0]
+    run_cfg = next(iter(exp._iter_runs()))
     assert exp._resolve_inference_factory(run_cfg) is sentinel
 
 
@@ -696,11 +699,12 @@ def test_resolve_inference_factory_falls_back_to_registry(sweep_config: Experime
     plumbing without needing the tinker module."""
     from evsys_sdk import registry
 
-    fake = lambda rr, rc: object()
+    def fake(rr, rc):
+        return object()
     monkeypatch.setitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", fake)
 
     exp = Experiment(sweep_config)
-    run_cfg = list(exp._iter_runs())[0]
+    run_cfg = next(iter(exp._iter_runs()))
     assert exp._resolve_inference_factory(run_cfg) is fake
 
 
@@ -713,7 +717,7 @@ def test_resolve_inference_factory_none_when_no_default_registered(sweep_config:
     monkeypatch.delitem(registry._DEFAULT_INFERENCE_FACTORIES, "mock", raising=False)
 
     exp = Experiment(sweep_config)
-    run_cfg = list(exp._iter_runs())[0]
+    run_cfg = next(iter(exp._iter_runs()))
     assert exp._resolve_inference_factory(run_cfg) is None
 
 
@@ -749,7 +753,8 @@ def test_store_eval_write_failure_does_not_kill_arm(
     benchmark_dir: Path, single_run_config: ExperimentConfig
 ):
     store = _FlakyStore({"create_eval"})
-    factory = lambda r, c: _ScriptedInference(["A", "B"])
+    def factory(r, c):
+        return _ScriptedInference(["A", "B"])
     res = Experiment(
         single_run_config, store=store, train_fn=_make_train_fn(),
         benchmark=Benchmark.from_dir(benchmark_dir),

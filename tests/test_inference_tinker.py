@@ -19,7 +19,6 @@ pytest.importorskip("tinker")  # optional dep; not installed in base CI
 
 from evsys_sdk.registry import get_default_inference_factory
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -117,7 +116,7 @@ def test_from_run_result_missing_manifest_raises(tmp_path: Path, monkeypatch):
     _stub_init(monkeypatch, captured)
 
     from evsys_sdk.inference.tinker import TinkerInference
-    with pytest.raises(RuntimeError, match="no checkpoints.jsonl"):
+    with pytest.raises(RuntimeError, match=r"no checkpoints\.jsonl"):
         TinkerInference.from_run_result(_Res(str(tmp_path)), _RunCfg())
 
 

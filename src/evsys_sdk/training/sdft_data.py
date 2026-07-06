@@ -23,8 +23,9 @@ plus the teacher-prompt helper for Step 2. The
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import tinker
 import torch
@@ -179,7 +180,7 @@ def extract_completion_tokens(
     if not target_tokens:
         return CompletionSlice(tokens=[], teacher_prompt_len=teacher_prompt_len,
                                truncated=False)
-    student_full_tokens = datum.model_input.to_ints() + [int(target_tokens[-1])]
+    student_full_tokens = [*datum.model_input.to_ints(), int(target_tokens[-1])]
     completion_start = int(completion_indices[0].item()) + 1
     completion_tokens = student_full_tokens[completion_start:]
 
@@ -407,8 +408,8 @@ class SimpleSDFTDataset:
 
 
 __all__ = [
-    "CompletionSlice",
     "DEFAULT_DEMO_TEMPLATE",
+    "CompletionSlice",
     "SDFTDataset",
     "SimpleSDFTDataset",
     "build_teacher_forced_sequence",

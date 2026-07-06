@@ -67,7 +67,7 @@ def test_eval_metrics_empty():
 
 
 def test_eval_metrics_honors_declared_metric_names():
-    # 4 tasks × 3 samples: any-of-3 solves 3/4 (pass@3), all-of-3 solves 1/4 (pass^3).
+    # 4 tasks x 3 samples: any-of-3 solves 3/4 (pass@3), all-of-3 solves 1/4 (pass^3).
     groups = [
         _group([1.0, 1.0, 0.0]),
         _group([1.0, 0.0, 0.0]),

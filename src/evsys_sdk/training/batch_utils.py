@@ -78,6 +78,6 @@ def extract_completion_tokens_from_response(response: Any) -> list[int]:
 
 __all__ = [
     "coerce_floats",
-    "extract_weights",
     "extract_completion_tokens_from_response",
+    "extract_weights",
 ]

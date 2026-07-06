@@ -14,7 +14,6 @@ import csv
 import io
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -30,11 +29,9 @@ from evsys_sdk.training import (
     LoopState,
     MockBackend,
     PrintProgressCallback,
-    StepBuilder,
     TrainingBatch,
     TrainingLoop,
 )
-
 
 # ---------------------------------------------------------------------------
 # Doubles
@@ -265,9 +262,10 @@ def test_build_callbacks_rejects_unknown_param():
 
 def test_register_custom_callback_then_build():
     """Users can register their own callback and reach it from {kind, params}."""
+    from pydantic import BaseModel
+
     from evsys_sdk.registry import _callbacks, register_callback
     from evsys_sdk.training import Callback, build_callbacks
-    from pydantic import BaseModel
 
     class _MyConfig(BaseModel):
         tag: str = "x"

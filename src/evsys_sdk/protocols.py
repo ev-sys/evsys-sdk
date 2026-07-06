@@ -11,9 +11,9 @@ messages, but most are duck-typed.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Protocol, Sequence, runtime_checkable
-
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Run context + result (passed to every algorithm.train call)

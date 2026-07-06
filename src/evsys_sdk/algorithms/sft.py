@@ -29,7 +29,6 @@ from ..training.sft_data import sft_tokenize
 from ..training.tinker_backend import TinkerBackend
 from .base import BaseAlgorithm, BaseAlgorithmConfig
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------

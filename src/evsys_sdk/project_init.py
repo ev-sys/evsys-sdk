@@ -30,7 +30,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # File-tree spec — kept declarative so golden-file tests can assert against it.
 # ---------------------------------------------------------------------------

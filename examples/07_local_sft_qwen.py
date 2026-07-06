@@ -89,8 +89,8 @@ def main() -> None:
         ),
     )
 
-    print(f"Model : Qwen/Qwen3-0.6B")
-    print(f"Steps : 5  (change max_steps to train longer)")
+    print("Model : Qwen/Qwen3-0.6B")
+    print("Steps : 5  (change max_steps to train longer)")
     print(f"Output: {HERE / 'outputs' / '07'}")
     print("Starting training — first run will download the model (~1.2 GB)...\n")
 

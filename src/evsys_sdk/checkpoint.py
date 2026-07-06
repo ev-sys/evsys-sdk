@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 MANIFEST_NAME = "checkpoints.jsonl"
 
 
@@ -59,7 +58,7 @@ class Checkpoint:
         )
 
     @staticmethod
-    def pick_final(checkpoints: list["Checkpoint"]) -> Checkpoint | None:
+    def pick_final(checkpoints: list[Checkpoint]) -> Checkpoint | None:
         """Pick the one to evaluate against.
 
         Strategy: prefer an explicit ``name == "final"`` row that exposes a
@@ -133,8 +132,8 @@ def _as_str(v: Any) -> str | None:
 
 
 __all__ = [
-    "Checkpoint",
     "MANIFEST_NAME",
+    "Checkpoint",
     "find_manifest",
     "read_manifest",
 ]

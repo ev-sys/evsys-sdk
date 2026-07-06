@@ -10,13 +10,11 @@ the latest version's id.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from evsys_sdk.config import DataConfig
 from evsys_sdk.workspace import MaterializedDataset, Workspace, read_jsonl_rows
-
 
 # ---------------------------------------------------------------------------
 # Config surface

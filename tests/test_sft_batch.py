@@ -99,9 +99,10 @@ def test_step_metrics_computes_train_mean_nll_from_dict_outputs():
     batch = asyncio.run(algo.build_batch(0))
 
     class _Result:
-        # logprob -0.5 on masked positions, -10 on the unmasked third position
-        # which the weights should ignore.
-        loss_fn_outputs = [{"logprobs": [-0.5, -0.5, -10.0]}]
+        def __init__(self):
+            # logprob -0.5 on masked positions, -10 on the unmasked third position
+            # which the weights should ignore.
+            self.loss_fn_outputs = [{"logprobs": [-0.5, -0.5, -10.0]}]
 
     metrics = algo.step_metrics(0, batch, _Result())
     # mean_nll = -sum(logprob * w) / sum(w); masked [0,1] → -((-0.5 + -0.5)/2) = 0.5
@@ -120,7 +121,8 @@ def test_step_metrics_handles_tensor_data_outputs():
             return torch.tensor(self._vals, dtype=torch.float32)
 
     class _Result:
-        loss_fn_outputs = [{"logprobs": _TensorData([-0.25, -0.75])}]
+        def __init__(self):
+            self.loss_fn_outputs = [{"logprobs": _TensorData([-0.25, -0.75])}]
 
     metrics = algo.step_metrics(0, batch, _Result())
     assert metrics["train_mean_nll"] == pytest.approx(0.5)
@@ -145,7 +147,8 @@ def test_step_metrics_safe_on_token_count_mismatch():
     batch = asyncio.run(algo.build_batch(0))
 
     class _Result:
-        loss_fn_outputs = [{"logprobs": [-0.5]}]   # shorter than the mask
+        def __init__(self):
+            self.loss_fn_outputs = [{"logprobs": [-0.5]}]   # shorter than the mask
 
     metrics = algo.step_metrics(0, batch, _Result())
     assert metrics["train_mean_nll"] == pytest.approx(0.5)   # min len → 1 pos → 0.5
@@ -160,10 +163,11 @@ def test_step_metrics_aggregates_across_batch():
     batch = asyncio.run(algo.build_batch(0))
 
     class _Result:
-        loss_fn_outputs = [
-            {"logprobs": [-1.0, -1.0]},   # datum A
-            {"logprobs": [-0.0, -0.0]},   # datum B
-        ]
+        def __init__(self):
+            self.loss_fn_outputs = [
+                {"logprobs": [-1.0, -1.0]},   # datum A
+                {"logprobs": [-0.0, -0.0]},   # datum B
+            ]
 
     metrics = algo.step_metrics(0, batch, _Result())
     # 4 masked positions, sum logprobs = -2.0 → mean_nll = 0.5

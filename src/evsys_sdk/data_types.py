@@ -26,15 +26,16 @@ Anthropic style. Use ``image_url_block(url)`` or
 from __future__ import annotations
 
 import enum
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Literal, Union
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # Target formats — what a runner consumes
 # ---------------------------------------------------------------------------
 
 
-class TargetFormat(str, enum.Enum):
+class TargetFormat(enum.StrEnum):
     CHAT_MESSAGES   = "chat_messages"      # SFT
     HARBOR_TASK     = "harbor_task"        # RL via verifier rollouts
     PROMPT_DATASET  = "prompt_dataset"     # GEPA prompt tuning (no weight updates)
@@ -114,7 +115,7 @@ class LLMJudgeVerifier:
     kind: Literal["llm_judge"] = "llm_judge"
 
 
-VerifierPayload = Union[InProcessVerifier, E2BVerifier, LLMJudgeVerifier]
+VerifierPayload = InProcessVerifier | E2BVerifier | LLMJudgeVerifier
 """Discriminated by ``.kind`` ∈ {'in_process', 'e2b', 'llm_judge'}."""
 
 
@@ -301,12 +302,15 @@ def prompt_example_from_dict(d: dict) -> PromptExample:
     )
 
 
-def from_dict(row: dict) -> Union[ChatMessagesRow, HarborTask, PromptExample]:
+def from_dict(row: dict) -> ChatMessagesRow | HarborTask | PromptExample:
     """Dispatch on row shape — round-trips the JSONL coming off a runner."""
     fmt = detect_format(row)
-    if fmt == "chat_messages":  return chat_messages_row_from_dict(row)
-    if fmt == "harbor_task":    return harbor_task_from_dict(row)
-    if fmt == "prompt_dataset": return prompt_example_from_dict(row)
+    if fmt == "chat_messages":
+        return chat_messages_row_from_dict(row)
+    if fmt == "harbor_task":
+        return harbor_task_from_dict(row)
+    if fmt == "prompt_dataset":
+        return prompt_example_from_dict(row)
     raise ValueError(f"can't dispatch row — unknown format: keys={sorted(row.keys())[:6]}")
 
 
@@ -319,8 +323,8 @@ _ROW_PARSERS = {
 
 def parse_rows(
     rows: Iterable[dict],
-    fmt: Union["TargetFormat", str],
-) -> list[Union[ChatMessagesRow, HarborTask, PromptExample]]:
+    fmt: TargetFormat | str,
+) -> list[ChatMessagesRow | HarborTask | PromptExample]:
     """Strictly parse raw dicts into typed rows for the given ``fmt``.
 
     This is the standardized boundary between the transform stage and a
@@ -338,7 +342,7 @@ def parse_rows(
             f"parse_rows: unsupported target format {want!r} "
             f"(expected one of {sorted(_ROW_PARSERS)})"
         )
-    out: list[Union[ChatMessagesRow, HarborTask, PromptExample]] = []
+    out: list[ChatMessagesRow | HarborTask | PromptExample] = []
     for i, r in enumerate(rows):
         got = detect_format(r)
         if got != want:
@@ -352,14 +356,14 @@ def parse_rows(
 
 
 def to_dict(
-    obj: Union[ChatMessagesRow, HarborTask, PromptExample, VerifierPayload],
+    obj: ChatMessagesRow | HarborTask | PromptExample | VerifierPayload,
 ) -> dict:
     """Dataclass → plain dict (JSON-serializable)."""
     import dataclasses as _dc
     return _dc.asdict(obj)
 
 
-def iter_jsonl(path: str) -> Iterable[Union[ChatMessagesRow, HarborTask, PromptExample]]:
+def iter_jsonl(path: str) -> Iterable[ChatMessagesRow | HarborTask | PromptExample]:
     """Iterate a mixed-format JSONL and yield typed rows."""
     import json
     with open(path) as f:
@@ -371,12 +375,25 @@ def iter_jsonl(path: str) -> Iterable[Union[ChatMessagesRow, HarborTask, PromptE
 
 
 __all__ = [
+    "ChatMessagesRow",
+    "E2BVerifier",
+    "HarborTask",
+    "InProcessVerifier",
+    "LLMJudgeVerifier",
+    "PromptExample",
     "TargetFormat",
-    "ChatMessagesRow", "HarborTask", "PromptExample",
-    "InProcessVerifier", "E2BVerifier", "LLMJudgeVerifier", "VerifierPayload",
-    "text_block", "image_url_block", "image_base64_block",
-    "block_to_image_src", "has_images",
+    "VerifierPayload",
+    "block_to_image_src",
+    "chat_messages_row_from_dict",
     "detect_format",
-    "harbor_task_from_dict", "chat_messages_row_from_dict", "prompt_example_from_dict",
-    "from_dict", "parse_rows", "to_dict", "iter_jsonl",
+    "from_dict",
+    "harbor_task_from_dict",
+    "has_images",
+    "image_base64_block",
+    "image_url_block",
+    "iter_jsonl",
+    "parse_rows",
+    "prompt_example_from_dict",
+    "text_block",
+    "to_dict",
 ]

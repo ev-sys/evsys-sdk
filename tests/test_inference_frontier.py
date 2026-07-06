@@ -17,7 +17,6 @@ import pytest
 
 from evsys_sdk.registry import get_inference, list_inferences
 
-
 # ---------------------------------------------------------------------------
 # Registry wiring — these should always be enumerable, regardless of whether
 # the underlying vendor SDK is installed (lazy import inside __init__).

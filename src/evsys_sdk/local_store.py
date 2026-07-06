@@ -25,12 +25,12 @@ from typing import Any
 
 from .constants import (
     DEFAULT_LOG_DIR,
+    EVSYS_LOG_DIR_ENV,
     LOCAL_EVALS_FILE,
     LOCAL_EXPERIMENT_FILE,
     LOCAL_GENERATION_FILE,
     LOCAL_METRICS_FILE,
     LOCAL_PREDICTIONS_FILE,
-    EVSYS_LOG_DIR_ENV,
 )
 from .logger import get_logger
 

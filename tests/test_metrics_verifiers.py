@@ -19,7 +19,7 @@ from evsys_sdk.metrics.basic import (
 from evsys_sdk.registry import get_metric, list_metrics
 from evsys_sdk.verifiers.format_only import FormatOnlyVerifier
 
-# 4 tasks × 3 samples: rewards chosen so each metric lands on a distinct value.
+# 4 tasks x 3 samples: rewards chosen so each metric lands on a distinct value.
 _TASK_REWARDS = [
     [1.0, 1.0, 0.0],  # 2/3 pass; any → solved; all → no
     [1.0, 0.0, 0.0],  # 1/3 pass; any → solved; all → no

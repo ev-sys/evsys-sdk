@@ -16,7 +16,6 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -31,7 +30,6 @@ from evsys_sdk.training.evaluators import (
     _AsyncToSyncSampler,
     build_in_loop_evaluators,
 )
-
 
 # ---------------------------------------------------------------------------
 # Doubles
@@ -145,7 +143,8 @@ def test_returns_empty_when_no_metadata():
 def test_skips_entries_without_run_every(tmp_path: Path):
     """An entry without run_every is post-training-only and shouldn't
     produce an in-loop evaluator."""
-    bench_dir = tmp_path / "b"; bench_dir.mkdir()
+    bench_dir = tmp_path / "b"
+    bench_dir.mkdir()
     (bench_dir / "tasks.jsonl").write_text(json.dumps({
         "task_id": "t", "instruction": "q",
         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": "A"},
@@ -163,7 +162,8 @@ def test_skips_entries_without_run_every(tmp_path: Path):
 
 def test_accepts_single_dict_form(tmp_path: Path):
     """Single-dict benchmark with run_every set still yields one evaluator."""
-    bench_dir = tmp_path / "b"; bench_dir.mkdir()
+    bench_dir = tmp_path / "b"
+    bench_dir.mkdir()
     (bench_dir / "tasks.jsonl").write_text(json.dumps({
         "task_id": "t", "instruction": "q",
         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": "A"},
@@ -177,7 +177,8 @@ def test_accepts_single_dict_form(tmp_path: Path):
 
 
 def test_passes_chat_template_and_scoring_knobs(tmp_path: Path):
-    bench_dir = tmp_path / "b"; bench_dir.mkdir()
+    bench_dir = tmp_path / "b"
+    bench_dir.mkdir()
     (bench_dir / "tasks.jsonl").write_text(json.dumps({
         "task_id": "t", "instruction": "q",
         "verifier": {"kind": "in_process", "fn_name": "exact_match", "expected": "A"},
@@ -207,7 +208,8 @@ def test_loop_respects_per_evaluator_run_every(tmp_path: Path):
     one with `run_every: 5` should fire at 4, 9. The loop checks each
     independently."""
     import tinker
-    from evsys_sdk.training import MockBackend, TrainingLoop, TrainingBatch
+
+    from evsys_sdk.training import MockBackend, TrainingBatch, TrainingLoop
 
     fired: list[tuple[str, int]] = []
 
@@ -252,7 +254,8 @@ def test_evaluator_with_run_every_zero_never_fires(tmp_path: Path):
     """An evaluator with ``run_every == 0`` is disabled — there is no
     loop-level fallback cadence."""
     import tinker
-    from evsys_sdk.training import MockBackend, TrainingLoop, TrainingBatch
+
+    from evsys_sdk.training import MockBackend, TrainingBatch, TrainingLoop
 
     fired = []
 

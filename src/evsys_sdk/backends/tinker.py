@@ -14,12 +14,11 @@ from __future__ import annotations
 import os
 from typing import Any, ClassVar
 
+# raise ImportError at module load if tinker isn't installed
+import tinker
 from pydantic import BaseModel, ConfigDict
 
 from ..registry import register_backend
-
-# raise ImportError at module load if tinker isn't installed
-import tinker  # noqa: E402
 
 
 class TinkerBackendConfig(BaseModel):

@@ -59,4 +59,4 @@ class TrajectoryGroup:
         return [t.reward for t in self.trajectories]
 
 
-__all__ = ["Turn", "Trajectory", "TrajectoryGroup"]
+__all__ = ["Trajectory", "TrajectoryGroup", "Turn"]
