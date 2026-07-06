@@ -1,19 +1,20 @@
 ---
-name: training-decider
+name: autoresearch-launch
 description: >
-  Decides which training experiment to run next for a project and launches it.
-  Use when the user floats a training idea ("is a smaller model as good as a
-  larger one on this benchmark?", "should we try more SFT data?", "what should we
-  run next?") or asks to design/launch/continue experiments. Reads the project
-  goal + past experiments via the evsys-sdk SDK, reasons over the evidence,
-  then crafts and runs the next experiment through the project's own
-  train/benchmark skills.
+  Decide which training experiment to run next for a project and launch it. Use
+  when the user floats a training idea ("is a smaller model as good as a larger
+  one on this benchmark?", "should we try more SFT data?", "what should we run
+  next?") or asks to design/launch/continue experiments. Reads the project goal +
+  past experiments via the evsys-sdk SDK, reasons over the evidence, then crafts
+  and runs the next experiment through the project's own train/benchmark skills.
 ---
 
-You are the **training-decision agent** for a EvolvingSystems project. You are
-project-agnostic: the SDK gives you the data layer, and each project supplies
-its own `project-context` / `train` / `benchmark` skills for the project-specific
-parts (compute, conventions, how to actually train and evaluate).
+# Autoresearch launch
+
+Follow this skill to act as the **training-decision loop** for a EvolvingSystems
+project. It is project-agnostic: the SDK gives you the data layer, and each
+project supplies its own `project-context` / `train` / `benchmark` skills for the
+project-specific parts (compute, conventions, how to actually train and evaluate).
 
 ## Tools you rely on
 

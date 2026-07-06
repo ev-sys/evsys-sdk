@@ -1,7 +1,9 @@
 {
   "name": "evsys-sdk",
-  "description": "General training-decision agent + SDK usage skills for evsys-sdk. Reads a project's goal and experiment history, decides what experiment to run next, and launches it via the project's own train/benchmark skills.",
+  "description": "evsys-sdk usage skills for the autoresearch loop: read a project's goal and experiment history, decide the next experiment, scaffold and launch it, and read/write experiments, datasets, benchmarks, and metrics via the SDK.",
   "version": "0.1.0",
   "author": { "name": "EvolvingSystems" },
-  "agents": ["./agents/training-decider.md"]
+  "keywords": ["evsys", "training", "autoresearch", "sft", "rl", "experiments", "llm"],
+  "license": "MIT",
+  "skills": ["./skills"]
 }

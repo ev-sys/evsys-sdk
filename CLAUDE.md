@@ -1,7 +1,8 @@
 # Working in this repo
 
-`evsys-sdk` is both a Python SDK and a Claude Code plugin. A few
-conventions to keep in mind when editing.
+`evsys-sdk` is both a Python SDK and a coding-agent plugin (Claude Code and
+Cursor, from one shared `skills/` source). A few conventions to keep in mind
+when editing.
 
 ## Two skills directories (deliberately not synced)
 
@@ -10,7 +11,7 @@ are allowed to diverge.
 
 | Path | Loaded when | Audience |
 |---|---|---|
-| `skills/` | This repo is consumed as a plugin (`claude --plugin-dir ../evsys-sdk` from a research project) | Researchers using the SDK to run experiments |
+| `skills/` | This repo is consumed as a plugin (Claude `--plugin-dir ../evsys-sdk`, or the Cursor plugin) from a research project | Researchers using the SDK to run experiments |
 | `.claude/skills/` | Claude is launched inside this repo (`cd evsys-sdk && claude`) | SDK developers editing the library itself |
 
 Adding a skill:
@@ -22,8 +23,17 @@ Adding a skill:
     same for both audiences. The two dirs are independent — no symlinks, no
     auto-sync. Update each on its own as the relevant skill evolves.
 
-The plugin manifest is `.claude-plugin/plugin.json`; the marketplace entry is
-`.claude-plugin/marketplace.json`. Both reference `skills/` and `agents/`.
+The plugin is **skills-only** (no agents) and ships to both coding agents from a
+single `skills/` source:
+ * Claude Code: `.claude-plugin/plugin.json` (manifest) +
+ `.claude-plugin/marketplace.json` (marketplace entry).
+ * Cursor: `.cursor-plugin/plugin.json` (manifest) +
+ `.cursor-plugin/marketplace.json` (marketplace entry).
+
+All four point at `skills/` — edit a skill once and both agents pick it up. Do
+not add an `agents/` directory; any decision/loop logic lives as a skill (e.g.
+`skills/autoresearch-launch/`). Skill folder names and their frontmatter `name`
+must be identical kebab-case.
 
 ## Dev workflow
 
@@ -65,7 +75,7 @@ extension points consistent with this so the whole surface stays predictable.
 
   * `src/evsys_sdk/__init__.py` — public surface; what researchers
     import.
-  * `agents/training-decider.md` — the agent that materializes new
-    experiments end-to-end via the SDK.
+  * `skills/autoresearch-launch/SKILL.md` — the skill that decides and
+    materializes new experiments end-to-end via the SDK.
   * `docs/DESIGN.md` — layout + protocol rationale; researcher-project
     section explains the on-disk shape `evsys init-project` creates.

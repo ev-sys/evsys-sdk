@@ -1,0 +1,11 @@
+{
+  "name": "evsys-sdk",
+  "displayName": "evsys-sdk",
+  "version": "0.1.0",
+  "description": "evsys-sdk usage skills for the autoresearch loop: read a project's goal and experiment history, decide the next experiment, scaffold and launch it, and read/write experiments, datasets, benchmarks, and metrics via the SDK.",
+  "author": { "name": "EvolvingSystems" },
+  "license": "MIT",
+  "keywords": ["evsys", "training", "autoresearch", "sft", "rl", "experiments", "llm"],
+  "logo": "assets/logo.svg",
+  "skills": "./skills"
+}
