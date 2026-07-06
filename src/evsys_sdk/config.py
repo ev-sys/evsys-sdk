@@ -56,6 +56,31 @@ class CallbackSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class TraceSourceSpec(_Strict):
+    """A trace-ingestion source, by registry name + params. e.g.
+    ``{kind: langgraph, params: {project_name: my-agent}, pull_every: 60s}``."""
+
+    kind: str
+    """Registry key of the @register_trace_source adapter, e.g. 'langgraph'."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Adapter-specific parameters; validated against <TraceSource>.Config."""
+    pull_every: str = "60s"
+    """Poll interval for the ``--watch`` daemon (duration string, e.g. '60s', '5m')."""
+    since: str | None = None
+    """ISO-8601 start time; overrides the stored cursor for the first pull."""
+    window: str | None = None
+    """Lookback window (e.g. '24h') used when there is no cursor yet."""
+    state_dir: str = ".evsys/traces"
+    """Local dir where pulled traces + the cursor land."""
+
+
+class TracesConfig(_Strict):
+    """Standalone trace-ingestion config (a ``traces.yaml``), decoupled from any
+    training run. Loaded by ``evsys traces pull``."""
+
+    trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Stores
 # ---------------------------------------------------------------------------

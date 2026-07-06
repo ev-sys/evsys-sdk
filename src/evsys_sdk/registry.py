@@ -14,7 +14,8 @@ Third-party packages can also register via Python entry points; see
 
 from __future__ import annotations
 
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -81,6 +82,7 @@ _backends = Registry("backend")
 _inference = Registry("inference_client")
 _transforms = Registry("transform")
 _callbacks = Registry("callback")
+_trace_sources = Registry("trace_source")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -121,6 +123,10 @@ def register_transform(name: str | None = None):
 
 def register_callback(name: str | None = None):
     return _callbacks.register(name)
+
+
+def register_trace_source(name: str | None = None):
+    return _trace_sources.register(name)
 
 
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -167,6 +173,10 @@ def get_callback(name: str) -> type:
     return _callbacks.get(name)
 
 
+def get_trace_source(name: str) -> type:
+    return _trace_sources.get(name)
+
+
 def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
     """Return the registered default factory for ``backend_kind`` or ``None``."""
     return _DEFAULT_INFERENCE_FACTORIES.get(backend_kind)
@@ -205,6 +215,10 @@ def list_callbacks() -> list[str]:
     return _callbacks.list()
 
 
+def list_trace_sources() -> list[str]:
+    return _trace_sources.list()
+
+
 # Internal helpers used by yaml_loader / runner
 def _all_registries() -> dict[str, Registry]:
     return {
@@ -216,6 +230,7 @@ def _all_registries() -> dict[str, Registry]:
         "inference_client": _inference,
         "transform": _transforms,
         "callback": _callbacks,
+        "trace_source": _trace_sources,
     }
 
 

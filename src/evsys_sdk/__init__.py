@@ -60,6 +60,7 @@ from .registry import (
     get_data_store,
     get_inference,
     get_metric,
+    get_trace_source,
     get_transform,
     get_verifier,
     list_algorithms,
@@ -68,6 +69,7 @@ from .registry import (
     list_data_stores,
     list_inferences,
     list_metrics,
+    list_trace_sources,
     list_transforms,
     list_verifiers,
     register_algorithm,
@@ -76,6 +78,7 @@ from .registry import (
     register_data_store,
     register_inference,
     register_metric,
+    register_trace_source,
     register_transform,
     register_verifier,
 )
@@ -118,9 +121,11 @@ from .data_types import (
     to_dict,
     iter_jsonl,
 )
+from .trace_types import Trace, trace_from_dict, iter_traces_jsonl
 
 # Trigger registration of built-in extensions.
 from . import algorithms as _algorithms  # noqa: F401
+from . import trace_sources as _trace_sources  # noqa: F401
 from . import backends as _backends  # noqa: F401
 from . import data_stores as _data_stores  # noqa: F401
 from . import inference as _inference  # noqa: F401
@@ -179,6 +184,13 @@ __all__ = [
     "register_metric",
     "register_transform",
     "register_verifier",
+    "register_trace_source",
+    "get_trace_source",
+    "list_trace_sources",
+    # Trace ingestion
+    "Trace",
+    "trace_from_dict",
+    "iter_traces_jsonl",
     # Runner
     "run_experiment",
     # YAML
