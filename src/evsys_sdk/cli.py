@@ -58,7 +58,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
         list_data_stores,
         list_inferences,
         list_metrics,
+        list_trace_sources,
         list_transforms,
+        list_triggers,
         list_verifiers,
     )
 
@@ -70,6 +72,8 @@ def _cmd_list(args: argparse.Namespace) -> int:
         ("transforms", list_transforms),
         ("data_stores", list_data_stores),
         ("inference", list_inferences),
+        ("trace_sources", list_trace_sources),
+        ("triggers", list_triggers),
     ]:
         items = fn()
         if args.kind and args.kind != kind:
@@ -215,10 +219,14 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
 
     from .config import SystemConfig
     from .trace_sources import run_pull
+    from .triggers import resolve_hook
 
     with open(args.config) as f:
         raw = yaml.safe_load(f) or {}
     cfg = SystemConfig(**raw)
+    # Layer 2: if a trigger is configured, its deterministic gate becomes the
+    # per-trace hook Layer-1 ingestion fires (else the no-op seam).
+    hook = resolve_hook(cfg.trigger)
     since = None
     if getattr(args, "since", None):
         since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
@@ -226,6 +234,7 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
         n = run_pull(
             cfg.traces.trace_sources,
             watch=args.watch,
+            hook=hook,
             source=args.source,
             limit=args.limit,
             since=since,
