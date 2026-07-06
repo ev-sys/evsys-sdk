@@ -63,7 +63,10 @@ def _summarize(trace: Trace, signals: list[str]) -> dict:
 class TriggerPolicy:
     """The agent-editable knobs. Persisted to ``policy.json`` and read live."""
 
-    kind: str = "failure_rate"
+    kind: str = ""
+    """Registry key of the deterministic fn — a researcher- or agent-registered
+    ``@register_trigger``. No built-in fns ship; an empty/unregistered kind makes
+    ``build_trigger`` raise (the driver catches it and logs an error event)."""
     params: dict = field(default_factory=dict)
     every_n: int = 20
     window: int = 100
@@ -84,7 +87,7 @@ class TriggerPolicy:
     def from_dict(cls, d: dict) -> TriggerPolicy:
         d = d or {}
         return cls(
-            kind=d.get("kind", "failure_rate"),
+            kind=d.get("kind", ""),
             params=dict(d.get("params") or {}),
             every_n=int(d.get("every_n", 20)),
             window=int(d.get("window", 100)),

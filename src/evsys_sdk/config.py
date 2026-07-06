@@ -87,11 +87,12 @@ class TriggerConfig(_Strict):
     ``<state_dir>/policy.json`` on first run, after which the *persisted* policy
     (not this YAML) is authoritative and re-read live each cycle — so a
     trigger-agent retune survives restarts. e.g.
-    ``{kind: failure_rate, params: {threshold: 0.4}, every_n: 20}``.
+    ``{kind: my_gate, params: {threshold: 0.4}, every_n: 20}``.
     """
 
-    kind: str = "failure_rate"
-    """Registry key of the deterministic fn (``@register_trigger``)."""
+    kind: str
+    """Registry key of the deterministic fn — a researcher- or agent-registered
+    ``@register_trigger``. No built-in fns ship with the SDK."""
     params: dict[str, Any] = Field(default_factory=dict)
     """Fn-specific thresholds; validated against <Trigger>.Config."""
     every_n: int = 20
@@ -120,7 +121,7 @@ class SystemConfig(_Strict):
         traces:            # Layer 1 — pull production traces in
           trace_sources: [...]
         trigger:           # Layer 2 (this) — cheap gate: "worth learning from?"
-          kind: failure_rate
+          kind: my_gate    # a researcher- or agent-registered @register_trigger
           params: {threshold: 0.4}
         # deployment: ...  # Layer 3 (future) — gate + ship the winner
     """
