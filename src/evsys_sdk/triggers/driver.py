@@ -3,7 +3,7 @@ the deterministic trigger to Layer-1 ingestion.
 
 On every ingested trace the driver:
   1. re-reads ``policy.json`` (so an agent retune takes effect without a restart),
-  2. pushes a compact summary of the trace into the accumulated state,
+  2. pushes the raw trace into the accumulated state's rolling window,
   3. every ``policy.every_n`` traces, resolves the fn from the policy and calls
      ``evaluate(state)`` over the ENTIRE state,
   4. on escalation, writes an escalation event + an activity-log row, and — when a
@@ -76,7 +76,6 @@ class TriggerDriver:
                     "trace_ids": decision.trace_ids,
                     "kind": policy.kind,
                     "n_seen": seq,
-                    "aggregates": state.aggregates,
                 }
                 path = self.store.write_escalation(event, seq=seq)
                 self.store.append_log({"event": "escalation", "reason": decision.reason,

@@ -48,7 +48,6 @@ def resolve_hook(trigger_cfg: Any, *, store: LocalTriggerStore | None = None) ->
         params=dict(getattr(trigger_cfg, "params", None) or {}),
         every_n=int(getattr(trigger_cfg, "every_n", 20)),
         window=int(getattr(trigger_cfg, "window", 100)),
-        signals=list(getattr(trigger_cfg, "signals", None) or TriggerPolicy().signals),
     )
     return TriggerDriver(st, seed_policy=seed, agent_cfg=getattr(trigger_cfg, "agent", None))
 
