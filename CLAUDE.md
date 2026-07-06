@@ -32,7 +32,7 @@ single `skills/` source:
 
 All four point at `skills/` — edit a skill once and both agents pick it up. Do
 not add an `agents/` directory; any decision/loop logic lives as a skill (e.g.
-`skills/deciding-experiments/`). Skill folder names and their frontmatter `name`
+`skills/autoresearch-launch/`). Skill folder names and their frontmatter `name`
 must be identical kebab-case.
 
 ## Dev workflow
@@ -75,7 +75,7 @@ extension points consistent with this so the whole surface stays predictable.
 
   * `src/evsys_sdk/__init__.py` — public surface; what researchers
     import.
-  * `skills/deciding-experiments/SKILL.md` — the skill that decides and
+  * `skills/autoresearch-launch/SKILL.md` — the skill that decides and
     materializes new experiments end-to-end via the SDK.
   * `docs/DESIGN.md` — layout + protocol rationale; researcher-project
     section explains the on-disk shape `evsys init-project` creates.

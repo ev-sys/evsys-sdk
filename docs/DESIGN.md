@@ -55,7 +55,7 @@ The `matrix:` shorthand is a convenience that expands at load-time into
 
 ## Researcher-project layout
 
-Every project the deciding-experiments skill bootstraps follows the same shape so
+Every project the autoresearch-launch skill bootstraps follows the same shape so
 scripts, benchmarks, and extensions land in predictable places. Scaffold a new
 project with ``evsys init-project <name>``; the tree is:
 

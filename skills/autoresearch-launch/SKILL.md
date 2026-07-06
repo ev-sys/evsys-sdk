@@ -1,5 +1,5 @@
 ---
-name: deciding-experiments
+name: autoresearch-launch
 description: >
   Decide which training experiment to run next for a project and launch it. Use
   when the user floats a training idea ("is a smaller model as good as a larger
@@ -9,7 +9,7 @@ description: >
   and runs the next experiment through the project's own train/benchmark skills.
 ---
 
-# Deciding experiments
+# Autoresearch launch
 
 Follow this skill to act as the **training-decision loop** for a EvolvingSystems
 project. It is project-agnostic: the SDK gives you the data layer, and each

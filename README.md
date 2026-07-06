@@ -110,7 +110,7 @@ decide the next educated experiment, scaffold the config plus any custom verifie
 
 | Skill | What it does |
 |---|---|
-| `deciding-experiments` | Decide the next training experiment and launch it. |
+| `autoresearch-launch` | Decide the next training experiment and launch it. |
 | `set-up-research-project` | Scaffold / migrate a repo into the research-project layout. |
 | `using-the-sdk` | Read/write experiments, datasets, benchmarks, and metrics via the SDK. |
 
@@ -149,7 +149,7 @@ Cursor also reads Claude's skill directories (`.claude/skills/`,
 
 Both plugin manifests point at the same `skills/` directory — edit a skill once
 and both agents pick it up. After installing, invoke a skill in chat with
-`/deciding-experiments` (or let the agent pick it up automatically), or review
+`/autoresearch-launch` (or let the agent pick it up automatically), or review
 what loaded under the agent's skills/plugins settings.
 
 ## Contributing
