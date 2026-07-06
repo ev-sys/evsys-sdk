@@ -23,6 +23,7 @@ extension::
 
 from __future__ import annotations
 
+from .agent import build_command, spawn
 from .driver import TriggerDriver
 from .runtime import build_trigger, resolve_hook
 from .state import LocalTriggerStore, TriggerPolicy, TriggerState
@@ -32,6 +33,8 @@ __all__ = [
     "TriggerDriver",
     "TriggerPolicy",
     "TriggerState",
+    "build_command",
     "build_trigger",
     "resolve_hook",
+    "spawn",
 ]

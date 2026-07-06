@@ -247,6 +247,40 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_trigger_agent(args: argparse.Namespace) -> int:
+    """Run the headless trigger agent on one escalation event.
+
+    Optional operator/debug surface — the driver already auto-spawns the agent on
+    escalation when ``trigger.agent.enabled``. This just runs it manually on a
+    given event (foreground by default, so you can watch it)."""
+    from pathlib import Path
+
+    import yaml
+
+    from .config import SystemConfig
+    from .triggers import build_command, spawn
+
+    with open(args.config) as f:
+        raw = yaml.safe_load(f) or {}
+    cfg = SystemConfig(**raw)
+    if cfg.trigger is None:
+        print("error: system config has no `trigger:` section")
+        return 1
+    agent_cfg = cfg.trigger.agent
+    root = cfg.trigger.state_dir
+    if args.print_command:
+        vp = Path(root) / "verdicts" / f"{Path(args.escalation).stem}.json"
+        print(" ".join(build_command(args.escalation, agent_cfg=agent_cfg, root=root, verdict_path=vp)))
+        return 0
+    proc = spawn(args.escalation, agent_cfg=agent_cfg, root=root, detach=args.detach)
+    if args.detach:
+        print(f"spawned trigger agent (pid {getattr(proc, 'pid', '?')}); log: {root}/agent-runs/")
+        return 0
+    if getattr(proc, "stdout", None):
+        print(proc.stdout)
+    return getattr(proc, "returncode", 0) or 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -339,6 +373,16 @@ def main(argv: list[str] | None = None) -> int:
     p_trp.add_argument("--limit", type=int, default=None, help="Max new traces per source (one-shot).")
     p_trp.add_argument("--watch", action="store_true", help="Daemon: pull on each source's pull_every.")
     p_trp.set_defaults(func=_cmd_traces_pull)
+
+    p_trg = sub.add_parser("trigger", help="The cheap gate + its headless agent (Layer 2).")
+    trg_sub = p_trg.add_subparsers(dest="trigger_cmd", required=True)
+    p_trga = trg_sub.add_parser("agent", help="Run the trigger agent on one escalation event (manual/debug).")
+    p_trga.add_argument("config", help="Path to a system.yaml (trigger: {agent: {...}}).")
+    p_trga.add_argument("escalation", help="Path to an escalation event JSON.")
+    p_trga.add_argument("--detach", action="store_true", help="Fire-and-forget instead of foreground.")
+    p_trga.add_argument("--print-command", action="store_true", dest="print_command",
+                        help="Print the claude -p command without running it.")
+    p_trga.set_defaults(func=_cmd_trigger_agent)
 
     args = parser.parse_args(argv)
     return args.func(args)
