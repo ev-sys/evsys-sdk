@@ -23,6 +23,11 @@ def _source(root, hook=None) -> LangGraphTraceSource:
     return LangGraphTraceSource(store=LocalTraceStore(root), hook=hook, project_name="p")
 
 
+def _lc(cls: str, **kwargs) -> dict:
+    """A LangChain 'serialized constructor' message, as LangGraph stores in LangSmith."""
+    return {"lc": 1, "type": "constructor", "id": ["langchain", "schema", "messages", cls], "kwargs": kwargs}
+
+
 # 1. Model round-trip -------------------------------------------------------
 
 def test_model_round_trip():
@@ -68,6 +73,55 @@ def test_langgraph_mapping(tmp_path):
     assert tr.metadata["status"] == "success"
     assert tr.metadata["model"] == "gpt-4o"
     assert tr.metadata["tags"] == ["prod"]
+
+
+# 2b. Real LangGraph/LangSmith serialization (regression — caught by a live agent)
+
+def test_langchain_serialized_messages():
+    """LangGraph runs store messages as LangChain 'constructor' objects and llm
+    outputs as ChatResult 'generations' — not plain OpenAI shape. (Live-caught.)"""
+    from evsys_sdk.trace_sources.langgraph import _normalize_msg, _run_output_messages
+
+    assert _normalize_msg(_lc("HumanMessage", content="hi", type="human")) == {"role": "user", "content": "hi"}
+    ai = _normalize_msg(_lc("AIMessage", content="", tool_calls=[{"name": "search", "args": {}, "id": "c1"}]))
+    assert ai["role"] == "assistant" and ai["tool_calls"][0]["name"] == "search"
+    assert _normalize_msg(_lc("ToolMessage", content="res", tool_call_id="c1")) == {
+        "role": "tool", "content": "res", "tool_call_id": "c1",
+    }
+    # llm outputs come as {"generations": [[{"message": <constructor>}]]}
+    outs = _run_output_messages({"generations": [[{"message": _lc("AIMessage", content="final")}]]})
+    assert outs == [{"role": "assistant", "content": "final"}]
+
+
+def test_langgraph_serialized_to_trace(tmp_path):
+    src = _source(tmp_path)
+    runs = [
+        {"id": "root", "trace_id": "t2", "parent_run_id": None, "run_type": "chain", "name": "LangGraph",
+         "status": "success", "start_time": "2026-07-06T00:00:00Z", "dotted_order": "a", "extra": {}},
+        {"id": "planner", "trace_id": "t2", "parent_run_id": "root", "run_type": "llm", "dotted_order": "a.b",
+         "inputs": {"messages": [[_lc("HumanMessage", content="Weather in Paris?", type="human")]]},
+         "outputs": {"generations": [[{"message": _lc("AIMessage", content="",
+             tool_calls=[{"name": "get_weather", "args": {"city": "Paris"}, "id": "c1"}])}]]}},
+        {"id": "tool", "trace_id": "t2", "parent_run_id": "root", "run_type": "tool", "name": "get_weather",
+         "dotted_order": "a.c", "inputs": {"city": "Paris"}, "outputs": {"result": "Sunny"}},
+        {"id": "responder", "trace_id": "t2", "parent_run_id": "root", "run_type": "llm", "dotted_order": "a.d",
+         "inputs": {"messages": [[
+             _lc("HumanMessage", content="Weather in Paris?", type="human"),
+             _lc("AIMessage", content="", tool_calls=[{"name": "get_weather", "args": {"city": "Paris"}, "id": "c1"}]),
+             _lc("ToolMessage", content="Sunny in Paris", tool_call_id="c1"),
+         ]]},
+         "outputs": {"generations": [[{"message": _lc("AIMessage", content="It's sunny in Paris.")}]]}},
+    ]
+    raw = {"trace_id": "t2", "runs": runs,
+           "feedback": {"planner": [{"key": "step", "score": 1.0}], "root": [{"key": "resolved", "score": 1.0}]}}
+    tr = src.to_trace(raw)
+    assert [m["role"] for m in tr.messages] == ["user", "assistant", "tool", "assistant"]
+    assert tr.messages[1]["tool_calls"][0]["name"] == "get_weather"
+    assert tr.messages[2] == {"role": "tool", "content": "Sunny in Paris", "tool_call_id": "c1"}
+    assert tr.output == "It's sunny in Paris."
+    fb = {f["key"]: f for f in tr.feedback}
+    assert fb["step"]["turn"] == 1          # planner's tool-call turn
+    assert fb["resolved"]["turn"] is None   # root → whole-trace
 
 
 # 3. Local store + cursor + dedupe -----------------------------------------

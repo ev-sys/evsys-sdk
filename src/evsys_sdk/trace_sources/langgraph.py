@@ -32,6 +32,15 @@ from .base import BaseTraceSource
 log = get_logger(__name__)
 
 _LC_ROLE = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool", "function": "tool"}
+# LangChain message-class name → OpenAI role (for the serialized "constructor" form).
+_CLASS_ROLE = {
+    "HumanMessage": "user",
+    "AIMessage": "assistant",
+    "AIMessageChunk": "assistant",
+    "SystemMessage": "system",
+    "ToolMessage": "tool",
+    "FunctionMessage": "tool",
+}
 
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
@@ -52,7 +61,19 @@ def _normalize_msg(m: Any) -> dict:
         if m.get("tool_call_id"):
             out["tool_call_id"] = m["tool_call_id"]
         return out
-    # LangChain-serialized: {"type": "human"|"ai"|..., "data": {"content", ...}}
+    # LangChain serialized "constructor" form (what LangGraph runs store in LangSmith):
+    # {"lc": 1, "type": "constructor", "id": [..., "HumanMessage"], "kwargs": {"content", ...}}
+    if m.get("type") == "constructor" and isinstance(m.get("id"), list) and isinstance(m.get("kwargs"), dict):
+        cls = m["id"][-1] if m["id"] else ""
+        kw = m["kwargs"]
+        out = {"role": _CLASS_ROLE.get(cls, "assistant"), "content": kw.get("content", "")}
+        tc = kw.get("tool_calls") or (kw.get("additional_kwargs") or {}).get("tool_calls")
+        if tc:
+            out["tool_calls"] = tc
+        if kw.get("tool_call_id"):
+            out["tool_call_id"] = kw["tool_call_id"]
+        return out
+    # LangChain simple form: {"type": "human"|"ai"|..., "data": {"content", ...}}
     t = m.get("type") or (m.get("data") or {}).get("type")
     data = m.get("data") or m
     out = {"role": _LC_ROLE.get(t or "", "assistant"), "content": data.get("content", "")}
@@ -76,13 +97,36 @@ def _messages_from_io(io: Any) -> list[dict]:
     return [_normalize_msg(m) for m in msgs if m]
 
 
+def _run_output_messages(outputs: Any) -> list[dict]:
+    """Assistant message(s) from an llm run's ``outputs`` — handles both a
+    ``{"messages": [...]}`` shape and LangChain's ChatResult
+    ``{"generations": [[{"message": {...}}]]}``."""
+    if not isinstance(outputs, dict):
+        return []
+    if outputs.get("messages"):
+        return _messages_from_io(outputs)
+    gens = outputs.get("generations")
+    if not gens:
+        return []
+    flat = gens[0] if isinstance(gens[0], list) else gens
+    out: list[dict] = []
+    for g in flat:
+        if not isinstance(g, dict):
+            continue
+        if g.get("message") is not None:
+            out.append(_normalize_msg(g["message"]))
+        elif g.get("text"):
+            out.append({"role": "assistant", "content": g["text"]})
+    return out
+
+
 def _build_messages(llm_runs: list) -> list[dict]:
     """Full conversation = the last LLM run's input history + its final output turn."""
     if not llm_runs:
         return []
     last = llm_runs[-1]
     msgs = _messages_from_io(_get(last, "inputs"))
-    out = _messages_from_io(_get(last, "outputs"))
+    out = _run_output_messages(_get(last, "outputs"))
     if out:
         msgs = [*msgs, out[-1]]
     return msgs
@@ -102,7 +146,7 @@ def _build_feedback(runs: list, root: Any, feedback_by_run: dict, messages: list
         for fb in feedback_by_run.get(rid, []):
             turn = None
             if rid != root_id:
-                run_out = _messages_from_io(_get(run, "outputs"))
+                run_out = _run_output_messages(_get(run, "outputs"))
                 if run_out:
                     c = run_out[-1].get("content")
                     turn = content_to_turn.get(c) if isinstance(c, str) else None
