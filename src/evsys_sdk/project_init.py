@@ -1,7 +1,7 @@
 """Scaffold a new EvolvingSystems research project on disk.
 
 Emits the locked directory layout (see ``docs/DESIGN.md`` — researcher-project
-layout) so every project the training-decider agent bootstraps has the same
+layout) so every project the deciding-experiments skill bootstraps has the same
 predictable shape:
 
     <name>/

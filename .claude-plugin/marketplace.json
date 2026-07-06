@@ -1,12 +1,12 @@
 {
   "name": "evsys-sdk",
-  "description": "EvolvingSystems training tooling: the training-decision agent + SDK usage skills.",
+  "description": "EvolvingSystems training tooling: evsys-sdk usage skills for the autoresearch loop.",
   "owner": { "name": "EvolvingSystems" },
   "plugins": [
     {
       "name": "evsys-sdk",
       "source": "./",
-      "description": "Training-decision agent + SDK skills (the plugin lives at this repo root)."
+      "description": "Skills that drive the evsys-sdk autoresearch loop (the plugin lives at this repo root)."
     }
   ]
 }

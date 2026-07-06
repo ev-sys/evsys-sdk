@@ -1,5 +1,5 @@
 ---
-name: Set up research project
+name: set-up-research-project
 description: Scaffold or migrate a repo to the evsys-sdk research-project layout (data/, src/, experiments/, .evsys/). Use when starting a new project that will use the SDK, or when the user has an existing ad-hoc evsys-sdk project (loose `training/` scripts, scattered data files) they want to bring into the standard shape.
 ---
 

@@ -1,7 +1,8 @@
 # Contributing to evsys-sdk
 
-Thanks for contributing! `evsys-sdk` is both a Python SDK and a Claude Code
-plugin. This guide covers how to set up, make a change, and get it merged.
+Thanks for contributing! `evsys-sdk` is both a Python SDK and a coding-agent
+plugin (Claude Code and Cursor, from one shared `skills/` source). This guide
+covers how to set up, make a change, and get it merged.
 
 For *internal architecture* conventions (the registry / `Config` /
 `{kind, params}` extension pattern, the two skills directories, dev commands),

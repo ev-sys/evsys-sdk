@@ -1,0 +1,16 @@
+{
+  "name": "evsys-sdk",
+  "owner": { "name": "EvolvingSystems" },
+  "metadata": {
+    "description": "EvolvingSystems training tooling: evsys-sdk usage skills for the autoresearch loop.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "evsys-sdk",
+      "source": "./",
+      "description": "Skills that drive the evsys-sdk autoresearch loop (the plugin lives at this repo root).",
+      "skills": "./skills"
+    }
+  ]
+}

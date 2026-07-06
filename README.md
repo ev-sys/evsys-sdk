@@ -54,7 +54,7 @@ evsys-sdk is **flexible and easy to use** with:
 
 - **Tinker-compatible backends** - train on anything that speaks the Tinker protocol: Tinker, Fireworks, TML, SkyRL - one line in the config switches provider; plus `local` (TRL + peft on your own GPU) and `mock` (tests)
 - **Eight registries** - algorithms, backends, transforms, verifiers, metrics, data stores, log stores, inference clients - register your own with a one-line `@register_*` decorator, no library fork
-- **A Claude Code plugin** - point your agent at the SDK and it loads a `training-decider` subagent + skills that drive the whole loop
+- **A coding-agent plugin (Claude Code + Cursor)** - one shared `skills/` set drives the whole loop; install it into either agent from this repo
 - **The `evsys` CLI** - `validate`, `run`, `list`, `schema`, `init-project`, `benchmark`, `eval`
 - **LoRA on any Hugging Face model**
 - **`--dry` runs** - a few steps per stage with rollout logging, to eyeball the data + rollouts before a full run
@@ -98,19 +98,32 @@ Visit the [documentation](https://ev-sys.github.io/evsys-sdk/) to learn more:
 - [Putting it all together - Autoresearch](https://ev-sys.github.io/evsys-sdk/docs/autoresearch)
 - [Concepts & the eight registries](https://ev-sys.github.io/evsys-sdk/docs/concepts/architecture)
 
-## Use it as a Claude Code plugin
+## Use it as a coding-agent plugin
 
-From your own research project, point Claude Code at the SDK:
+The SDK ships a single set of **skills** (in `skills/`) that drive the
+autoresearch loop: read the full history of past experiments (hypotheses,
+conclusions, metrics), decide the next educated experiment, scaffold the config
+plus any custom verifier / metric / transform, launch it, and write back a
+conclusion. There are no subagents — everything is skills, so the same source
+works in both Claude Code and Cursor.
+
+**Claude Code.** Point Claude at the repo directly, or add it as a plugin
+marketplace:
 
 ```bash
-claude --plugin-dir /path/to/evsys-sdk
+claude --plugin-dir /path/to/evsys-sdk           # load in place from a checkout
+# or, as a marketplace:
+/plugin marketplace add ev-sys/evsys-sdk
+/plugin install evsys-sdk@evsys-sdk
 ```
 
-Claude Code loads the **`training-decider`** subagent and the SDK skills - it
-reads the full history of past experiments (hypotheses, conclusions, metrics),
-proposes the next educated experiment, scaffolds the config plus any custom
-verifier / metric / transform, launches it, and writes back a conclusion. That
-is the autoresearch loop, driven entirely by the agent.
+**Cursor.** The same repo is a Cursor plugin (`.cursor-plugin/`). Add it from
+Customize → Plugins (import the git repo as a marketplace), or drop the skills
+into a skills directory Cursor scans. Cursor also reads Claude's skill
+directories, so `.claude/skills/` and `~/.claude/skills/` are discovered too.
+
+Both wrappers point at the same `skills/` directory — edit a skill once and both
+agents pick it up.
 
 ## Contributing
 
