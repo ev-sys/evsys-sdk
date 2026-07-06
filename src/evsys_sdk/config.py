@@ -75,10 +75,27 @@ class TraceSourceSpec(_Strict):
 
 
 class TracesConfig(_Strict):
-    """Standalone trace-ingestion config (a ``traces.yaml``), decoupled from any
-    training run. Loaded by ``evsys traces pull``."""
+    """The ``traces`` section of :class:`SystemConfig` — trace ingestion sources."""
 
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
+
+
+class SystemConfig(_Strict):
+    """The continual-learning **system** config (one ``system.yaml``) — the loop
+    around individual experiments.
+
+    Distinct from :class:`ExperimentConfig`, which describes ONE training
+    experiment (the atom the autoresearch agent runs). This describes the system
+    that decides *when* to run experiments and *what* to do with the results.
+    Sections are added as layers land::
+
+        traces:            # Layer 1 (this) — pull production traces in
+          trace_sources: [...]
+        # trigger: ...     # Layer 2 (future) — decide "worth learning from?"
+        # deployment: ...  # Layer 3 (future) — gate + ship the winner
+    """
+
+    traces: TracesConfig = Field(default_factory=TracesConfig)
 
 
 # ---------------------------------------------------------------------------

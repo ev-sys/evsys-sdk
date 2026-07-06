@@ -213,18 +213,18 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
 
     import yaml
 
-    from .config import TracesConfig
+    from .config import SystemConfig
     from .trace_sources import run_pull
 
     with open(args.config) as f:
         raw = yaml.safe_load(f) or {}
-    cfg = TracesConfig(**raw)
+    cfg = SystemConfig(**raw)
     since = None
     if getattr(args, "since", None):
         since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
     try:
         n = run_pull(
-            cfg.trace_sources,
+            cfg.traces.trace_sources,
             watch=args.watch,
             source=args.source,
             limit=args.limit,
@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tr = sub.add_parser("traces", help="Ingest agent traces from hosted observability platforms.")
     tr_sub = p_tr.add_subparsers(dest="traces_cmd", required=True)
     p_trp = tr_sub.add_parser("pull", help="Pull new traces into the local .evsys/traces store.")
-    p_trp.add_argument("config", help="Path to a traces.yaml (trace_sources: [...]).")
+    p_trp.add_argument("config", help="Path to a system.yaml (traces: {trace_sources: [...]}).")
     p_trp.add_argument("--source", default=None, help="Only pull this source kind (e.g. langgraph).")
     p_trp.add_argument("--since", default=None, help="ISO-8601 start time; overrides the stored cursor.")
     p_trp.add_argument("--limit", type=int, default=None, help="Max new traces per source (one-shot).")

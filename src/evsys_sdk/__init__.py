@@ -39,6 +39,9 @@ from .config import (
     ExperimentConfig,
     ModelConfig,
     RunConfig,
+    SystemConfig,
+    TracesConfig,
+    TraceSourceSpec,
     TransformSpec,
     VerifierSpec,
 )
@@ -187,10 +190,13 @@ __all__ = [
     "register_trace_source",
     "get_trace_source",
     "list_trace_sources",
-    # Trace ingestion
+    # Trace ingestion + system config
     "Trace",
     "trace_from_dict",
     "iter_traces_jsonl",
+    "SystemConfig",
+    "TracesConfig",
+    "TraceSourceSpec",
     # Runner
     "run_experiment",
     # YAML
