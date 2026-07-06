@@ -41,14 +41,14 @@ class ExFailRate:
         self.cfg = self.Config(**params)
 
     def evaluate(self, state: TriggerState) -> TriggerDecision:
-        w = state.window
+        w = state.window  # raw traces: {trace_id, messages, feedback, metadata}
         if len(w) < self.cfg.min_traces:
             return TriggerDecision(False, f"only {len(w)} traces")
-        bad = [s for s in w if s.get("status") == "error"]
+        bad = [t for t in w if t["metadata"].get("status") == "error"]  # fn does its OWN reduction
         rate = len(bad) / len(w)
         if rate >= self.cfg.threshold:
             return TriggerDecision(True, f"failure {rate:.0%}", {"failure_rate": rate},
-                                   [s["trace_id"] for s in bad])
+                                   [t["trace_id"] for t in bad])
         return TriggerDecision(False, f"failure {rate:.0%}", {"failure_rate": rate})
 
 
@@ -83,15 +83,18 @@ def _log(store: LocalTriggerStore) -> list[dict]:
 
 # 1. State push + eval cadence ---------------------------------------------
 
-def test_state_push_bounds_and_aggregates():
+def test_state_push_keeps_raw_traces_bounded():
     st = TriggerState()
     pol = TriggerPolicy(window=3)
     for i in range(5):
         st.push(mk_trace(i, status="error" if i % 2 else "success", reward=0.2 if i % 2 else 0.9), pol)
     assert len(st.window) == 3  # bounded to policy.window
     assert st.counters["n_seen"] == 5  # lifetime counter unbounded
-    assert st.aggregates["window_size"] == 3
-    assert set(st.aggregates) == {"window_size", "avg_reward", "n_failed", "status_hist"}
+    # the window holds the RAW traces verbatim — nothing extracted, no aggregates
+    last = st.window[-1]
+    assert set(last) == {"trace_id", "messages", "feedback", "metadata"}
+    assert last["messages"][0]["role"] == "user"
+    assert not hasattr(st, "aggregates")
 
 
 def test_driver_eval_cadence(tmp_path):

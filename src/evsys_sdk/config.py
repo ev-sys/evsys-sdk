@@ -98,11 +98,7 @@ class TriggerConfig(_Strict):
     every_n: int = 20
     """Run the fn once per this many ingested traces (the eval cadence)."""
     window: int = 100
-    """How many recent trace summaries the state keeps."""
-    signals: list[str] = Field(
-        default_factory=lambda: ["reward", "status", "input_sig", "n_tool_calls", "timestamp"]
-    )
-    """Which summary fields the state tracks (a retuned fn can widen this)."""
+    """How many recent raw traces the state keeps for the fn to read."""
     state_dir: str = ".evsys/triggers"
     """Local dir for policy.json / state.json / log.jsonl / escalations/."""
     agent: dict[str, Any] = Field(default_factory=dict)
