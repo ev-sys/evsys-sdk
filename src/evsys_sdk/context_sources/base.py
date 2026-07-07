@@ -1,16 +1,19 @@
-"""Base context source — the generic pull loop + local cache.
+"""Base context source — the generic pull loop + local cache + per-item hook.
 
 Adapters (e.g. ``directory``) subclass this and implement ONLY ``pull_raw`` +
-``to_item``. Everything else — cursor bookkeeping, dedupe, local landing, and the
-``--watch`` daemon loop — lives here. The exact mirror of
-:class:`~evsys_sdk.trace_sources.base.BaseTraceSource`, minus the per-trace hook:
-context is pull-and-cache; its consumer (the autoresearch agent) reads the cache.
+``to_item``. Everything else — cursor bookkeeping, dedupe, local landing, the
+error-isolated per-item hook, and the ``--watch`` daemon loop — lives here.
+
+The exact mirror of :class:`~evsys_sdk.trace_sources.base.BaseTraceSource`. The
+``hook`` is the same seam: a no-op by default (context is pull-and-cache), but a
+``context_trigger`` wires the SAME ``TriggerDriver`` here, so context can escalate
+to the trigger agent exactly like traces do.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +22,12 @@ from ..logger import get_logger
 from .store import LocalContextStore, _parse_iso
 
 log = get_logger(__name__)
+
+ContextHook = Callable[[ContextItem, Any], None]
+
+
+def _noop_hook(item: ContextItem, ctx: Any) -> None:
+    """Default per-item hook — does nothing (context is cache-only by default)."""
 
 
 def _duration_seconds(s: str | int | float) -> float:
@@ -36,8 +45,10 @@ class BaseContextSource:
     name: str = ""
     Config: type | None = None
 
-    def __init__(self, *, store: LocalContextStore, spec: Any = None, **params: Any) -> None:
+    def __init__(self, *, store: LocalContextStore, hook: ContextHook | None = None,
+                 spec: Any = None, **params: Any) -> None:
         self.store = store
+        self.hook = hook or _noop_hook
         self.spec = spec
         self.cfg = self.Config(**params) if self.Config is not None else None
 
@@ -80,11 +91,18 @@ class BaseContextSource:
             ts = item.metadata.get("timestamp")
             if ts and (max_ts is None or str(ts) > max_ts):
                 max_ts = str(ts)
+            self._dispatch(item)
             new_count += 1
             if limit is not None and new_count >= limit:
                 break
         self.store.write_cursor(self.name, max_ts or since, seen)
         return new_count
+
+    def _dispatch(self, item: ContextItem) -> None:
+        try:
+            self.hook(item, None)
+        except Exception as e:  # error-isolated — one bad hook never kills ingestion
+            log.warning("[%s] context hook raised on %s: %s", self.name, item.item_id, e)
 
     def watch(self, interval_s: float, *, stop: Any = None) -> None:
         """Daemon loop: ``run_once`` then sleep ``interval_s``, until ``stop`` is set."""
@@ -103,4 +121,4 @@ class BaseContextSource:
                 time.sleep(interval_s)
 
 
-__all__ = ["BaseContextSource"]
+__all__ = ["BaseContextSource", "ContextHook"]
