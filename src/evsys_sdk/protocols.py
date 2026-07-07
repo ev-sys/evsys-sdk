@@ -294,9 +294,22 @@ class Trigger(Protocol):
 
     Implementations declare ``name`` + ``Config`` (as every extension does) and
     implement only ``evaluate`` — cheap, pure-Python, no LLM.
+@runtime_checkable
+class ContextSource(Protocol):
+    """A source that pulls external **context** (emails, tickets, docs) about the
+    same users/accounts as the traces. Sibling of :class:`TraceSource`; the
+    generic pull loop + local cache live in
+    ``evsys_sdk.context_sources.base.BaseContextSource``.
     """
 
     name: ClassVar[str]
     Config: ClassVar[type]
 
     def evaluate(self, state: TriggerState) -> TriggerDecision: ...
+    def pull_raw(self, since: datetime | None) -> Iterable[Any]:
+        """Fetch context newer than ``since`` from the source, one raw record per item."""
+        ...
+
+    def to_item(self, raw: Any) -> Any:
+        """Map one raw record → the canonical :class:`~evsys_sdk.context_types.ContextItem`."""
+        ...

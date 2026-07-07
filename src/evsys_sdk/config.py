@@ -213,6 +213,30 @@ class TriggerConfig(_Strict):
     """Local dir for policy.json / state.json / log.jsonl / escalations/."""
     agent: TriggerAgentConfig = Field(default_factory=TriggerAgentConfig)
     """How an escalation spawns the headless trigger agent (``claude -p``)."""
+class ContextSourceSpec(_Strict):
+    """A context-ingestion source, by registry name + params. e.g.
+    ``{kind: directory, params: {path: ./emails, kind: email}, pull_every: 5m}``."""
+
+    kind: str
+    """Registry key of the @register_context_source adapter, e.g. 'directory'."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Adapter-specific parameters; validated against <ContextSource>.Config."""
+    pull_every: str = "300s"
+    """Poll interval for the unified watch daemon (duration string, e.g. '5m')."""
+    since: str | None = None
+    """ISO-8601 start time; overrides the stored cursor for the first pull."""
+    window: str | None = None
+    """Lookback window (e.g. '7d') used when there is no cursor yet."""
+    state_dir: str = ".evsys/context"
+    """Local dir where pulled items + the cursor land."""
+
+
+class ContextConfig(_Strict):
+    """The ``context`` section of :class:`SystemConfig` — non-trace context
+    (emails, tickets, docs) the autoresearch agent can draw on to write a better
+    prompt. Pulled + cached alongside traces by the same unified daemon."""
+
+    context_sources: list[ContextSourceSpec] = Field(default_factory=list)
 
 
 class SystemConfig(_Strict):
@@ -229,11 +253,17 @@ class SystemConfig(_Strict):
         trigger:           # Layer 2 (this) — cheap gate: "worth learning from?"
           kind: my_gate    # a researcher- or agent-registered @register_trigger
           params: {threshold: 0.4}
+        traces:            # Layer 1 — pull production agent traces in
+          trace_sources: [...]
+        context:           # pull the surrounding context (emails, tickets, docs)
+          context_sources: [...]
+        # trigger: ...     # Layer 2 (future) — decide "worth learning from?"
         # deployment: ...  # Layer 3 (future) — gate + ship the winner
     """
 
     traces: TracesConfig = Field(default_factory=TracesConfig)
     trigger: TriggerConfig | None = None
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
 
 # ---------------------------------------------------------------------------

@@ -295,6 +295,34 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     from .ui import serve
 
     serve(args.config, port=args.port, open_browser=not args.no_open, prompt_file=args.prompt_file)
+def _cmd_context_pull(args: argparse.Namespace) -> int:
+    """Pull external context (emails/tickets/docs) into the local ``.evsys/context`` store."""
+    import yaml
+
+    from .config import SystemConfig
+    from .context_sources import run_context_pull
+
+    with open(args.config) as f:
+        cfg = SystemConfig(**(yaml.safe_load(f) or {}))
+    n = run_context_pull(cfg.context.context_sources, source=args.source, limit=args.limit)
+    print(f"ingested {n} new context item(s)")
+    return 0
+
+
+def _cmd_pull(args: argparse.Namespace) -> int:
+    """Unified daemon — pull traces AND context together from one system.yaml."""
+    import yaml
+
+    from .config import SystemConfig
+    from .ingest import run_all_once, watch_all
+
+    with open(args.config) as f:
+        cfg = SystemConfig(**(yaml.safe_load(f) or {}))
+    if args.watch:
+        watch_all(cfg)                       # blocks until interrupted
+    else:
+        for label, n in run_all_once(cfg).items():
+            print(f"[{label}] ingested {n} new")
     return 0
 
 
@@ -412,6 +440,18 @@ def main(argv: list[str] | None = None) -> int:
     p_ui.add_argument("--prompt-file", default=None,
                       help="Live prompt file to display (default: prompt.txt next to the config, if present).")
     p_ui.set_defaults(func=_cmd_ui)
+    p_ctx = sub.add_parser("context", help="Ingest external context (emails, tickets, docs).")
+    ctx_sub = p_ctx.add_subparsers(dest="context_cmd", required=True)
+    p_ctxp = ctx_sub.add_parser("pull", help="Pull new context items into the local .evsys/context store.")
+    p_ctxp.add_argument("config", help="Path to a system.yaml (context: {context_sources: [...]}).")
+    p_ctxp.add_argument("--source", default=None, help="Only pull this source kind (e.g. directory).")
+    p_ctxp.add_argument("--limit", type=int, default=None, help="Max new items per source (one-shot).")
+    p_ctxp.set_defaults(func=_cmd_context_pull)
+
+    p_pull = sub.add_parser("pull", help="Unified daemon: pull traces AND context from one system.yaml.")
+    p_pull.add_argument("config", help="Path to a system.yaml (traces: {...} and/or context: {...}).")
+    p_pull.add_argument("--watch", action="store_true", help="Daemon: watch every source concurrently.")
+    p_pull.set_defaults(func=_cmd_pull)
 
     args = parser.parse_args(argv)
     return args.func(args)

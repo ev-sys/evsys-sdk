@@ -30,6 +30,7 @@ _GROUPS = (
     "evsys_sdk.transforms",
     "evsys_sdk.trace_sources",
     "evsys_sdk.triggers",
+    "evsys_sdk.context_sources",
 )
 
 

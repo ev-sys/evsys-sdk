@@ -70,6 +70,7 @@ from .registry import (
     get_inference,
     get_metric,
     get_sandbox,
+    get_context_source,
     get_trace_source,
     get_transform,
     get_trigger,
@@ -81,6 +82,7 @@ from .registry import (
     list_inferences,
     list_metrics,
     list_sandboxes,
+    list_context_sources,
     list_trace_sources,
     list_transforms,
     list_triggers,
@@ -92,6 +94,7 @@ from .registry import (
     register_inference,
     register_metric,
     register_sandbox,
+    register_context_source,
     register_trace_source,
     register_transform,
     register_trigger,
@@ -136,6 +139,7 @@ from .data_types import (
     to_dict,
     iter_jsonl,
 )
+from .context_types import ContextItem
 from .trace_types import Trace, trace_from_dict, iter_traces_jsonl
 
 # Trigger registration of built-in extensions.
@@ -144,6 +148,7 @@ from . import sandboxes as _sandboxes  # noqa: F401
 from .sandboxes import BaseSandbox
 from . import trace_sources as _trace_sources  # noqa: F401
 from . import triggers as _triggers  # noqa: F401
+from . import context_sources as _context_sources  # noqa: F401
 from . import backends as _backends  # noqa: F401
 from . import data_stores as _data_stores  # noqa: F401
 from . import inference as _inference  # noqa: F401
@@ -213,9 +218,13 @@ __all__ = [
     "list_sandboxes",
     "BaseSandbox",
     "SandboxSpec",
+    "register_context_source",
+    "get_context_source",
+    "list_context_sources",
     # Trace ingestion + system config
     "Trace",
     "trace_from_dict",
+    "ContextItem",
     "iter_traces_jsonl",
     "SystemConfig",
     "TracesConfig",
