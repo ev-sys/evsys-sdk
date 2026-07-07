@@ -1,5 +1,5 @@
-"""Context ingestion — pull external context (emails, tickets, docs, CRM notes)
-that helps autoresearch write a better prompt, into a local, canonical
+"""Context ingestion — pull external text context that helps autoresearch write a
+better prompt, into a local, canonical
 :class:`~evsys_sdk.context_types.ContextItem` form.
 
 The sibling of ``trace_sources``: traces are what the agent did, context is

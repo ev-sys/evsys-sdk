@@ -1,13 +1,12 @@
 """Ingested **context** data model.
 
-A :class:`ContextItem` is one piece of external context — an email, a support
-ticket, a doc, a CRM note — pulled from some system into a local,
-provider-agnostic form. It is the sibling of
+A :class:`ContextItem` is one piece of external context — any plain text that
+might help explain a failure or shape a better prompt — pulled from some source
+into a local, provider-agnostic form. It is the sibling of
 :class:`~evsys_sdk.trace_types.Trace`: traces are *what the agent did*, context is
-*everything else that might explain a failure or shape a better prompt* (the
-user's recent emails, the account's plan, the ticket that prompted the request).
+*everything else about the same user/account*.
 
-Deliberately minimal and text-centric: ``content`` IS the item (the body text),
+Deliberately minimal and format-agnostic: ``content`` IS the item (plain text),
 plus an ``entity`` it's about (so context can be joined to the traces of the same
 user/account) and a small ``metadata`` bag. Consumers — the autoresearch agent —
 read ``ContextItem`` directly when improving a prompt.
@@ -23,16 +22,14 @@ from typing import Any
 class ContextItem:
     """One ingested piece of context.
 
-    ``kind`` — what it is: ``email`` / ``ticket`` / ``doc`` / ``note`` / …
-    ``content`` — the text body (the thing autoresearch actually reads).
-    ``entity`` — who/what this is about: a user id, email address, or account —
-    the join key back to the agent traces of the same subject (``None`` if global).
-    ``metadata`` — freeform: ``source``, ``subject``, ``timestamp``, ``url``, tags…
+    ``content`` — the plain text (the thing autoresearch actually reads).
+    ``entity`` — who/what this is about: a user id / account — the join key back to
+    the agent traces of the same subject (``None`` if global / uncategorized).
+    ``metadata`` — freeform: ``source``, ``timestamp``, ``path``, tags…
     """
 
     item_id: str
     source: str
-    kind: str
     content: str
     entity: str | None = None
     metadata: dict = field(default_factory=dict)

@@ -295,6 +295,9 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     from .ui import serve
 
     serve(args.config, port=args.port, open_browser=not args.no_open, prompt_file=args.prompt_file)
+    return 0
+
+
 def _cmd_context_pull(args: argparse.Namespace) -> int:
     """Pull external context (emails/tickets/docs) into the local ``.evsys/context`` store."""
     import yaml

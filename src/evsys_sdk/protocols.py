@@ -294,6 +294,14 @@ class Trigger(Protocol):
 
     Implementations declare ``name`` + ``Config`` (as every extension does) and
     implement only ``evaluate`` — cheap, pure-Python, no LLM.
+    """
+
+    name: ClassVar[str]
+    Config: ClassVar[type]
+
+    def evaluate(self, state: TriggerState) -> TriggerDecision: ...
+
+
 @runtime_checkable
 class ContextSource(Protocol):
     """A source that pulls external **context** (emails, tickets, docs) about the
@@ -305,7 +313,6 @@ class ContextSource(Protocol):
     name: ClassVar[str]
     Config: ClassVar[type]
 
-    def evaluate(self, state: TriggerState) -> TriggerDecision: ...
     def pull_raw(self, since: datetime | None) -> Iterable[Any]:
         """Fetch context newer than ``since`` from the source, one raw record per item."""
         ...

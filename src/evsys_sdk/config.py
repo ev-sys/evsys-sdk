@@ -215,7 +215,7 @@ class TriggerConfig(_Strict):
     """How an escalation spawns the headless trigger agent (``claude -p``)."""
 class ContextSourceSpec(_Strict):
     """A context-ingestion source, by registry name + params. e.g.
-    ``{kind: directory, params: {path: ./emails, kind: email}, pull_every: 5m}``."""
+    ``{kind: directory, params: {path: ./context}, pull_every: 5m}``."""
 
     kind: str
     """Registry key of the @register_context_source adapter, e.g. 'directory'."""
@@ -232,9 +232,9 @@ class ContextSourceSpec(_Strict):
 
 
 class ContextConfig(_Strict):
-    """The ``context`` section of :class:`SystemConfig` — non-trace context
-    (emails, tickets, docs) the autoresearch agent can draw on to write a better
-    prompt. Pulled + cached alongside traces by the same unified daemon."""
+    """The ``context`` section of :class:`SystemConfig` — non-trace text context
+    the autoresearch agent can draw on to write a better prompt. Pulled + cached
+    alongside traces by the same unified daemon."""
 
     context_sources: list[ContextSourceSpec] = Field(default_factory=list)
 
@@ -255,7 +255,7 @@ class SystemConfig(_Strict):
           params: {threshold: 0.4}
         traces:            # Layer 1 — pull production agent traces in
           trace_sources: [...]
-        context:           # pull the surrounding context (emails, tickets, docs)
+        context:           # pull the surrounding text context (per user/account)
           context_sources: [...]
         # trigger: ...     # Layer 2 (future) — decide "worth learning from?"
         # deployment: ...  # Layer 3 (future) — gate + ship the winner
