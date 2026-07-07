@@ -118,6 +118,13 @@ class TriggerConfig(_Strict):
     kind: str
     """Registry key of the deterministic fn — a researcher- or agent-registered
     ``@register_trigger``. No built-in fns ship with the SDK."""
+    import_path: str | None = None
+    """Where the fn's ``@register_trigger`` code lives, imported before the gate
+    resolves (registration is an import side effect): a ``.py`` file path
+    (``triggers/gate.py``, relative to the cwd) or a dotted module
+    (``myproj.triggers``). Without it, ``kind`` must already be importable by the
+    daemon process — which the CLI can't do on its own. Mirrors the experiment
+    side's ``agent_import_path``."""
     params: dict[str, Any] = Field(default_factory=dict)
     """Fn-specific thresholds; validated against <Trigger>.Config."""
     every_n: int = 20
