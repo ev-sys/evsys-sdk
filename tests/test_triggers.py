@@ -172,6 +172,50 @@ def test_resolve_hook_builds_working_gate(tmp_path):
     assert list(store.escalations_dir().glob("*.json"))  # gate fired end-to-end
 
 
+def test_resolve_hook_imports_user_code_from_file(tmp_path):
+    """``trigger.import_path`` loads the researcher's ``@register_trigger`` .py
+    file, so system.yaml alone is enough for the daemon (the CLI flow)."""
+    from evsys_sdk.config import TriggerConfig
+
+    fn_file = tmp_path / "my_gate.py"
+    fn_file.write_text(
+        "from pydantic import BaseModel\n"
+        "from evsys_sdk.protocols import TriggerDecision\n"
+        "from evsys_sdk.registry import register_trigger\n\n"
+        "@register_trigger('file_gate')\n"
+        "class FileGate:\n"
+        "    name = 'file_gate'\n"
+        "    Config = BaseModel\n"
+        "    def __init__(self, **params): pass\n"
+        "    def evaluate(self, state):\n"
+        "        return TriggerDecision(True, 'always', trace_ids=[])\n"
+    )
+    cfg = TriggerConfig(kind="file_gate", import_path=str(fn_file),
+                        every_n=1, state_dir=str(tmp_path))
+    hook = resolve_hook(cfg)
+    hook(mk_trace(0, status="error"), None)
+    store = LocalTriggerStore(tmp_path)
+    assert list(store.escalations_dir().glob("*.json"))  # imported fn ran end-to-end
+    assert resolve_hook(cfg) is not None  # idempotent re-import (watch restarts)
+
+
+def test_resolve_hook_import_path_missing_file_fails_loudly(tmp_path):
+    import pytest
+
+    from evsys_sdk.config import TriggerConfig
+
+    cfg = TriggerConfig(kind="nope", import_path=str(tmp_path / "absent.py"),
+                        state_dir=str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        resolve_hook(cfg)
+
+
+def test_import_trigger_code_dotted_module():
+    from evsys_sdk.triggers.runtime import import_trigger_code
+
+    import_trigger_code("json")  # dotted path → importlib.import_module, no error
+
+
 # 5. Error isolation: a raising / unregistered fn never kills ingestion -----
 
 def test_raising_trigger_is_isolated(tmp_path):
