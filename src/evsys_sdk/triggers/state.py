@@ -29,12 +29,22 @@ from typing import Any
 
 @dataclass
 class TriggerPolicy:
-    """The agent-editable knobs. Persisted to ``policy.json`` and read live."""
+    """The agent-editable surface. Persisted to ``policy.json`` and read live.
+
+    Everything here belongs to the trigger agent — thresholds AND the fn's own
+    code location (``import_path``). The agent can author a new ``.py``, point
+    ``kind`` + ``import_path`` at it, and the driver hot-loads it on the next
+    eval: the self-improving gate owns its logic, not just its knobs.
+    """
 
     kind: str = ""
     """Registry key of the deterministic fn — a researcher- or agent-registered
     ``@register_trigger``. No built-in fns ship; an empty/unregistered kind makes
     ``build_trigger`` raise (the driver catches it and logs an error event)."""
+    import_path: str | None = None
+    """Where the fn's ``@register_trigger`` code lives (a ``.py`` path or dotted
+    module). The driver re-imports it whenever this or the file's mtime changes,
+    so an agent-rewritten fn goes live without a daemon restart."""
     params: dict = field(default_factory=dict)
     every_n: int = 20
     window: int = 100
@@ -42,6 +52,7 @@ class TriggerPolicy:
     def to_dict(self) -> dict:
         return {
             "kind": self.kind,
+            "import_path": self.import_path,
             "params": self.params,
             "every_n": self.every_n,
             "window": self.window,
@@ -52,6 +63,7 @@ class TriggerPolicy:
         d = d or {}
         return cls(
             kind=d.get("kind", ""),
+            import_path=d.get("import_path"),
             params=dict(d.get("params") or {}),
             every_n=int(d.get("every_n", 20)),
             window=int(d.get("window", 100)),
@@ -64,8 +76,12 @@ class TriggerState:
 
     ``window`` holds the last ``policy.window`` **raw traces** exactly as ingested
     (``{trace_id, messages, feedback, metadata}``); the fn reduces them itself.
-    ``counters`` is the driver's cadence bookkeeping. ``extras`` is a freeform bag
-    the fn may persist scratch into across evaluations — the SDK never writes it.
+    ``counters`` is the driver's cadence bookkeeping. ``extras`` is a freeform,
+    JSON-serializable bag the fn (agent-authored) owns end to end — it can stash
+    **anything** there (rolling aggregates, EWMAs, seen-hashes, a learned
+    threshold the agent injected) and it round-trips untouched across evaluations;
+    the SDK never reads or writes it. This is the "add anything to the state"
+    channel for a self-improving fn.
     """
 
     window: list[dict] = field(default_factory=list)
