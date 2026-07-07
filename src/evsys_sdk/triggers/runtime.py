@@ -31,27 +31,34 @@ def build_trigger(policy: TriggerPolicy) -> Trigger:
     return cls(**(policy.params or {}))
 
 
-def import_trigger_code(import_path: str) -> None:
-    """Import the researcher's trigger module for its ``@register_trigger``
+def import_trigger_code(import_path: str, *, kind: str | None = None) -> None:
+    """(Re)import the researcher's trigger module for its ``@register_trigger``
     side effect — a ``.py`` file path or a dotted module name.
 
     Registration happens at import time, so the daemon process must import the
     fn's module before the gate resolves ``kind``; this is how ``system.yaml``
-    alone (``trigger.import_path``) gets user code loaded. Fails loudly at
-    startup — a broken path should stop the daemon, not surface as a per-cycle
-    error event.
+    alone (``trigger.import_path``) gets user code loaded.
+
+    Re-callable for **hot reload**: the module is re-executed on every call (so an
+    agent-edited fn takes effect), and passing ``kind`` unregisters that key
+    first, so re-registering the same name doesn't collide. Fails loudly on a bad
+    path — a broken import should stop the daemon, not silently keep the old fn.
     """
+    if kind:
+        from ..registry import _triggers
+        _triggers.unregister(kind)  # so a re-import of the same kind re-registers cleanly
     p = Path(import_path)
     if p.suffix == ".py":
         if not p.exists():
             raise FileNotFoundError(f"trigger.import_path file not found: {import_path}")
         name = f"_evsys_trigger_{p.stem}"
-        if name in sys.modules:  # already imported (e.g. watch restarts the hook)
-            return
+        sys.modules.pop(name, None)  # force re-exec so edits to the file are picked up
         spec = importlib.util.spec_from_file_location(name, p)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
+    elif import_path in sys.modules:
+        importlib.reload(sys.modules[import_path])
     else:
         importlib.import_module(import_path)
 
@@ -72,14 +79,18 @@ def resolve_hook(trigger_cfg: Any, *, store: LocalTriggerStore | None = None) ->
 
     # Load the researcher's @register_trigger code first — without this the
     # daemon process has no way to know the fn `kind` names (CLI included).
+    # Thereafter the DRIVER re-imports it live whenever the policy's import_path
+    # or the file changes (the agent rewriting its own fn).
     import_path = getattr(trigger_cfg, "import_path", None)
+    kind = getattr(trigger_cfg, "kind", "")
     if import_path:
-        import_trigger_code(import_path)
+        import_trigger_code(import_path, kind=kind)
 
     state_dir = getattr(trigger_cfg, "state_dir", None) or ".evsys/triggers"
     st = store or LocalTriggerStore(state_dir)
     seed = TriggerPolicy(
-        kind=getattr(trigger_cfg, "kind", ""),
+        kind=kind,
+        import_path=import_path,
         params=dict(getattr(trigger_cfg, "params", None) or {}),
         every_n=int(getattr(trigger_cfg, "every_n", 20)),
         window=int(getattr(trigger_cfg, "window", 100)),

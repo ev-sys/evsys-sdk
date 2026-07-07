@@ -216,6 +216,94 @@ def test_import_trigger_code_dotted_module():
     import_trigger_code("json")  # dotted path → importlib.import_module, no error
 
 
+# 4b. The self-improving gate: agent rewrites/repoints the fn code, live -----
+
+def _fn_file(path, name, *, escalate):
+    path.write_text(
+        "from pydantic import BaseModel\n"
+        "from evsys_sdk.protocols import TriggerDecision\n"
+        "from evsys_sdk.registry import register_trigger\n\n"
+        f"@register_trigger('{name}')\n"
+        f"class Gate_{name}:\n"
+        f"    name = '{name}'\n"
+        "    Config = BaseModel\n"
+        "    def __init__(self, **params): pass\n"
+        f"    def evaluate(self, state): return TriggerDecision({escalate}, 'v')\n"
+    )
+
+
+def test_agent_rewrites_the_fn_and_it_goes_live(tmp_path):
+    """The agent edits the fn's .py in place — the driver hot-reloads it on the
+    next eval, no daemon restart."""
+    import os
+
+    from evsys_sdk.config import TriggerConfig
+
+    f = tmp_path / "gate.py"
+    _fn_file(f, "g", escalate="False")            # v1: never escalates
+    cfg = TriggerConfig(kind="g", import_path=str(f), every_n=1, state_dir=str(tmp_path))
+    hook = resolve_hook(cfg)
+    store = LocalTriggerStore(tmp_path)
+
+    hook(mk_trace(0), None)
+    assert not list(store.escalations_dir().glob("*.json"))  # v1 stays quiet
+
+    _fn_file(f, "g", escalate="True")             # agent rewrites → always escalates
+    os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 10))  # force a new mtime
+    hook(mk_trace(1), None)
+    assert list(store.escalations_dir().glob("*.json"))      # v2 is live
+    assert any(r["event"] == "reload_fn" for r in _log(store))
+
+
+def test_agent_repoints_kind_to_a_brand_new_fn(tmp_path):
+    """The agent authors a NEW fn file and repoints the live policy's kind +
+    import_path at it — the new fn goes live."""
+    from evsys_sdk.config import TriggerConfig
+
+    fa = tmp_path / "a.py"
+    _fn_file(fa, "a", escalate="False")
+    cfg = TriggerConfig(kind="a", import_path=str(fa), every_n=1, state_dir=str(tmp_path))
+    hook = resolve_hook(cfg)
+    store = LocalTriggerStore(tmp_path)
+
+    hook(mk_trace(0), None)
+    assert not list(store.escalations_dir().glob("*.json"))
+
+    fb = tmp_path / "b.py"
+    _fn_file(fb, "b", escalate="True")            # brand-new fn the agent wrote
+    pol = store.read_policy()
+    pol.kind, pol.import_path = "b", str(fb)      # agent repoints the live policy
+    store.write_policy(pol)
+    hook(mk_trace(1), None)
+    assert list(store.escalations_dir().glob("*.json"))  # the new fn is live
+
+
+def test_extras_persist_arbitrary_data_across_evals(tmp_path):
+    """The fn (agent-authored) can stash anything in state.extras and it
+    round-trips untouched — the 'add anything to the state' channel."""
+    @register_trigger("counter_gate")
+    class CounterGate:
+        name = "counter_gate"
+        Config = BaseModel
+
+        def __init__(self, **params):
+            pass
+
+        def evaluate(self, state) -> TriggerDecision:
+            state.extras["seen"] = state.extras.get("seen", 0) + 1
+            state.extras["blob"] = {"nested": [1, 2, 3]}
+            return TriggerDecision(False, "ok")
+
+    drv = TriggerDriver(LocalTriggerStore(tmp_path),
+                        seed_policy=TriggerPolicy(kind="counter_gate", every_n=1))
+    for i in range(3):
+        drv(mk_trace(i), None)
+
+    extras = LocalTriggerStore(tmp_path).read_state().extras
+    assert extras["seen"] == 3                    # accumulated across evals
+    assert extras["blob"] == {"nested": [1, 2, 3]}  # arbitrary structure preserved
+
+
 # 5. Error isolation: a raising / unregistered fn never kills ingestion -----
 
 def test_raising_trigger_is_isolated(tmp_path):
