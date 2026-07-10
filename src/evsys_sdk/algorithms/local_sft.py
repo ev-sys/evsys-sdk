@@ -79,13 +79,28 @@ class LocalSFT:
         ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
 
         train_ds = Dataset.from_list([{"messages": r["messages"]} for r in rows])
-        lora_config = LoraConfig(
-            r=self.cfg.lora_rank,
-            lora_alpha=self.cfg.lora_alpha,
-            lora_dropout=self.cfg.lora_dropout,
-            target_modules=self.cfg.lora_target_modules,
-            task_type="CAUSAL_LM",
-        )
+
+        # Continual-learning warm-start: Experiment._run_continual chains
+        # stage_i's saved adapter into stage_{i+1} via init_from_checkpoint
+        # (weights-only, fresh optimizer — see config.py::ModelConfig). When
+        # set, resume the existing LoRA adapter as trainable instead of
+        # attaching a fresh one. SFTTrainer skips get_peft_model() whenever
+        # peft_config=None, so handing it an already-wrapped PeftModel with
+        # peft_config=None trains the resumed adapter in place.
+        init_from_checkpoint = handles.get("init_from_checkpoint")
+        lora_config: LoraConfig | None
+        if init_from_checkpoint:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, init_from_checkpoint, is_trainable=True)
+            lora_config = None
+        else:
+            lora_config = LoraConfig(
+                r=self.cfg.lora_rank,
+                lora_alpha=self.cfg.lora_alpha,
+                lora_dropout=self.cfg.lora_dropout,
+                target_modules=self.cfg.lora_target_modules,
+                task_type="CAUSAL_LM",
+            )
 
         sft_kwargs: dict = dict(
             output_dir=str(out),
@@ -134,7 +149,12 @@ class LocalSFT:
             if metrics:
                 ctx.log_store.log_metrics(metrics, step=step)
 
-        artifacts = {"final_checkpoint": str(final)}
+        # "state-final" is what Experiment._run_continual._final_state_checkpoint
+        # looks for to chain this stage's adapter into the next; "final_checkpoint"
+        # stays for backward compat / non-continual consumers (both point at the
+        # same LoRA adapter dir — local backend has no separate optimizer-state
+        # artifact to save).
+        artifacts = {"final_checkpoint": str(final), "state-final": str(final)}
         for ckpt in sorted(out.glob("checkpoint-*")):
             artifacts[ckpt.name] = str(ckpt)
         for k, v in artifacts.items():

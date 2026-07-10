@@ -221,6 +221,7 @@ def build_topk_targets(
     topk: int = 20,
     vocab_size: int | None = None,
     skip_first_n: int = 3,
+    weight_scale: float = 1.0,
 ) -> tuple[list[tinker.Datum], dict[str, float]]:
     """Build cross_entropy Datums with ``(N, K)`` soft targets from a
     batch of teacher top-K responses. Pure function — no I/O.
@@ -249,6 +250,11 @@ def build_topk_targets(
     skip_first_n:
         Skip the first N completion positions from the loss. Matches the
         reference SDFT paper (default 3).
+    weight_scale:
+        Multiply every teacher-target weight by this scalar (default 1.0).
+        Used by the hybrid SDFT+SFT loss to down-weight the distillation term
+        to ``(1 - alpha)`` so it can be summed with an ``alpha``-weighted
+        supervised golden datum (see :func:`build_sft_anchor_datum`).
 
     Returns
     -------
@@ -312,7 +318,7 @@ def build_topk_targets(
 
             student_pos = int(completion_mask_indices[t].item())
             target_tokens_NK[student_pos, :k_actual] = token_ids
-            weights_NK[student_pos, :k_actual] = probs
+            weights_NK[student_pos, :k_actual] = probs * weight_scale
             total_teacher_entropy += -(probs * logprobs).sum().item()
 
         total_completion_tokens += n_positions
@@ -331,6 +337,50 @@ def build_topk_targets(
     return new_datums, metrics
 
 
+def merge_teacher_topk_logprobs(
+    teacher_topk_list: list[list[list[tuple[int, float]] | None] | None],
+    *,
+    topk: int = 20,
+) -> list[list[tuple[int, float]] | None]:
+    """Average top-K teacher distributions position-wise (multi-teacher ensemble).
+
+    Each entry in ``teacher_topk_list`` is one teacher's ``topk_prompt_logprobs``
+    array (one top-K list per sequence position). Probabilities are computed per
+    teacher, averaged across teachers, renormalized, then re-truncated to topk.
+    """
+    if not teacher_topk_list:
+        return []
+    if len(teacher_topk_list) == 1:
+        return teacher_topk_list[0]
+
+    n_pos = max(len(t or []) for t in teacher_topk_list)
+    merged: list[list[tuple[int, float]] | None] = []
+    for pos in range(n_pos):
+        accum: dict[int, float] = {}
+        n_teachers = 0
+        for ttopk in teacher_topk_list:
+            if ttopk is None or pos >= len(ttopk) or ttopk[pos] is None:
+                continue
+            entries = list(ttopk[pos][:topk])
+            if not entries:
+                continue
+            lps = torch.tensor([lp for _, lp in entries], dtype=torch.float32)
+            probs = (lps - torch.logsumexp(lps, dim=0)).exp()
+            for (tid, _), p in zip(entries, probs.tolist()):
+                accum[int(tid)] = accum.get(int(tid), 0.0) + float(p)
+            n_teachers += 1
+        if not accum or n_teachers == 0:
+            merged.append(None)
+            continue
+        for tid in accum:
+            accum[tid] /= float(n_teachers)
+        ranked = sorted(accum.items(), key=lambda kv: -kv[1])[:topk]
+        probs_t = torch.tensor([p for _, p in ranked], dtype=torch.float32)
+        logprobs = (probs_t / probs_t.sum()).log()
+        merged.append([(tid, float(lp)) for (tid, _), lp in zip(ranked, logprobs.tolist())])
+    return merged
+
+
 def _make_topk_datum(
     source: tinker.Datum, targets_NK: torch.Tensor, weights_NK: torch.Tensor,
 ) -> tinker.Datum:
@@ -338,6 +388,62 @@ def _make_topk_datum(
         model_input=source.model_input,
         loss_fn_inputs={
             "target_tokens": tinker.TensorData.from_torch(targets_NK),
+            "weights": tinker.TensorData.from_torch(weights_NK),
+        },
+    )
+
+
+def build_sft_anchor_datum(
+    *,
+    prompt: tinker.ModelInput,
+    completion_tokens: Sequence[int],
+    topk: int,
+    weight: float,
+) -> tinker.Datum:
+    """Build a HARD-target cross_entropy Datum (the supervised SFT anchor for
+    the hybrid loss) in the SAME ``(N, K)`` shape as the distillation datums, so
+    both can be summed in one ``forward_backward`` call.
+
+    Column 0 of every completion position carries the golden token with weight
+    ``weight`` (= ``alpha``); all other columns are 0. Prompt positions get 0
+    weight. Combined with a distillation datum whose weights were scaled by
+    ``(1 - alpha)``, tinker's weighted-NLL cross_entropy yields
+    ``alpha * CE(golden) + (1 - alpha) * SDFT_KL``.
+
+    Unlike the distillation term, NO positions are skipped — we want the student
+    to learn the whole ``<answer>SLUG</answer>`` span (and its terminator).
+    """
+    prompt_tokens = list(prompt.to_ints())
+    completion_tokens = list(completion_tokens)
+    if not completion_tokens or weight <= 0.0:
+        # No-op datum (all-zero weights) — keeps batch shape uniform.
+        n = max(0, len(prompt_tokens) - 1)
+        return tinker.Datum(
+            model_input=tinker.ModelInput.from_ints(prompt_tokens[:-1] if prompt_tokens else []),
+            loss_fn_inputs={
+                "target_tokens": tinker.TensorData.from_torch(torch.zeros(n, topk, dtype=torch.long)),
+                "weights": tinker.TensorData.from_torch(torch.zeros(n, topk, dtype=torch.float32)),
+            },
+        )
+
+    full_ids = prompt_tokens + completion_tokens
+    model_input_ids = full_ids[:-1]
+    targets = full_ids[1:]
+    N = len(model_input_ids)
+    target_tokens_NK = torch.zeros(N, topk, dtype=torch.long)
+    weights_NK = torch.zeros(N, topk, dtype=torch.float32)
+
+    # Positions whose TARGET is a completion token: [len(prompt)-1, len(prompt)-1+len(completion)).
+    start = len(prompt_tokens) - 1
+    end = start + len(completion_tokens)
+    for pos in range(max(0, start), min(N, end)):
+        target_tokens_NK[pos, 0] = int(targets[pos])
+        weights_NK[pos, 0] = float(weight)
+
+    return tinker.Datum(
+        model_input=tinker.ModelInput.from_ints(model_input_ids),
+        loss_fn_inputs={
+            "target_tokens": tinker.TensorData.from_torch(target_tokens_NK),
             "weights": tinker.TensorData.from_torch(weights_NK),
         },
     )
@@ -362,6 +468,77 @@ class SDFTDataset(Protocol):
     def get_batch(self, step_idx: int) -> tuple[list[str], list[str]]:
         """Return ``(questions, golden_answers)`` of length ``batch_size``."""
         ...
+
+
+def _slice_rows(
+    rows: list[PromptExample], step_idx: int, count: int, batch_size: int,
+) -> list[PromptExample]:
+    if count <= 0 or not rows:
+        return []
+    n = len(rows)
+    start = (step_idx * batch_size) % n
+    out: list[PromptExample] = []
+    idx = start
+    while len(out) < count:
+        out.append(rows[idx % n])
+        idx += 1
+    return out
+
+
+@dataclass
+class MixedSDFTDataset:
+    """Current-stage rows plus replay from prior stages (multi-teacher continual).
+
+    Returns ``(questions, golden, teacher_modes)`` where ``teacher_modes[i]`` is
+    ``"ensemble"`` for current-stage examples (distill from all frozen + current
+    teachers) or ``"frozen:k"`` for replayed stage-k examples (distill from T_k).
+    """
+
+    current_rows: list[PromptExample]
+    prior_rows: list[list[PromptExample]]
+    batch_size: int
+    replay_fraction: float = 0.25
+
+    def __post_init__(self) -> None:
+        if not self.current_rows:
+            raise ValueError("MixedSDFTDataset: current_rows is empty")
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be > 0 (got {self.batch_size})")
+        if not 0.0 <= self.replay_fraction < 1.0:
+            raise ValueError(f"replay_fraction must be in [0, 1) (got {self.replay_fraction})")
+
+    def __len__(self) -> int:
+        return max(1, len(self.current_rows) // max(1, int(self.batch_size * (1 - self.replay_fraction))))
+
+    def get_batch(self, step_idx: int) -> tuple[list[str], list[str], list[str]]:
+        n_replay = int(self.batch_size * self.replay_fraction) if self.prior_rows else 0
+        n_current = self.batch_size - n_replay
+        cur = _slice_rows(self.current_rows, step_idx, n_current, self.batch_size)
+        questions = [r.inputs["question"] for r in cur]
+        golden = [str(r.expected) for r in cur]
+        modes = ["ensemble"] * len(cur)
+
+        if n_replay > 0 and self.prior_rows:
+            per_stage = max(1, n_replay // len(self.prior_rows))
+            remainder = n_replay
+            for stage_k, rows in enumerate(self.prior_rows):
+                if remainder <= 0:
+                    break
+                take = min(per_stage, remainder) if stage_k < len(self.prior_rows) - 1 else remainder
+                replay = _slice_rows(rows, step_idx + stage_k + 1, take, self.batch_size)
+                questions.extend(r.inputs["question"] for r in replay)
+                golden.extend(str(r.expected) for r in replay)
+                modes.extend(f"frozen:{stage_k}" for _ in replay)
+                remainder -= take
+
+        # Pad with current rows if replay under-filled (small batch edge case).
+        while len(questions) < self.batch_size:
+            extra = _slice_rows(self.current_rows, step_idx + len(questions), 1, self.batch_size)
+            questions.append(extra[0].inputs["question"])
+            golden.append(str(extra[0].expected))
+            modes.append("ensemble")
+
+        return questions[: self.batch_size], golden[: self.batch_size], modes[: self.batch_size]
 
 
 @dataclass
@@ -409,11 +586,14 @@ class SimpleSDFTDataset:
 __all__ = [
     "CompletionSlice",
     "DEFAULT_DEMO_TEMPLATE",
+    "MixedSDFTDataset",
     "SDFTDataset",
     "SimpleSDFTDataset",
+    "build_sft_anchor_datum",
     "build_teacher_forced_sequence",
     "build_teacher_prompt",
     "build_topk_targets",
     "extract_completion_tokens",
+    "merge_teacher_topk_logprobs",
     "student_datum_from_rollout",
 ]

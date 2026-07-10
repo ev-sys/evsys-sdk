@@ -60,6 +60,23 @@ _LLM_CACHE: "weakref.WeakKeyDictionary[Any, dict[tuple, Any]]" = weakref.WeakKey
 _LLM_LOCKS: "weakref.WeakKeyDictionary[Any, asyncio.Lock]" = weakref.WeakKeyDictionary()
 
 
+def clear_llm_cache() -> None:
+    """Remove all cached LLM clients from the current event loop's cache.
+
+    Call this between training steps when the model_path changes (e.g. SDFT
+    student snapshots) so old TinkerLLM objects are garbage-collected. Each
+    evicted TinkerLLM's internal ServiceClient.__del__ cancels its server-side
+    session heartbeat, freeing the Tinker session slot.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    per_loop = _LLM_CACHE.get(loop)
+    if per_loop is not None:
+        per_loop.clear()
+
+
 class NoOpEnvironment(BaseEnvironment):
     """Sandbox-free environment: every operation is a no-op (no container).
 

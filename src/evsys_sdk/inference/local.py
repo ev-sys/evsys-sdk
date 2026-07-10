@@ -40,17 +40,31 @@ class LocalInference:
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        # ChatTemplatedInference (inference/chat_templated.py) requires a
+        # `_tokenizer` attribute to auto-wrap eval-time prompts with the
+        # training-time chat template; alias it here so LocalInference is a
+        # valid `base` for that wrapper.
+        self._tokenizer = self.tokenizer
         torch_dtype = _DTYPE_MAP.get(dtype, torch.float32)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            dtype=torch_dtype,
-            trust_remote_code=True,
-            device_map=device if device != "auto" else "auto",
-        )
+        if device == "mps":
+            # MPS doesn't support device_map="auto"; load to CPU then move
+            # (mirrors backends/local.py::LocalBackend.prepare).
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name, dtype=torch_dtype, trust_remote_code=True,
+            ).to("mps")
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                dtype=torch_dtype,
+                trust_remote_code=True,
+                device_map=device if device != "auto" else "auto",
+            )
         if adapter_path:
             from peft import PeftModel
 
             self.model = PeftModel.from_pretrained(self.model, adapter_path)
+            if device == "mps":
+                self.model = self.model.to("mps")
         self.model.eval()
 
     def generate(

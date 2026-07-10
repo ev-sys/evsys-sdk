@@ -92,6 +92,12 @@ class LocalBackend:
             "model_name": model["name"],
             "device": device,
             "run_dir": run_dir,
+            # Passed through so local_* algorithms can warm-start a LoRA
+            # adapter (continual-learning weight chaining, see
+            # Experiment._run_continual). LocalBackend never loads it itself
+            # — algorithms own PEFT wrapping, so they decide fresh vs.
+            # resumed adapter.
+            "init_from_checkpoint": model.get("init_from_checkpoint"),
         }
 
     def teardown(self, handles: dict[str, Any]) -> None:

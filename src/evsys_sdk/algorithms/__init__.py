@@ -39,3 +39,13 @@ try:
     from .local_rl import LocalRL  # noqa: F401
 except ImportError:
     pass
+
+try:
+    from .local_sdft import LocalSDFT  # noqa: F401  — custom loop, HF + PEFT
+except ImportError:
+    pass
+
+try:
+    from .local_sdft_paper import LocalSDFTPaper  # noqa: F401  — faithful paper method (EMA teacher, reverse-KL)
+except ImportError:
+    pass
