@@ -58,6 +58,7 @@ from .loop import (
     TrainingBatch,
     TrainingLoop,
 )
+from .lr_schedule import LR_SCHEDULE_KINDS, compute_lr, make_lr_fn
 from .sdft_data import SDFTDataset, SimpleSDFTDataset
 from .sft_data import row_to_datum, sft_tokenize
 from .templates import (
@@ -106,15 +107,18 @@ __all__ = [
     "TrainingLoop",
     "Trajectory",
     "TrajectoryGroup",
+    "LR_SCHEDULE_KINDS",
     "apply_template",
     "assemble_training_data",
     "build_callbacks",
     "build_in_loop_evaluators",
     "coerce_floats",
     "compute_advantages",
+    "compute_lr",
     "compute_trajectory_metrics",
     "extract_completion_tokens_from_response",
     "extract_weights",
+    "make_lr_fn",
     "messages_to_model_input",
     "row_to_datum",
     "sft_tokenize",
