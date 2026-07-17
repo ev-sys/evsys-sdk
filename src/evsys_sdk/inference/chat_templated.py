@@ -10,9 +10,10 @@ wrapper rebuilds the (system + user) opener around it before forwarding to
 the underlying client.
 
 Project-specific values: the ``system_prompt`` (verbatim training-time
-string) and ``user_template`` (e.g. ``"Query: {prompt}"`` if user-turn
-content has a domain-specific prefix). With ``user_template`` left at the
-default ``"{prompt}"`` the raw instruction passes through unchanged.
+string; omit / ``None`` / ``""`` to skip the system turn) and
+``user_template`` (e.g. ``"Query: {prompt}"`` if user-turn content has a
+domain-specific prefix). With ``user_template`` left at the default
+``"{prompt}"`` the raw instruction passes through unchanged.
 
 Tokenizer-agnostic: any base client exposing a HF-style ``_tokenizer``
 attribute works (e.g. ``TinkerInference``).
@@ -32,7 +33,7 @@ class ChatTemplatedInference:
         self,
         base: Any,
         *,
-        system_prompt: str,
+        system_prompt: str | None = None,
         user_template: str = "{prompt}",
         enable_thinking: bool | None = None,
     ) -> None:
@@ -49,6 +50,20 @@ class ChatTemplatedInference:
         # tokenizers (which don't accept the kwarg) keep working unchanged.
         self.enable_thinking = enable_thinking
 
+    def _template(self, prompt: str) -> str:
+        user_content = self.user_template.format(prompt=prompt)
+        messages: list[dict[str, str]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": user_content})
+        template_kwargs: dict[str, Any] = {
+            "tokenize": False,
+            "add_generation_prompt": True,
+        }
+        if self.enable_thinking is not None:
+            template_kwargs["enable_thinking"] = self.enable_thinking
+        return self._base._tokenizer.apply_chat_template(messages, **template_kwargs)
+
     def generate(
         self,
         *,
@@ -57,22 +72,35 @@ class ChatTemplatedInference:
         temperature: float = 0.0,
         stop: list[str] | None = None,
     ) -> str:
-        user_content = self.user_template.format(prompt=prompt)
-        template_kwargs: dict[str, Any] = {
-            "tokenize": False,
-            "add_generation_prompt": True,
-        }
-        if self.enable_thinking is not None:
-            template_kwargs["enable_thinking"] = self.enable_thinking
-        templated = self._base._tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            **template_kwargs,
-        )
         return self._base.generate(
-            prompt=templated,
+            prompt=self._template(prompt),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+        )
+
+    def generate_batch(
+        self,
+        *,
+        prompts: list[str],
+        max_tokens: int = 256,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+    ) -> list[str]:
+        """Batch path — requires ``base.generate_batch`` (e.g. TinkerInference)."""
+        templated = [self._template(p) for p in prompts]
+        if not callable(getattr(self._base, "generate_batch", None)):
+            return [
+                self._base.generate(
+                    prompt=t,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop=stop,
+                )
+                for t in templated
+            ]
+        return self._base.generate_batch(
+            prompts=templated,
             max_tokens=max_tokens,
             temperature=temperature,
             stop=stop,

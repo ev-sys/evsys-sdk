@@ -191,11 +191,14 @@ class Benchmark:
         limit: int | None = None,
         metrics: list[str] | None = None,
         num_samples: int = 1,
+        batch_size: int | None = None,
     ) -> BenchmarkScore:
         """Run each task through `client` and score the completion.
 
-        Sequential — wrap in a thread/process pool externally if you need
-        concurrency. (Most local clients are GPU-bound and don't benefit.)
+        When ``client`` implements ``generate_batch`` and ``batch_size`` is set
+        (or left at the default for batch-capable clients), prompts are
+        submitted in chunks for higher throughput. Sequential fallback when
+        ``generate_batch`` is unavailable.
 
         `prompt_builder(task) -> str` lets callers shape the model input;
         default is `task.instruction` verbatim.
@@ -204,27 +207,69 @@ class Benchmark:
         key produces `{value -> {n, mean_reward, pass_rate}}` in the result.
 
         `limit` caps how many tasks are scored — the first `limit` in
-        `self.tasks` (deterministic, in benchmark order). Useful for fast
-        smoke-runs on large benchmarks. ``None`` means score everything.
+        `self.tasks` (deterministic, in benchmark order). ``None`` means score
+        everything.
         """
         if breakdown_keys is None:
             breakdown_keys = []
-        tasks_iter = self.tasks if limit is None else self.tasks[: max(0, int(limit))]
+        tasks_iter = list(self.tasks if limit is None else self.tasks[: max(0, int(limit))])
         n_samples = max(1, int(num_samples))
+        use_batch = callable(getattr(client, "generate_batch", None))
+        # Default chunk size when the client can batch; None/0 disables.
+        if batch_size is None:
+            chunk = 32 if use_batch else 1
+        else:
+            chunk = max(1, int(batch_size))
+            if chunk > 1 and not use_batch:
+                logger.warning(
+                    "batch_size=%d requested but client has no generate_batch; "
+                    "falling back to sequential generate()",
+                    chunk,
+                )
+                chunk = 1
 
-        per_task: list[BenchmarkTaskResult] = []
-        task_rewards: list[list[float]] = []
-        for task in tasks_iter:
+        # Build flat list of (task_idx, sample_idx, prompt)
+        jobs: list[tuple[int, int, str]] = []
+        for ti, task in enumerate(tasks_iter):
             prompt = prompt_builder(task) if prompt_builder else task.instruction
-            sample_rewards: list[float] = []
-            last_completion, last_expected = "", None
-            for _ in range(n_samples):
-                completion = client.generate(
-                    prompt=prompt,
+            for si in range(n_samples):
+                jobs.append((ti, si, prompt))
+
+        completions: list[str] = [""] * len(jobs)
+        for start in range(0, len(jobs), chunk):
+            slice_jobs = jobs[start : start + chunk]
+            prompts = [p for _, _, p in slice_jobs]
+            if chunk > 1 and use_batch:
+                outs = client.generate_batch(  # type: ignore[attr-defined]
+                    prompts=prompts,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     stop=stop,
                 )
+            else:
+                outs = [
+                    client.generate(
+                        prompt=p,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        stop=stop,
+                    )
+                    for p in prompts
+                ]
+            for i, out in enumerate(outs):
+                completions[start + i] = out
+
+        # Group completions back by task
+        per_task_outs: list[list[str]] = [[] for _ in tasks_iter]
+        for (ti, _si, _p), comp in zip(jobs, completions):
+            per_task_outs[ti].append(comp)
+
+        per_task: list[BenchmarkTaskResult] = []
+        task_rewards: list[list[float]] = []
+        for task, outs in zip(tasks_iter, per_task_outs):
+            sample_rewards: list[float] = []
+            last_completion, last_expected = "", None
+            for completion in outs:
                 reward, expected = _score_task(task, completion)
                 sample_rewards.append(reward)
                 last_completion, last_expected = completion, expected
@@ -235,7 +280,6 @@ class Benchmark:
                     instruction=task.instruction,
                     model_output=last_completion,
                     expected=last_expected,
-                    # Per-task mean reward — drives the breakdown buckets.
                     reward=sum(sample_rewards) / len(sample_rewards),
                     metadata=dict(task.metadata),
                 )
