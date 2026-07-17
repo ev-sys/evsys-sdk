@@ -125,6 +125,12 @@ export default function HomePage() {
             Roadmap
           </Link>
           <Link
+            href="/research"
+            className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
+          >
+            Research
+          </Link>
+          <Link
             href="/whitepaper"
             className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-fd-accent"
           >
