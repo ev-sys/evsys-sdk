@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evsys — continual-learning observatory</title>
+<style>
+  /* ---------- palette (reference instance; light + dark both selected) ---------- */
+  :root {
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11, 11, 11, 0.10);
+    --series:      #2a78d6;      /* categorical slot 1 — the failure-rate series */
+    --series-soft: rgba(42, 120, 214, 0.12);
+    --good:        #0ca30c;
+    --good-text:   #006300;
+    --warning:     #fab219;
+    --critical:    #d03b3b;
+    --crit-soft:   rgba(208, 59, 59, 0.10);
+    --good-soft:   rgba(12, 163, 12, 0.10);
+    --warn-soft:   rgba(250, 178, 25, 0.14);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255, 255, 255, 0.10);
+    --series:      #3987e5;
+    --series-soft: rgba(57, 135, 229, 0.16);
+    --good-text:   #0ca30c;
+    --crit-soft:   rgba(208, 59, 59, 0.16);
+    --good-soft:   rgba(12, 163, 12, 0.14);
+    --warn-soft:   rgba(250, 178, 25, 0.14);
+  }}
+  :root[data-theme="dark"] {
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255, 255, 255, 0.10);
+    --series:      #3987e5;
+    --series-soft: rgba(57, 135, 229, 0.16);
+    --good-text:   #0ca30c;
+    --crit-soft:   rgba(208, 59, 59, 0.16);
+    --good-soft:   rgba(12, 163, 12, 0.14);
+    --warn-soft:   rgba(250, 178, 25, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px; line-height: 1.45;
+  }
+  a { color: var(--series); }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--page); z-index: 30;
+  }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .live {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--ink-2); padding: 3px 10px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .live.on .dot { background: var(--good); animation: pulse 1.6s ease-out infinite; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 var(--good-soft); }
+    70%  { box-shadow: 0 0 0 7px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .tiles { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 14px; min-width: 96px;
+  }
+  .tile .v { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+  .tile .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .tile.alert .v { color: var(--critical); }
+  #themeBtn {
+    background: var(--surface); color: var(--ink-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px;
+  }
+
+  /* ---------- pipeline strip ---------- */
+  .pipeline {
+    display: flex; align-items: stretch; gap: 0; padding: 14px 18px 4px;
+    overflow-x: auto;
+  }
+  .stage {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 14px; min-width: 148px; flex: 1;
+  }
+  .stage .n { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stage .t { font-weight: 650; margin: 1px 0 2px; font-size: 12.5px; }
+  .stage .s { font-size: 11.5px; color: var(--ink-2); }
+  .stage.hot { border-color: var(--series); box-shadow: 0 0 0 1px var(--series); }
+  .stage.fired { border-color: var(--critical); }
+  .arrow { align-self: center; color: var(--muted); padding: 0 7px; font-size: 15px; flex: 0 0 auto; }
+
+  /* ---------- layout ---------- */
+  main {
+    display: grid; gap: 14px; padding: 14px 18px 40px;
+    grid-template-columns: minmax(340px, 5fr) minmax(380px, 6fr) minmax(360px, 6fr);
+    align-items: start;
+  }
+  @media (max-width: 1200px) { main { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 800px)  { main { grid-template-columns: 1fr; } }
+  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden;
+  }
+  .card > .hd {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+  }
+  .card > .hd .title { font-weight: 700; font-size: 13px; }
+  .card > .hd .sub { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+  .card > .bd { padding: 10px 14px; }
+  .card > .bd.tight { padding: 0; }
+
+  /* ---------- traces feed ---------- */
+  .trace { border-bottom: 1px solid var(--border); }
+  .trace:last-child { border-bottom: 0; }
+  .trace > .row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px; cursor: pointer;
+  }
+  .trace > .row:hover { background: var(--series-soft); }
+  .trace .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trace .when { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+  .chip {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+  .chip.ok   { color: var(--good-text); background: var(--good-soft); }
+  .chip.bad  { color: var(--critical); background: var(--crit-soft); }
+  .chip.pend { color: var(--ink-2); background: var(--warn-soft); }
+  .trace .detail { padding: 4px 14px 12px; display: none; }
+  .trace.open .detail { display: block; }
+  .msg { display: flex; gap: 8px; margin-top: 6px; }
+  .msg .role {
+    flex: 0 0 66px; text-align: right; font-size: 10.5px; font-weight: 700;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding-top: 2px;
+  }
+  .msg .body {
+    flex: 1; min-width: 0; background: var(--page); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 9px; white-space: pre-wrap; word-break: break-word;
+    font-size: 12px;
+  }
+  .msg .body.tool { font-family: var(--mono); font-size: 11.5px; }
+  .fb { margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+  .fb b.badv { color: var(--critical); } .fb b.okv { color: var(--good-text); }
+
+  /* ---------- chart ---------- */
+  .chartwrap { position: relative; }
+  .chartwrap svg { display: block; width: 100%; }
+  .tip {
+    position: absolute; pointer-events: none; display: none; z-index: 10;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18); padding: 6px 10px; font-size: 11.5px;
+    max-width: 260px;
+  }
+  .tip .l1 { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tip .l2 { color: var(--ink-2); }
+
+  /* ---------- trigger log ---------- */
+  .lograil { max-height: 230px; overflow-y: auto; }
+  .logline {
+    display: flex; gap: 8px; align-items: baseline; padding: 4px 14px;
+    border-bottom: 1px solid var(--border); font-size: 12px;
+  }
+  .logline:last-child { border-bottom: 0; }
+  .logline .n { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 52px; font-size: 11px; }
+  .logline .r { flex: 1; color: var(--ink-2); }
+  .logline .fr { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .logline.esc { background: var(--crit-soft); }
+  .logline.esc .r { color: var(--critical); font-weight: 650; }
+
+  /* ---------- tabs ---------- */
+  .tabs { display: flex; gap: 2px; padding: 8px 12px 0; }
+  .tabs button {
+    background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-2);
+    font: inherit; font-size: 12px; font-weight: 600; padding: 4px 10px 6px; cursor: pointer;
+  }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--series); }
+  pre.code {
+    margin: 0; padding: 10px 14px; overflow: auto; max-height: 340px;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    background: var(--page); white-space: pre;
+  }
+  pre.soft { white-space: pre-wrap; word-break: break-word; }
+
+  /* ---------- escalations ---------- */
+  .escpick { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px 0; }
+  .escpick button {
+    background: var(--page); border: 1px solid var(--border); border-radius: 999px;
+    color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600;
+    padding: 3px 11px; cursor: pointer;
+  }
+  .escpick button.on { border-color: var(--critical); color: var(--critical); background: var(--crit-soft); }
+  .sect { padding: 10px 14px; border-top: 1px solid var(--border); }
+  .sect:first-of-type { border-top: 0; }
+  .sect h4 {
+    margin: 0 0 6px; font-size: 10.5px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 12px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-variant-numeric: tabular-nums; }
+  .verdictline { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .bigchip {
+    display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px;
+    padding: 3px 12px; border-radius: 999px;
+  }
+  .bigchip.yes { color: var(--good-text); background: var(--good-soft); }
+  .bigchip.no  { color: var(--ink-2); background: var(--warn-soft); }
+  .prose { font-size: 12px; color: var(--ink-2); margin: 4px 0 0; }
+  .prose b { color: var(--ink); }
+  .idlist { font-family: var(--mono); font-size: 10.5px; color: var(--muted); word-break: break-all; }
+  .empty { padding: 22px 14px; color: var(--muted); text-align: center; font-size: 12px; }
+  .tag {
+    display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--good-text);
+    background: var(--good-soft); border-radius: 5px; padding: 1px 7px; margin-left: 8px;
+  }
+  .offline {
+    display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--critical); color: #fff; font-weight: 600; font-size: 12.5px;
+    padding: 7px 16px; border-radius: 999px; z-index: 50;
+  }
+  body.offline .offline { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">evsys<small id="projName">·</small></div>
+  <div class="live" id="daemonLive"><span class="dot"></span><span id="daemonTxt">waiting for daemon…</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="v" id="tTraces">–</div><div class="k">traces ingested</div></div>
+    <div class="tile"><div class="v" id="tEvals">–</div><div class="k">gate evaluations</div></div>
+    <div class="tile" id="tileEsc"><div class="v" id="tEsc">–</div><div class="k">escalations</div></div>
+    <div class="tile" id="tileFR"><div class="v" id="tFR">–</div><div class="k">failure rate now</div></div>
+  </div>
+  <button id="themeBtn" title="theme">◐</button>
+</header>
+
+<div class="pipeline" id="pipeline">
+  <div class="stage" id="st0"><div class="n">production</div><div class="t">LangGraph agent</div><div class="s" id="st0s">traced to LangSmith</div></div>
+  <div class="arrow">→</div>
+  <div class="stage" id="st1"><div class="n">layer 1 · daemon</div><div class="t">Trace ingestion</div><div class="s" id="st1s">–</div></div>
+  <div class="arrow">→</div>
+  <div class="stage" id="st2"><div class="n">layer 2 · gate</div><div class="t">Trigger fn</div><div class="s" id="st2s">–</div></div>
+  <div class="arrow">→</div>
+  <div class="stage" id="st3"><div class="n">on escalation</div><div class="t">Trigger agent (claude)</div><div class="s" id="st3s">–</div></div>
+  <div class="arrow">→</div>
+  <div class="stage" id="st4"><div class="n">autoresearch</div><div class="t">prompt.txt rewrite</div><div class="s" id="st4s">–</div></div>
+</div>
+
+<main>
+  <!-- ============ col 1: live traces ============ -->
+  <div class="col">
+    <div class="card">
+      <div class="hd"><span class="title">Production traces</span><span class="sub" id="traceSub">–</span></div>
+      <div class="bd tight" id="traceFeed"><div class="empty">no traces ingested yet</div></div>
+    </div>
+  </div>
+
+  <!-- ============ col 2: trigger ============ -->
+  <div class="col">
+    <div class="card">
+      <div class="hd"><span class="title">Failure rate per gate evaluation</span><span class="sub" id="chartSub">–</span></div>
+      <div class="bd">
+        <div class="chartwrap" id="chartWrap">
+          <svg id="chart" height="190"></svg>
+          <div class="tip" id="tip"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="title">Gate evaluations</span><span class="sub" id="logSub">–</span></div>
+      <div class="bd tight lograil" id="trigLog"><div class="empty">no evaluations yet</div></div>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="title">Trigger function</span><span class="sub" id="gateSub">–</span></div>
+      <div class="tabs" id="gateTabs">
+        <button data-tab="policy" class="on">live policy</button>
+        <button data-tab="source">gate source</button>
+      </div>
+      <div class="bd tight">
+        <pre class="code" id="gateBody">–</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ col 3: escalation drill-down + prompt ============ -->
+  <div class="col">
+    <div class="card">
+      <div class="hd"><span class="title">Escalation drill-down</span><span class="sub" id="escSub">–</span></div>
+      <div class="escpick" id="escPick"></div>
+      <div id="escDetail"><div class="empty">no escalations yet — the gate is holding</div></div>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="title">Live system prompt</span><span class="sub">prompt.txt<span id="promptTag"></span></span></div>
+      <div class="bd tight"><pre class="code soft" id="promptBody">–</pre></div>
+    </div>
+  </div>
+</main>
+
+<div class="offline">daemon UI server unreachable — retrying…</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+{ const t = new URLSearchParams(location.search).get("theme");
+  if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let STATE = null;
+const ui = { openTraces: new Set(), gateTab: "policy", escSel: null, hashes: {} };
+
+/* ---------- theme ---------- */
+$("themeBtn").onclick = () => {
+  const cur = document.documentElement.dataset.theme || "auto";
+  const next = cur === "auto" ? "dark" : cur === "dark" ? "light" : "auto";
+  if (next === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = next;
+  $("themeBtn").textContent = next === "auto" ? "◐" : next === "dark" ? "☾" : "☀";
+  render(true);
+};
+
+/* ---------- helpers ---------- */
+function traceStatus(t) {
+  const fb = (t.feedback || []).find(f => f.key === "correct");
+  if (!fb) return ["pend", "PENDING", ""];
+  return (fb.score || 0) > 0 ? ["ok", "✓ OK", fb.comment] : ["bad", "✗ BAD", fb.comment];
+}
+function userQ(t) {
+  const m = (t.messages || []).find(m => m.role === "user");
+  return typeof m?.content === "string" ? m.content : "(no user message)";
+}
+function shortTime(ts) {
+  if (!ts) return "";
+  const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : String(ts).slice(0, 19);
+}
+function pct(x) { return x == null ? "–" : Math.round(x * 100) + "%"; }
+function changed(key, obj) {
+  const h = JSON.stringify(obj);
+  if (ui.hashes[key] === h) return false;
+  ui.hashes[key] = h; return true;
+}
+
+/* ---------- header + pipeline ---------- */
+function renderHeader(s) {
+  $("projName").textContent = " · " + s.project.name;
+  const live = s.project.daemon_live;
+  $("daemonLive").classList.toggle("on", live);
+  $("daemonTxt").textContent = live ? "daemon live — pulling traces" : "daemon idle";
+  $("tTraces").textContent = s.traces.total;
+  const evals = s.trigger.log.filter(l => l.event === "evaluate");
+  $("tEvals").textContent = evals.length;
+  $("tEsc").textContent = s.escalations.length;
+  $("tileEsc").classList.toggle("alert", s.escalations.length > 0);
+  const last = [...evals].reverse().find(l => l.signal && l.signal.failure_rate != null);
+  const fr = last ? last.signal.failure_rate : null;
+  $("tFR").textContent = pct(fr);
+  const thr = s.gate.policy?.params?.threshold;
+  $("tileFR").classList.toggle("alert", fr != null && thr != null && fr >= thr);
+
+  // pipeline
+  $("st1s").textContent = s.traces.total
+    ? `${s.traces.total} traces · ${s.traces.sources.join(", ")}` : "waiting for traces";
+  $("st1").classList.toggle("hot", live);
+  const kind = s.gate.policy?.kind || "–";
+  $("st2s").textContent = evals.length
+    ? `${kind} · ${evals.length} evals · now ${pct(fr)}` : `${kind} · no evals yet`;
+  $("st2").classList.toggle("fired", !!(last && last.escalate));
+  const nAgent = s.escalations.filter(e => e.agent_log).length;
+  $("st3s").textContent = s.escalations.length
+    ? `${s.escalations.length} escalation${s.escalations.length > 1 ? "s" : ""} · ${nAgent} agent run${nAgent === 1 ? "" : "s"}`
+    : "not launched";
+  $("st3").classList.toggle("fired", s.escalations.length > 0);
+  const rew = s.prompt.rewritten;
+  $("st4s").textContent = rew ? "prompt rewritten ✓" : "no rewrite yet";
+  $("st4").classList.toggle("hot", !!rew);
+}
+
+/* ---------- traces feed ---------- */
+function renderTraces(s) {
+  if (!changed("traces", [s.traces.items.map(t => t.trace_id), s.traces.total])) return;
+  $("traceSub").textContent = `${s.traces.total} total · newest first`;
+  const feed = $("traceFeed");
+  if (!s.traces.items.length) { feed.innerHTML = '<div class="empty">no traces ingested yet</div>'; return; }
+  feed.innerHTML = [...s.traces.items].reverse().map(t => {
+    const [cls, label, comment] = traceStatus(t);
+    const open = ui.openTraces.has(t.trace_id) ? " open" : "";
+    return `<div class="trace${open}" data-id="${esc(t.trace_id)}">
+      <div class="row">
+        <span class="chip ${cls}">${esc(label)}</span>
+        <span class="q" title="${esc(userQ(t))}">${esc(userQ(t))}</span>
+        <span class="when">${esc(shortTime(t.metadata?.timestamp))}</span>
+      </div>
+      <div class="detail">${renderMessages(t)}${comment ? `<div class="fb">grader: <b class="${cls === "ok" ? "okv" : "badv"}">${esc(comment)}</b></div>` : ""}</div>
+    </div>`;
+  }).join("");
+  feed.querySelectorAll(".trace > .row").forEach(row => row.onclick = () => {
+    const el = row.parentElement, id = el.dataset.id;
+    el.classList.toggle("open");
+    el.classList.contains("open") ? ui.openTraces.add(id) : ui.openTraces.delete(id);
+  });
+}
+function renderMessages(t) {
+  return (t.messages || []).map(m => {
+    let body, tool = false;
+    if (typeof m.content === "string") body = m.content;
+    else if (Array.isArray(m.content)) {
+      body = m.content.map(p => p.type === "tool_use"
+        ? `${p.name}(${JSON.stringify(p.input)})` : (p.text || "")).join("\n");
+      tool = m.content.some(p => p.type === "tool_use");
+    } else body = JSON.stringify(m.content);
+    if (m.role === "tool") tool = true;
+    return `<div class="msg"><div class="role">${esc(m.role)}</div><div class="body${tool ? " tool" : ""}">${esc(body)}</div></div>`;
+  }).join("");
+}
+
+/* ---------- failure-rate chart ---------- */
+function renderChart(s, force) {
+  const evals = s.trigger.log.filter(l => l.event === "evaluate");
+  const thr = s.gate.policy?.params?.threshold;
+  if (!force && !changed("chart", [evals.length, thr, document.documentElement.dataset.theme])) return;
+  const svg = $("chart"), W = $("chartWrap").clientWidth || 500, H = 190;
+  const P = { l: 34, r: 10, t: 12, b: 20 };
+  svg.setAttribute("width", W); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  $("chartSub").textContent = evals.length ? `${evals.length} evaluations · threshold ${pct(thr)}` : "–";
+  const pts = evals.map((l, i) => ({ i, x: l.n_seen ?? i, fr: l.signal?.failure_rate ?? null, esc: !!l.escalate, reason: l.reason }));
+  const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const X = i => P.l + (pts.length < 2 ? 0 : i * (W - P.l - P.r) / (pts.length - 1));
+  const Y = v => P.t + (1 - v) * (H - P.t - P.b);
+  let g = "";
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    g += `<line x1="${P.l}" y1="${Y(v)}" x2="${W - P.r}" y2="${Y(v)}" stroke="${v === 0 ? css("--baseline") : css("--grid")}" stroke-width="1"/>`;
+    g += `<text x="${P.l - 6}" y="${Y(v) + 3.5}" text-anchor="end" font-size="10" fill="${css("--muted")}" style="font-variant-numeric:tabular-nums">${v * 100}</text>`;
+  }
+  if (thr != null)
+    g += `<line x1="${P.l}" y1="${Y(thr)}" x2="${W - P.r}" y2="${Y(thr)}" stroke="${css("--critical")}" stroke-width="1" stroke-dasharray="4 4" opacity="0.75"/>
+          <text x="${W - P.r}" y="${Y(thr) - 4}" text-anchor="end" font-size="10" fill="${css("--critical")}">threshold ${pct(thr)}</text>`;
+  // step-after line over non-null points
+  const seg = pts.filter(p => p.fr != null);
+  if (seg.length) {
+    let d = `M ${X(seg[0].i)} ${Y(seg[0].fr)}`;
+    for (let k = 1; k < seg.length; k++) d += ` H ${X(seg[k].i)} V ${Y(seg[k].fr)}`;
+    g += `<path d="${d}" fill="none" stroke="${css("--series")}" stroke-width="2" stroke-linejoin="round"/>`;
+  }
+  // escalation markers: ≥8px, 2px surface ring
+  for (const p of pts) if (p.esc && p.fr != null) {
+    const ly = Y(p.fr) - 10 < 10 ? Y(p.fr) + 20 : Y(p.fr) - 10;  // flip below near the top edge
+    const anchor = X(p.i) < P.l + 40 ? "start" : "middle";       // keep inside the left edge
+    g += `<circle cx="${X(p.i)}" cy="${Y(p.fr)}" r="5.5" fill="${css("--critical")}" stroke="${css("--surface")}" stroke-width="2"/>
+          <text x="${X(p.i)}" y="${ly}" text-anchor="${anchor}" font-size="10" font-weight="700" fill="${css("--critical")}">▲ escalated</text>`;
+  }
+  g += `<line id="xhair" x1="0" y1="${P.t}" x2="0" y2="${H - P.b}" stroke="${css("--baseline")}" stroke-width="1" style="display:none"/>
+        <circle id="hoverdot" r="4" fill="${css("--series")}" stroke="${css("--surface")}" stroke-width="2" style="display:none"/>`;
+  svg.innerHTML = pts.length ? g : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" font-size="12" fill="${css("--muted")}">no gate evaluations yet</text>`;
+
+  // hover: crosshair + tooltip
+  const wrap = $("chartWrap"), tip = $("tip");
+  wrap.onmousemove = ev => {
+    if (!pts.length) return;
+    const r = wrap.getBoundingClientRect(), mx = ev.clientX - r.left;
+    let best = 0, bd = 1e9;
+    pts.forEach((p, k) => { const d = Math.abs(X(k) - mx); if (d < bd) { bd = d; best = k; } });
+    const p = pts[best], xh = svg.querySelector("#xhair"), hd = svg.querySelector("#hoverdot");
+    xh.style.display = ""; xh.setAttribute("x1", X(best)); xh.setAttribute("x2", X(best));
+    if (p.fr != null) { hd.style.display = ""; hd.setAttribute("cx", X(best)); hd.setAttribute("cy", Y(p.fr)); }
+    else hd.style.display = "none";
+    tip.style.display = "block";
+    tip.innerHTML = `<div class="l1">${p.fr == null ? "no signal" : "failure " + pct(p.fr)} · n_seen ${p.x}</div><div class="l2">${esc(p.reason || "")}</div>`;
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(X(best) - tw / 2, 4), W - tw - 4) + "px";
+    tip.style.top = "8px";
+  };
+  wrap.onmouseleave = () => {
+    tip.style.display = "none";
+    const xh = svg.querySelector("#xhair"), hd = svg.querySelector("#hoverdot");
+    if (xh) xh.style.display = "none"; if (hd) hd.style.display = "none";
+  };
+}
+
+/* ---------- trigger log ---------- */
+function renderLog(s) {
+  const lines = s.trigger.log;
+  if (!changed("log", lines.length)) return;
+  const nEval = lines.filter(l => l.event === "evaluate").length;
+  $("logSub").textContent = lines.length ? `${nEval} evaluations · newest first` : "–";
+  const el = $("trigLog");
+  if (!lines.length) { el.innerHTML = '<div class="empty">no evaluations yet</div>'; return; }
+  el.innerHTML = [...lines].reverse().slice(0, 250).map(l => {
+    if (l.event === "evaluate")
+      return `<div class="logline${l.escalate ? " esc" : ""}">
+         <span class="n">n=${l.n_seen ?? "?"}</span>
+         <span class="r">${l.escalate ? "🔺 ESCALATE — " : ""}${esc(l.reason)}</span>
+         <span class="fr">${l.signal?.failure_rate != null ? pct(l.signal.failure_rate) : ""}</span>
+       </div>`;
+    const bad = /error/.test(l.event);
+    const detail = l.reason || l.path || l.import_path || l.error || "";
+    return `<div class="logline${bad ? " esc" : ""}">
+       <span class="n">·</span>
+       <span class="r"><b>${esc(l.event)}</b>${detail ? " — " + esc(detail) : ""}</span>
+     </div>`;
+  }).join("");
+}
+
+/* ---------- gate fn ---------- */
+function renderGate(s, force) {
+  if (!changed("gate", [s.gate.policy, s.gate.source, ui.gateTab]) && !force) return;
+  $("gateSub").textContent = s.gate.source_path || "";
+  $("gateBody").textContent = ui.gateTab === "policy"
+    ? JSON.stringify(s.gate.policy, null, 2) : (s.gate.source || "(gate source not found)");
+}
+$("gateTabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+  ui.gateTab = b.dataset.tab;
+  $("gateTabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  renderGate(STATE, true);
+});
+
+/* ---------- escalations ---------- */
+function renderEscalations(s, force) {
+  const escs = s.escalations;
+  if (!force && !changed("escs", [escs.map(e => [e.id, !!e.verdict, !!e.agent_log]), ui.escSel])) return;
+  $("escSub").textContent = escs.length ? `${escs.length} total` : "–";
+  const pick = $("escPick"), det = $("escDetail");
+  if (!escs.length) { pick.innerHTML = ""; det.innerHTML = '<div class="empty">no escalations yet — the gate is holding</div>'; return; }
+  if (!ui.escSel || !escs.some(e => e.id === ui.escSel)) ui.escSel = escs[escs.length - 1].id;
+  pick.innerHTML = escs.map(e =>
+    `<button data-id="${esc(e.id)}" class="${e.id === ui.escSel ? "on" : ""}">${esc(e.id.replace("escalation-", "esc #").replace(/0+(\d)/, "$1"))}</button>`).join("");
+  pick.querySelectorAll("button").forEach(b => b.onclick = () => { ui.escSel = b.dataset.id; renderEscalations(STATE, true); });
+
+  const e = escs.find(x => x.id === ui.escSel);
+  const ev = e.event || {};
+  let html = `<div class="sect">
+      <h4>Trigger fired</h4>
+      <div class="kv">
+        <span class="k">reason</span><span class="v">${esc(ev.reason || "")}</span>
+        <span class="k">gate</span><span class="v">${esc(ev.kind || "")}</span>
+        <span class="k">n_seen</span><span class="v">${ev.n_seen ?? ""}</span>
+        <span class="k">signal</span><span class="v">${esc(JSON.stringify(ev.signal || {}))}</span>
+        <span class="k">implicated</span><span class="v">${(ev.trace_ids || []).length} traces</span>
+      </div>
+      <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--muted);font-size:11px">trace ids</summary>
+        <div class="idlist">${(ev.trace_ids || []).map(esc).join("<br>")}</div></details>
+    </div>`;
+  if (e.verdict) {
+    const w = !!e.verdict.worth_autoresearch;
+    html += `<div class="sect"><h4>Trigger-agent verdict</h4>
+      <div class="verdictline"><span class="bigchip ${w ? "yes" : "no"}">${w ? "✓ worth autoresearch" : "✗ not worth autoresearch"}</span></div>
+      <p class="prose"><b>Reasoning —</b> ${esc(e.verdict.reasoning || "")}</p>
+      ${e.verdict.hypothesis ? `<p class="prose"><b>Hypothesis —</b> ${esc(e.verdict.hypothesis)}</p>` : ""}
+    </div>`;
+  } else {
+    html += `<div class="sect"><h4>Trigger-agent verdict</h4><p class="prose">no verdict yet${e.agent_log != null ? "" : " — agent not launched"}</p></div>`;
+  }
+  html += `<div class="sect"><h4>Claude transcript (trigger agent, headless)</h4>
+    ${e.agent_log != null
+      ? `<pre class="code soft" style="max-height:260px">${esc(e.agent_log)}</pre>`
+      : `<p class="prose">agent was not launched for this escalation</p>`}
+  </div>`;
+  det.innerHTML = html;
+}
+
+/* ---------- prompt ---------- */
+function renderPrompt(s) {
+  if (!changed("prompt", [s.prompt.text, s.prompt.rewritten])) return;
+  $("promptBody").textContent = s.prompt.text || "(prompt.txt not found)";
+  $("promptTag").innerHTML = s.prompt.rewritten ? '<span class="tag">rewritten by autoresearch ✓</span>' : "";
+}
+
+/* ---------- main loop ---------- */
+function render(force) {
+  if (!STATE) return;
+  renderHeader(STATE);
+  renderTraces(STATE);
+  renderChart(STATE, force);
+  renderLog(STATE);
+  renderGate(STATE, force);
+  renderEscalations(STATE, force);
+  renderPrompt(STATE);
+}
+async function tick() {
+  try {
+    const r = await fetch("/api/state");
+    if (!r.ok) throw new Error(r.status);
+    STATE = await r.json();
+    document.body.classList.remove("offline");
+    document.title = `evsys · ${STATE.project.name}`;
+    render(false);
+  } catch { document.body.classList.add("offline"); }
+}
+tick();
+setInterval(tick, 2500);
+window.addEventListener("resize", () => render(true));
+</script>
+</body>
+</html>

@@ -281,6 +281,14 @@ def _cmd_trigger_agent(args: argparse.Namespace) -> int:
     return getattr(proc, "returncode", 0) or 0
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    """Serve the local observability UI over the loop's on-disk state."""
+    from .ui import serve
+
+    serve(args.config, port=args.port, open_browser=not args.no_open, prompt_file=args.prompt_file)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -383,6 +391,14 @@ def main(argv: list[str] | None = None) -> int:
     p_trga.add_argument("--print-command", action="store_true", dest="print_command",
                         help="Print the claude -p command without running it.")
     p_trga.set_defaults(func=_cmd_trigger_agent)
+
+    p_ui = sub.add_parser("ui", help="Local observability UI over the continual-learning loop (traces → gate → agent).")
+    p_ui.add_argument("config", help="Path to a system.yaml (same file the daemon watches).")
+    p_ui.add_argument("--port", type=int, default=7749, help="Localhost port (default 7749; 0 = auto).")
+    p_ui.add_argument("--no-open", action="store_true", help="Don't open the browser automatically.")
+    p_ui.add_argument("--prompt-file", default=None,
+                      help="Live prompt file to display (default: prompt.txt next to the config, if present).")
+    p_ui.set_defaults(func=_cmd_ui)
 
     args = parser.parse_args(argv)
     return args.func(args)
