@@ -4,11 +4,14 @@
 state the ingested traces came from. ``capture_codebase_snapshot`` tars the
 repo (committed state via ``git archive`` — .gitignore honored by
 construction; plain tar fallback for non-git dirs), and
-``write_environment_dir`` turns a harbor task dir into a Modal-buildable
-context: ``environment/Dockerfile`` + the snapshot tarball. Harbor's
-``ModalEnvironment`` builds the image from exactly this dir
-(``Image.from_dockerfile``); identical contexts content-hash to ONE Modal
-image build no matter how many tasks share them.
+``write_environment_dir`` turns a harbor task dir into a buildable context:
+``environment/Dockerfile`` + the snapshot tarball — the standard harbor task
+layout, so it works with ANY harbor environment that builds from a task
+Dockerfile. Verified live with both:
+
+  * ``environment: {type: docker}`` — local daemon, no account needed
+  * ``environment: {type: modal}``  — hosted (Modal content-hashes identical
+    contexts to ONE image build no matter how many tasks share them)
 """
 
 from __future__ import annotations
