@@ -127,6 +127,56 @@ def _collect_escalations(root: Path) -> list[dict]:
     return out
 
 
+#: Eval points shipped per optimization phase per poll.
+OPT_TAIL = 400
+
+
+def _collect_optimizations(project_dir: Path) -> list[dict]:
+    """optimize_anything run dirs → per-phase best-so-far traces for the panel.
+
+    Layout (written by the ``optimize_anything`` algorithm): ``<run>/oa[-explore]-
+    <engine>/evals/<n>.json`` + ``summary.json``, ``<run>/oa_summary.json`` after
+    completion. Pure reads; a mid-write eval file is skipped, not fatal.
+    """
+    runs: list[dict] = []
+    for run_dir in sorted(project_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        phase_dirs = sorted(d for d in run_dir.glob("oa-*") if (d / "evals").is_dir())
+        if not phase_dirs:
+            continue
+        phases = []
+        for pd in phase_dirs:
+            explore = pd.name.startswith("oa-explore-")
+            engine = pd.name.removeprefix("oa-explore-" if explore else "oa-")
+            points, best = [], 0.0
+            evals = sorted(
+                (f for f in pd.glob("evals/*.json") if f.stem.isdigit()),
+                key=lambda p: int(p.stem),
+            )[-OPT_TAIL:]
+            for f in evals:
+                d = _read_json(f)
+                if not isinstance(d, dict) or "score" not in d:
+                    continue
+                best = max(best, float(d["score"]))
+                points.append({"eval": d.get("eval"), "score": d["score"], "best": round(best, 4)})
+            phases.append({
+                "engine": engine,
+                "phase": "explore" if explore else "main",
+                "points": points,
+                "summary": _read_json(pd / "summary.json"),
+            })
+        summary = _read_json(run_dir / "oa_summary.json")
+        runs.append({
+            "run": run_dir.name,
+            "phases": phases,
+            "summary": summary,
+            "done": summary is not None,
+            "mtime": _mtime(run_dir),
+        })
+    return runs
+
+
 def _prompt_diff(escalations: list[dict], prompt_text: str | None) -> tuple[str | None, str | None]:
     """Unified diff of the live prompt against the newest escalation-time snapshot
     (what the trigger agent started from). ``(None, None)`` when there is no
@@ -221,6 +271,7 @@ def collect_state(
             "diff": prompt_diff,
             "diff_base": diff_base,
         },
+        "optimizations": _collect_optimizations(project_dir),
     }
 
 

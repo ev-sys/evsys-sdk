@@ -146,6 +146,41 @@ def test_prompt_diff_against_snapshot(project: Path) -> None:
     assert "prompt.txt @ escalation-00000015" in s["prompt"]["diff"]
 
 
+def _write_oa_phase(run_dir: Path, stem: str, scores: list[float]) -> None:
+    d = run_dir / stem / "evals"
+    d.mkdir(parents=True, exist_ok=True)
+    for i, sc in enumerate(scores, 1):
+        (d / f"{i}.json").write_text(json.dumps({"eval": i, "score": sc, "candidate": "p"}))
+
+
+def test_collect_optimizations_phases_and_best(project: Path) -> None:
+    run = project / "oa_omni"
+    _write_oa_phase(run, "oa-explore-gepa", [0.5, 0.7])
+    _write_oa_phase(run, "oa-explore-best_of_n", [0.4])
+    _write_oa_phase(run, "oa-gepa", [0.6, 0.8])
+    (run / "oa-gepa" / "evals" / "torn.json").write_text("{not json")  # mid-write: skipped
+    (run / "oa_summary.json").write_text(json.dumps({"engine": "gepa", "phases": []}))
+
+    s = collect_state(project, _cfg())
+    (r,) = s["optimizations"]
+    assert r["run"] == "oa_omni" and r["done"] is True
+    by = {(p["engine"], p["phase"]): p for p in r["phases"]}
+    assert by[("gepa", "explore")]["points"][-1]["best"] == 0.7  # best-so-far, not raw
+    assert by[("best_of_n", "explore")]["points"] == [{"eval": 1, "score": 0.4, "best": 0.4}]
+    assert [q["best"] for q in by[("gepa", "main")]["points"]] == [0.6, 0.8]
+
+
+def test_collect_optimizations_running_run_not_done(project: Path) -> None:
+    _write_oa_phase(project / "oa_live", "oa-gepa", [0.5])  # no oa_summary.json yet
+    s = collect_state(project, _cfg())
+    (r,) = s["optimizations"]
+    assert r["done"] is False and r["phases"][0]["phase"] == "main"
+
+
+def test_no_optimization_dirs_is_empty(project: Path) -> None:
+    assert collect_state(project, _cfg())["optimizations"] == []
+
+
 def test_prompt_rewritten_flag(project: Path) -> None:
     esc = project / ".evsys" / "triggers" / "escalations" / "escalation-00000015.json"
     prompt = project / "prompt.txt"
