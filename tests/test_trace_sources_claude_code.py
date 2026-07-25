@@ -76,6 +76,23 @@ class TestFolding:
     def test_slug(self):
         assert project_slug("/Users/x/proj.name") == "-Users-x-proj-name"
 
+    def test_dict_tool_results_never_python_repr(self):
+        """toolUseResult payloads are dicts (e.g. Read results) — the folded
+        tool message must carry clean text, not str(dict) repr junk."""
+        lines = [
+            _line("user", "read that file"),
+            _line("assistant", [{"type": "tool_use", "id": "tu_9", "name": "Read",
+                                 "input": {"file_path": "/x.py"}}], req="r1"),
+            _line("user", [{"type": "tool_result", "tool_use_id": "tu_9",
+                            "content": "truncated..."}],
+                  toolUseResult={"type": "text",
+                                 "file": {"filePath": "/x.py", "content": "print('hi')\n"}}),
+        ]
+        messages, _ = fold_session(lines)
+        tool_msg = next(m for m in messages if m["role"] == "tool")
+        assert tool_msg["content"] == "print('hi')\n"
+        assert "{'type'" not in tool_msg["content"]
+
 
 class TestFeedback:
     def test_correction_interrupt_and_tool_errors(self):

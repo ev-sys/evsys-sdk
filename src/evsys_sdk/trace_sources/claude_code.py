@@ -53,13 +53,19 @@ def project_slug(project_path: str | Path) -> str:
 
 
 def _text(content: Any) -> str:
-    """Stringify a tool_result / message content that may be str or block list."""
+    """Stringify a tool_result / message content: str, block list, or dict
+    (``toolUseResult`` payloads) — never Python-repr junk in the trace."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "\n".join(
-            b.get("text", "") if isinstance(b, dict) else str(b) for b in content
-        )
+        return "\n".join(_text(b) for b in content)
+    if isinstance(content, dict):
+        for key in ("text", "content", "stdout"):
+            if isinstance(content.get(key), str):
+                return content[key]
+        if isinstance(content.get("file"), dict) and isinstance(content["file"].get("content"), str):
+            return content["file"]["content"]
+        return json.dumps(content, default=str)
     return "" if content is None else str(content)
 
 
