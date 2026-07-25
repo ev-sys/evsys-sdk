@@ -29,10 +29,15 @@ class FakeSandbox:
     def read(self, path: str) -> str | None:
         return self.fs.get(path)
 
-    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None):
+    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None, on_line=None):
         self.commands.append(cmd)
         if self.on_run:
-            return self.on_run(cmd)
+            code_out = self.on_run(cmd)
+            if on_line:
+                on_line(f"[stream] {code_out[1]}")
+            return code_out
+        if on_line:
+            on_line(f"[stream] ran: {cmd[:40]}")
         return 0, f"ran: {cmd[:60]}"
 
     def kill(self) -> None:
@@ -67,7 +72,7 @@ class TestManifest:
     def test_contents_and_tail(self, tmp_path):
         cwd, root, esc = _project(tmp_path)
         m = build_manifest(escalation_path=esc, root=root, cwd=cwd,
-                           prompt_file="prompt.txt", trace_tail_lines=3)
+                           artifacts=["prompt.txt"], trace_tail_lines=3)
         assert m[".evsys/triggers/escalations/escalation-00000007.json"]
         assert m[".evsys/triggers/policy.json"]
         assert m["prompt.txt"] == "seed prompt"
@@ -79,8 +84,17 @@ class TestManifest:
     def test_include_all_traces(self, tmp_path):
         cwd, root, esc = _project(tmp_path)
         m = build_manifest(escalation_path=esc, root=root, cwd=cwd,
-                           prompt_file="prompt.txt", include_traces="all")
+                           artifacts=["prompt.txt"], include_traces="all")
         assert len(m[".evsys/traces/claude_code/traces.jsonl"].splitlines()) == 10
+
+    def test_artifact_globs(self, tmp_path):
+        cwd, root, esc = _project(tmp_path)
+        (cwd / "configs").mkdir()
+        (cwd / "configs" / "planner.yaml").write_text("k: v")
+        m = build_manifest(escalation_path=esc, root=root, cwd=cwd,
+                           artifacts=["configs/*.yaml"])
+        assert m["configs/planner.yaml"] == "k: v"
+        assert "prompt.txt" not in m  # nothing is forced into the contract
 
 
 class TestRunRemote:
@@ -95,10 +109,11 @@ class TestRunRemote:
         result = run_remote(esc, agent_cfg=_cfg(), root=root, cwd=cwd,
                             verdict_path=root / "verdicts" / "escalation-00000007.json",
                             log_file=root / "agent-runs" / "escalation-00000007.log")
-        # setup + claude ran, in the workdir layout, sandbox torn down
+        # setup + sdk install + claude ran, in the workdir layout, sandbox torn down
         assert "npm install -g @anthropic-ai/claude-code" in sbx.commands[0]
-        assert sbx.commands[1].startswith("claude -p")
-        assert f"{WORKDIR}/.evsys/triggers/escalations/escalation-00000007.json" in sbx.commands[1]
+        assert sbx.commands[1] == "pip install evsys-sdk"
+        assert sbx.commands[2].startswith("claude -p")
+        assert f"{WORKDIR}/.evsys/triggers/escalations/escalation-00000007.json" in sbx.commands[2]
         assert sbx.killed
         # agent wrote nothing → no verdict, no stage 2
         assert result["stage2_exit"] is None and result["artifacts"] == []
@@ -133,6 +148,37 @@ class TestRunRemote:
         assert result["stage2_exit"] == 0 and s2.killed
         assert any("autoresearch agent" in c for c in s2.commands)
         assert f"{WORKDIR}/skills/fix-prompt/SKILL.md" in s2.fs
+        # the mission names the declared artifacts, and streams landed in the log
+        mission = next(c for c in s2.commands if "autoresearch agent" in c)
+        assert "prompt.txt" in mission
+        assert "[stream]" in (root / "agent-runs" / "e.log").read_text()
+
+    def test_custom_artifacts_not_prompt(self, tmp_path, monkeypatch):
+        """The improve-contract is user-declared — nothing forces prompt.txt."""
+        cwd, root, esc = _project(tmp_path)
+        (cwd / "planner.yaml").write_text("depth: 1")
+        s1, s2 = FakeSandbox(), FakeSandbox()
+
+        def agent1(cmd):
+            s1.fs[f"{WORKDIR}/.evsys/triggers/verdicts/escalation-00000007.json"] = json.dumps(
+                {"worth_autoresearch": True, "hypothesis": "raise depth"})
+            return 0, "yes"
+
+        def agent2(cmd):
+            s2.fs[f"{WORKDIR}/planner.yaml"] = "depth: 3"
+            s2.fs[f"{WORKDIR}/unrelated.txt"] = "should not escape"
+            return 0, "tuned planner"
+
+        s1.on_run, s2.on_run = agent1, agent2
+        self._wire(monkeypatch, [s1, s2])
+        run_remote(esc, agent_cfg=_cfg(artifacts=["planner.yaml"]), root=root, cwd=cwd,
+                   verdict_path=root / "verdicts" / "escalation-00000007.json",
+                   log_file=root / "agent-runs" / "e.log")
+        assert (cwd / "planner.yaml").read_text() == "depth: 3"
+        assert (cwd / "prompt.txt").read_text() == "seed prompt"   # untouched
+        assert not (cwd / "unrelated.txt").exists()                # not in the contract
+        mission = next(c for c in s2.commands if "autoresearch agent" in c)
+        assert "planner.yaml" in mission and "prompt.txt" not in mission
 
     def test_no_verdict_means_no_stage2(self, tmp_path, monkeypatch):
         cwd, root, esc = _project(tmp_path)

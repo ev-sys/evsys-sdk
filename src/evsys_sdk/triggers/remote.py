@@ -40,22 +40,24 @@ log = get_logger(__name__)
 
 WORKDIR = "/home/user/evsys"
 
-REMOTE_AUTORESEARCH_PROMPT = """You are the evsys **autoresearch agent**, running remotely in \
-PROMPT-ONLY mode. The trigger agent already judged this escalation worth fixing.
+REMOTE_AUTORESEARCH_PROMPT = """You are the evsys **autoresearch agent**, running remotely. The \
+trigger agent already judged this escalation worth fixing — your job is to actually improve the \
+system's artifacts.
 
 - Escalation event:  {escalation_path}
 - Trigger-agent verdict (read its hypothesis): {verdict_path}
 - Ingested traces (JSONL per source under this dir): {traces_dir}
-- The deployed agent's live system prompt: {prompt_file}
-- Skills: ./skills/  (follow the project's autoresearch skill if present)
+- The artifacts you may improve (project-relative; ONLY these leave this sandbox): {artifacts}
+- Skills: ./skills/  — the project's own improvement playbooks; follow them.
 
 Do this:
 1. Read the verdict's hypothesis and the implicated traces.
-2. OVERWRITE {prompt_file} with ONE improved system prompt that fixes the failure mode. Keep
-   everything that already works; change only what the hypothesis calls for.
-3. Do NOT write config, YAML, experiment, or training code. Do NOT touch anything else.
+2. Design the smallest change to the listed artifacts that addresses the failure mode. You MAY run
+   experiments with the evsys SDK (installed here): evaluations, and training/weight updates through
+   hosted backends (e.g. tinker) — compute happens on the backend, not in this sandbox.
+3. Rewrite the artifact(s). Anything you write outside the listed artifacts is discarded.
 
-Be decisive and cheap."""
+Be decisive; validate before you overwrite."""
 
 
 class _E2BSandbox:
@@ -77,9 +79,12 @@ class _E2BSandbox:
         except Exception:
             return None
 
-    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None) -> tuple[int, str]:
+    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None,
+            on_line: Any = None) -> tuple[int, str]:
+        cb = (lambda data: on_line(str(data))) if on_line else None
         result = self._sbx.commands.run(
             cmd, envs=self._envs, timeout=int(timeout_s), cwd=cwd,
+            on_stdout=cb, on_stderr=cb,
         )
         out = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
         return int(result.exit_code or 0), out
@@ -113,7 +118,7 @@ def build_manifest(
     escalation_path: Path,
     root: Path,
     cwd: Path,
-    prompt_file: str,
+    artifacts: list[str],
     include_traces: str = "window",
     trace_tail_lines: int = 500,
 ) -> dict[str, str]:
@@ -121,6 +126,7 @@ def build_manifest(
 
     Mirrors the local layout under the sandbox workdir so the agent's mission
     prompt can reference the same relative paths it would see on the host.
+    ``artifacts`` are the project-declared improvable files (globs allowed).
     """
     manifest: dict[str, str] = {}
 
@@ -132,7 +138,10 @@ def build_manifest(
 
     _add(f".evsys/triggers/escalations/{escalation_path.name}", escalation_path)
     _add(".evsys/triggers/policy.json", root / "policy.json")
-    _add(prompt_file, cwd / prompt_file)
+    for pattern in artifacts:
+        for match in sorted(cwd.glob(pattern)):
+            if match.is_file():
+                _add(str(match.relative_to(cwd)), match)
 
     # the gate fn source, when the live policy points at a .py file
     try:
@@ -172,10 +181,25 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
         code, out = sbx.run(remote_cfg.setup_cmd, timeout_s=600, cwd=WORKDIR)
         if code != 0:
             raise RuntimeError(f"[{stage}] setup_cmd failed ({code}): {out[-500:]}")
-    code, out = sbx.run(shlex.join(prompt_argv), timeout_s=remote_cfg.timeout_s, cwd=WORKDIR)
     log_file.parent.mkdir(parents=True, exist_ok=True)
+    # Observability: the sandbox agent's stdout streams into the SAME
+    # agent-runs log the local path uses, line by line — so `evsys ui`'s
+    # transcript panel (and `tail -f`) follows the remote claude live.
     with log_file.open("a") as f:
-        f.write(f"\n===== remote {stage} (exit {code}) =====\n{out}\n")
+        f.write(f"\n===== remote {stage}: started =====\n")
+        f.flush()
+
+        def _on_line(line: str) -> None:
+            f.write(line if line.endswith("\n") else line + "\n")
+            f.flush()
+
+        if getattr(remote_cfg, "sdk_install", None):
+            code, out = sbx.run(remote_cfg.sdk_install, timeout_s=600, cwd=WORKDIR)
+            if code != 0:  # best-effort: log it, don't kill the run
+                _on_line(f"[sdk_install failed ({code})] {out[-300:]}")
+        code, out = sbx.run(shlex.join(prompt_argv), timeout_s=remote_cfg.timeout_s,
+                            cwd=WORKDIR, on_line=_on_line)
+        f.write(f"===== remote {stage}: exit {code} =====\n")
     return code, out
 
 
@@ -202,8 +226,10 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
 
     envs = {k: os.environ[k] for k in remote_cfg.env_passthrough if os.environ.get(k)}
     prompt_file = getattr(agent_cfg, "prompt_file", None) or "prompt.txt"
+    # the general improve-contract; the prompt file is only the DEFAULT artifact
+    artifacts = list(remote_cfg.artifacts) or [prompt_file]
     manifest = build_manifest(
-        escalation_path=escalation_path, root=root, cwd=cwd, prompt_file=prompt_file,
+        escalation_path=escalation_path, root=root, cwd=cwd, artifacts=artifacts,
         include_traces=remote_cfg.include_traces,
         trace_tail_lines=remote_cfg.trace_tail_lines,
     )
@@ -231,14 +257,16 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
         code, _ = _stage_and_run(sbx, manifest=manifest, prompt_argv=argv,
                                  remote_cfg=remote_cfg, log_file=log_file, stage="trigger-agent")
         result["stage1_exit"] = code
-        pairs = [
-            (f".evsys/triggers/verdicts/{escalation_path.stem}.json", verdict_path),
-            (".evsys/triggers/policy.json", root / "policy.json"),
-            (prompt_file, cwd / prompt_file),
-        ]
+        pair_map: dict[str, Path] = {
+            f".evsys/triggers/verdicts/{escalation_path.stem}.json": verdict_path,
+            ".evsys/triggers/policy.json": root / "policy.json",
+        }
+        for rel in manifest:
+            if not rel.startswith(".evsys/") and not rel.startswith("skills/"):
+                pair_map[rel] = cwd / rel
         if gate_rel:
-            pairs.append((gate_rel, cwd / gate_rel))
-        result["artifacts"] = _copy_back(sbx, pairs, manifest)
+            pair_map[gate_rel] = cwd / gate_rel
+        result["artifacts"] = _copy_back(sbx, list(pair_map.items()), manifest)
     finally:
         sbx.kill()
 
@@ -250,11 +278,12 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
         pass
     if (verdict.get("worth_autoresearch") and remote_cfg.autoresearch_sandbox
             and getattr(agent_cfg, "autoresearch", True)):
-        prompt = REMOTE_AUTORESEARCH_PROMPT.format(
+        template = remote_cfg.autoresearch_prompt_template or REMOTE_AUTORESEARCH_PROMPT
+        prompt = template.format(
             escalation_path=sbx_esc,
             verdict_path=f".evsys/triggers/verdicts/{escalation_path.stem}.json",
             traces_dir=".evsys/traces",
-            prompt_file=prompt_file,
+            artifacts=", ".join(artifacts),
         )
         argv2 = [getattr(agent_cfg, "claude_bin", "claude"), "-p", prompt,
                  "--permission-mode", getattr(agent_cfg, "permission_mode", "acceptEdits")]
@@ -268,7 +297,9 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
                                       remote_cfg=remote_cfg, log_file=log_file,
                                       stage="autoresearch")
             result["stage2_exit"] = code2
-            result["artifacts"] += _copy_back(sbx2, [(prompt_file, cwd / prompt_file)], manifest2)
+            art_pairs = [(rel, cwd / rel) for rel in manifest2
+                         if not rel.startswith(".evsys/") and not rel.startswith("skills/")]
+            result["artifacts"] += _copy_back(sbx2, art_pairs, manifest2)
         finally:
             sbx2.kill()
 

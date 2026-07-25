@@ -113,6 +113,23 @@ class RemoteAgentConfig(_Strict):
     autoresearch_sandbox: bool = True
     """On a YES verdict, run the autoresearch stage in its OWN fresh sandbox
     (with the same staged skills) instead of inside the trigger agent's."""
+    artifacts: list[str] = Field(default_factory=list)
+    """The GENERAL improve-contract: project-relative files/globs the agents
+    may rewrite; they are staged in and copied back only when changed. Empty →
+    defaults to ``[prompt_file]`` (the demo convention) — set this to make the
+    loop improve anything else (config files, templates, few-shot banks, ...).
+    The gate's own artifacts (verdict, policy.json, the gate .py) are always
+    part of the contract and need not be listed."""
+    autoresearch_prompt_template: str | None = None
+    """Override the autoresearch sandbox's mission (format keys:
+    ``{escalation_path} {verdict_path} {traces_dir} {artifacts}``). The default
+    is artifact-general: follow the project's skills, experiments via the evsys
+    SDK are allowed (evals; weight updates through hosted backends like
+    tinker), rewrite only the declared artifacts."""
+    sdk_install: str | None = "pip install evsys-sdk"
+    """Best-effort extra install so the agents can use the SDK in-sandbox
+    (evals etc.). Failures are logged into the agent log, not fatal — bake a
+    ``template`` for guaranteed deps. None disables."""
 
 
 class TriggerAgentConfig(_Strict):
