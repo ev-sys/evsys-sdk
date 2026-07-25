@@ -97,6 +97,20 @@ def _launch(cmd: list[str], *, cwd: str | Path, log_file: Path, detach: bool) ->
 _LAUNCH = _launch  # seam
 
 
+def _snapshot_prompt(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path) -> None:
+    """Copy the live prompt file to ``<root>/prompt-snapshots/<escalation>.txt`` so
+    the UI can diff an autoresearch rewrite against what the agent started from.
+    Best-effort: a missing prompt file just means no snapshot."""
+    prompt = cwd / (getattr(agent_cfg, "prompt_file", None) or "prompt.txt")
+    try:
+        text = prompt.read_text()
+    except OSError:
+        return
+    snap = root / "prompt-snapshots" / f"{escalation_path.stem}.txt"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    snap.write_text(text)
+
+
 def spawn(escalation_path: str | Path, *, agent_cfg: Any, root: str | Path,
           cwd: str | Path | None = None, detach: bool = True) -> Any:
     """Spawn the trigger agent on one escalation event. Returns the Popen (detached)
@@ -106,6 +120,8 @@ def spawn(escalation_path: str | Path, *, agent_cfg: Any, root: str | Path,
     verdict_path = root / "verdicts" / f"{escalation_path.stem}.json"
     verdict_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = root / "agent-runs" / f"{escalation_path.stem}.log"
+    _snapshot_prompt(escalation_path, agent_cfg=agent_cfg, root=root,
+                     cwd=Path(cwd or root.parent.parent))
     cmd = build_command(escalation_path, agent_cfg=agent_cfg, root=root, verdict_path=verdict_path)
     log.info("[trigger] spawning agent on %s (detach=%s)", escalation_path.name, detach)
     return _LAUNCH(cmd, cwd=(cwd or root.parent.parent), log_file=log_file, detach=detach)

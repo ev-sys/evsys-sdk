@@ -179,3 +179,31 @@ def test_spawn_foreground_returns_proc(tmp_path, monkeypatch):
     proc = agentmod.spawn(tmp_path / "escalations" / "e.json",
                           agent_cfg=TriggerAgentConfig(enabled=True), root=tmp_path, detach=False)
     assert proc.returncode == 0 and proc.stdout == "verdict written"
+
+
+# 7. Prompt snapshot at spawn time -----------------------------------------
+
+def test_spawn_snapshots_prompt(tmp_path, monkeypatch):
+    _record_launch(monkeypatch)
+    root = tmp_path / ".evsys" / "triggers"
+    (tmp_path / "prompt.txt").write_text("old prompt\n")
+    agentmod.spawn(root / "escalations" / "escalation-00000003.json",
+                   agent_cfg=TriggerAgentConfig(enabled=True), root=root)  # default cwd = root/../..
+    snap = root / "prompt-snapshots" / "escalation-00000003.txt"
+    assert snap.read_text() == "old prompt\n"
+
+
+def test_spawn_snapshots_custom_prompt_file(tmp_path, monkeypatch):
+    _record_launch(monkeypatch)
+    (tmp_path / "sys.md").write_text("custom artifact")
+    agentmod.spawn(tmp_path / "escalations" / "e.json",
+                   agent_cfg=TriggerAgentConfig(enabled=True, prompt_file="sys.md"),
+                   root=tmp_path, cwd=tmp_path)
+    assert (tmp_path / "prompt-snapshots" / "e.txt").read_text() == "custom artifact"
+
+
+def test_spawn_no_prompt_file_no_snapshot(tmp_path, monkeypatch):
+    _record_launch(monkeypatch)
+    agentmod.spawn(tmp_path / "escalations" / "e.json",
+                   agent_cfg=TriggerAgentConfig(enabled=True), root=tmp_path, cwd=tmp_path)
+    assert not (tmp_path / "prompt-snapshots").exists()
