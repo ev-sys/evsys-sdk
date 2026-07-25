@@ -207,3 +207,32 @@ def test_spawn_no_prompt_file_no_snapshot(tmp_path, monkeypatch):
     agentmod.spawn(tmp_path / "escalations" / "e.json",
                    agent_cfg=TriggerAgentConfig(enabled=True), root=tmp_path, cwd=tmp_path)
     assert not (tmp_path / "prompt-snapshots").exists()
+
+
+# 8. Distill mode ------------------------------------------------------------
+
+def test_distill_mode_selects_distill_prompt():
+    cfg = TriggerAgentConfig(enabled=True, mode="distill",
+                             distill={"experiment_template": "tpl/opd.yaml",
+                                      "holdout_fraction": 0.25})
+    prompt = build_command("/s/escalations/escalation-00000001.json", agent_cfg=cfg,
+                           root="/s", verdict_path="/s/v.json")[2]
+    assert "distiller agent" in prompt
+    assert "tpl/opd.yaml" in prompt and "0.25" in prompt
+    # the two hard rules are spelled out
+    assert "Do NOT invoke the `training-decider`" in prompt
+    assert "distill-traces" in prompt
+    # verdict-mode phrasing absent
+    assert "autoresearch budget" not in prompt
+
+
+def test_verdict_mode_unchanged_by_distill_fields():
+    cfg = TriggerAgentConfig(enabled=True, mode="verdict")
+    prompt = build_command("/s/e.json", agent_cfg=cfg, root="/s", verdict_path="/s/v.json")[2]
+    assert "trigger agent" in prompt and "distiller" not in prompt
+
+
+def test_prompt_template_overrides_distill_default():
+    cfg = TriggerAgentConfig(enabled=True, mode="distill", prompt_template="CUSTOM {escalation_path}")
+    prompt = build_command("/s/e.json", agent_cfg=cfg, root="/s", verdict_path="/s/v.json")[2]
+    assert prompt == "CUSTOM /s/e.json"

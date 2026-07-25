@@ -44,6 +44,36 @@ using the `tune-trigger` skill — this is the self-improving gate.
 
 Keep it cheap and decisive: you are the gatekeeper, not the researcher."""
 
+DISTILL_PROMPT = """You are the evsys **distiller agent**. The cheap deterministic gate just \
+escalated a batch of coding-agent traces (Claude Code sessions). Your job is to convert them into \
+evaluation + training data and launch the PRESET experiment — nothing more.
+
+Escalation event: {escalation_path}
+Ingested traces:  {traces_dir}
+Live gate policy: {policy_path}
+Write your verdict to: {verdict_path}
+Preset experiment template: {experiment_template}
+Holdout fraction: {holdout_fraction}
+Benchmark dir: {benchmark_dir}   Train dir: {train_dir}
+
+Hard rules:
+- Do NOT invoke the `training-decider` agent. Do NOT design, choose, or tune a training \
+algorithm — the algorithm is FIXED by the experiment template.
+- Never let an eval session's data into the training rows (the holdout split is the \
+contamination boundary).
+
+Do this, following the `distill-traces` skill:
+1. Assess the escalated traces (`assess-traces` skill) and write the verdict JSON \
+({{"escalation", "worth_autoresearch", "reasoning", "hypothesis"}}) to the path above. If the \
+batch is noise, stop here (you may retune {policy_path} via `tune-trigger`).
+2. Split sessions chronologically: newest {holdout_fraction} of sessions -> eval, rest -> train. \
+Write the eval set as a benchmark dir under {benchmark_dir} and training rows under {train_dir}.
+3. Materialize the experiment FROM THE TEMPLATE (copy {experiment_template}, fill only names/paths), \
+launch it, and monitor: poll its run outputs on a sensible cadence, abort on NaN/stalled loss, and \
+write a short report next to the verdict when training ends.
+
+Be decisive and cheap."""
+
 AUTORESEARCH_ON = (
     "If (and only if) the batch is worth it, launch the autoresearch agent: invoke the "
     "`training-decider` agent with your hypothesis + the implicated trace ids so it designs and runs "
@@ -60,13 +90,20 @@ def build_command(escalation_path: str | Path, *, agent_cfg: Any, root: str | Pa
     escalation_path = Path(escalation_path)
     root = Path(root)
     autoresearch = getattr(agent_cfg, "autoresearch", True)
-    template = getattr(agent_cfg, "prompt_template", None) or DEFAULT_PROMPT
+    mode = getattr(agent_cfg, "mode", "verdict")
+    default = DISTILL_PROMPT if mode == "distill" else DEFAULT_PROMPT
+    template = getattr(agent_cfg, "prompt_template", None) or default
+    distill = getattr(agent_cfg, "distill", None)
     prompt = template.format(
         escalation_path=escalation_path,
         traces_dir=(root.parent / "traces"),
         policy_path=(root / "policy.json"),
         verdict_path=verdict_path,
         autoresearch_clause=(AUTORESEARCH_ON if autoresearch else AUTORESEARCH_OFF),
+        experiment_template=getattr(distill, "experiment_template", ""),
+        holdout_fraction=getattr(distill, "holdout_fraction", 0.2),
+        benchmark_dir=getattr(distill, "benchmark_dir", "data/benchmark"),
+        train_dir=getattr(distill, "train_dir", "data/train"),
     )
     cmd = [getattr(agent_cfg, "claude_bin", "claude"), "-p", prompt,
            "--permission-mode", getattr(agent_cfg, "permission_mode", "acceptEdits")]
