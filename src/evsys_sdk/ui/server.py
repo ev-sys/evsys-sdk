@@ -129,6 +129,34 @@ def _collect_escalations(root: Path) -> list[dict]:
 
 #: Eval points shipped per optimization phase per poll.
 OPT_TAIL = 400
+#: Context items shipped per source per poll (newest first).
+CONTEXT_TAIL = 50
+
+
+def _collect_context(project_dir: Path) -> dict:
+    """Ingested context (``.evsys/context/<source>/items.jsonl``, the context
+    daemon's landing layout) → newest items per source for the context card.
+    Empty when the project has no context — the card hides itself."""
+    root = project_dir / ".evsys" / "context"
+    sources: dict[str, list[dict]] = {}
+    total = 0
+    if root.is_dir():
+        for src_dir in sorted(root.iterdir()):
+            items_path = src_dir / "items.jsonl"
+            if not items_path.is_file():
+                continue
+            rows, _ = _tail_jsonl(items_path, CONTEXT_TAIL)
+            total += len(rows)
+            sources[src_dir.name] = [
+                {
+                    "item_id": r.get("item_id"),
+                    "entity": r.get("entity"),
+                    "content": r.get("content"),
+                    "metadata": r.get("metadata") or {},
+                }
+                for r in reversed(rows)  # newest first
+            ]
+    return {"sources": sources, "total": total}
 
 
 def _collect_optimizations(project_dir: Path) -> list[dict]:
@@ -167,11 +195,16 @@ def _collect_optimizations(project_dir: Path) -> list[dict]:
                 "summary": _read_json(pd / "summary.json"),
             })
         summary = _read_json(run_dir / "oa_summary.json")
+        prompts = _read_json(run_dir / "prompts.json") or {}
         runs.append({
             "run": run_dir.name,
             "phases": phases,
             "summary": summary,
             "done": summary is not None,
+            "best_prompt": prompts.get("system_prompt"),
+            # optional showcase rows a project drops next to the run:
+            # [{brief, real, seed_gen, seed_score, opt_gen, opt_score, ...}]
+            "examples": _read_json(run_dir / "examples.json") or [],
             "mtime": _mtime(run_dir),
         })
     return runs
@@ -272,6 +305,7 @@ def collect_state(
             "diff_base": diff_base,
         },
         "optimizations": _collect_optimizations(project_dir),
+        "context": _collect_context(project_dir),
     }
 
 

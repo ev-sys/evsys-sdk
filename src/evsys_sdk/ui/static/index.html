@@ -263,6 +263,21 @@
   .optlegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); padding: 8px 14px 0; }
   .optlegend span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px;
     margin-right: 6px; vertical-align: middle; background: var(--lc, var(--muted)); }
+  .ctxitem { border-bottom: 1px solid var(--border); }
+  .ctxitem summary { cursor: pointer; font-size: 12px; padding: 7px 14px; color: var(--ink-2); list-style: none; }
+  .ctxitem summary b { color: var(--ink); }
+  .ctxitem pre { margin: 0 14px 8px; }
+  .ctxmeta { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 0 14px 8px; }
+  .exrow { margin-bottom: 14px; }
+  .exbrief { font-size: 12px; color: var(--ink-2); margin: 0 0 6px; }
+  .exbrief b { color: var(--ink); }
+  .exgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .exmail { border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; background: var(--page); }
+  .exmail .eh { font-size: 10px; font-weight: 700; display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .exmail.real .eh { color: var(--good-text); }
+  .exmail.seedg .eh { color: var(--critical); }
+  .exmail.optg .eh { color: var(--series); }
+  .exmail pre { max-height: 200px; font-size: 10px; }
 
   /* ---------- prompt rewrite diff ---------- */
   .dline { display: block; margin: 0 -14px; padding: 0 14px; }
@@ -308,10 +323,17 @@
   <div class="card optcard">
     <div class="hd"><span class="title">Prompt optimization</span><span class="sub" id="optSub">–</span></div>
     <div class="escpick" id="optPick"></div>
-    <div class="optlegend" id="optLegend"></div>
-    <div class="bd">
+    <div class="tabs" id="optTabs">
+      <button data-tab="chart" class="on">engine race</button>
+      <button data-tab="prompt">final prompt</button>
+      <button data-tab="examples">before / after</button>
+    </div>
+    <div class="bd" id="optBodyChart">
+      <div class="optlegend" id="optLegend"></div>
       <div class="chartwrap"><svg id="optChart" height="200"></svg><div class="tip" id="optTip"></div></div>
     </div>
+    <div class="bd tight" id="optBodyPrompt" style="display:none"><pre class="code soft" id="optPrompt">–</pre></div>
+    <div class="bd tight" id="optBodyExamples" style="display:none"><div id="optExamples" style="padding:10px 14px"></div></div>
   </div>
 </div>
 
@@ -321,6 +343,10 @@
     <div class="card">
       <div class="hd"><span class="title">Production traces</span><span class="sub" id="traceSub">–</span></div>
       <div class="bd tight" id="traceFeed"><div class="empty">no traces ingested yet</div></div>
+    </div>
+    <div class="card" id="ctxCard" style="display:none">
+      <div class="hd"><span class="title">Context</span><span class="sub" id="ctxSub">–</span></div>
+      <div class="bd tight lograil" id="ctxFeed"></div>
     </div>
   </div>
 
@@ -378,7 +404,7 @@ const $ = id => document.getElementById(id);
   if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let STATE = null;
-const ui = { openTraces: new Set(), gateTab: "policy", promptTab: "diff", escSel: null, optSel: null, hashes: {} };
+const ui = { openTraces: new Set(), gateTab: "policy", promptTab: "diff", escSel: null, optSel: null, optTab: "chart", hashes: {} };
 
 /* ---------- theme ---------- */
 $("themeBtn").onclick = () => {
@@ -629,6 +655,23 @@ function renderEscalations(s, force) {
   det.innerHTML = html;
 }
 
+/* ---------- context ---------- */
+function renderContext(s) {
+  const ctx = s.context || {sources: {}, total: 0};
+  const card = $("ctxCard");
+  card.style.display = ctx.total ? "" : "none";
+  if (!ctx.total || !changed("ctx", [Object.keys(ctx.sources), ctx.total])) return;
+  const srcs = Object.entries(ctx.sources);
+  $("ctxSub").textContent = `${ctx.total} items · ${srcs.map(([k]) => k).join(", ")}`;
+  $("ctxFeed").innerHTML = srcs.map(([src, items]) => items.map(it => {
+    const meta = it.metadata || {};
+    const title = (it.content || "").split("\n").find(l => l.trim()) || it.item_id || "(empty)";
+    return `<details class="ctxitem"><summary><b>${esc(it.entity || src)}</b> · ${esc(String(title).slice(0, 70))}</summary>
+      <pre class="code soft" style="max-height:220px">${esc(it.content || "")}</pre>
+      <div class="ctxmeta">${esc(meta.path || it.item_id || "")}</div></details>`;
+  }).join("")).join("");
+}
+
 /* ---------- prompt optimization (optimize_anything runs) ---------- */
 function engColor(engine) {
   const v = getComputedStyle(document.documentElement).getPropertyValue("--eng-" + engine).trim();
@@ -641,8 +684,27 @@ function renderOptim(s, force) {
   if (!runs.length) return;
   if (!ui.optSel || !runs.some(r => r.run === ui.optSel)) ui.optSel = runs[runs.length - 1].run;
   const run = runs.find(r => r.run === ui.optSel);
-  const sig = [ui.optSel, run.phases.map(p => [p.engine, p.phase, p.points.length])];
+  const sig = [ui.optSel, ui.optTab, run.phases.map(p => [p.engine, p.phase, p.points.length])];
   if (!force && !changed("optim", sig)) return;
+
+  $("optTabs").querySelectorAll("button").forEach(b => {
+    b.classList.toggle("on", b.dataset.tab === ui.optTab);
+    b.onclick = () => { ui.optTab = b.dataset.tab; renderOptim(STATE, true); };
+  });
+  $("optBodyChart").style.display = ui.optTab === "chart" ? "" : "none";
+  $("optBodyPrompt").style.display = ui.optTab === "prompt" ? "" : "none";
+  $("optBodyExamples").style.display = ui.optTab === "examples" ? "" : "none";
+  $("optPrompt").textContent = run.best_prompt || "(no prompts.json yet — run still optimizing)";
+  const exs = run.examples || [];
+  $("optExamples").innerHTML = exs.length ? exs.map(x => `
+    <div class="exrow">
+      <p class="exbrief"><b>Brief:</b> ${esc(x.brief || "")}</p>
+      <div class="exgrid">
+        <div class="exmail real"><div class="eh"><span>REAL</span></div><pre class="code soft">${esc(x.real || "")}</pre></div>
+        <div class="exmail seedg"><div class="eh"><span>SEED</span><span>${x.seed_score != null ? (+x.seed_score).toFixed(2) : ""}</span></div><pre class="code soft">${esc(x.seed_gen || "")}</pre></div>
+        <div class="exmail optg"><div class="eh"><span>OPTIMIZED</span><span>${(x.omni_score ?? x.opt_score) != null ? (+(x.omni_score ?? x.opt_score)).toFixed(2) : ""}</span></div><pre class="code soft">${esc(x.omni_gen || x.opt_gen || "")}</pre></div>
+      </div>
+    </div>`).join("") : '<div class="empty">no examples.json for this run</div>';
 
   $("optPick").innerHTML = runs.map(r =>
     `<button data-id="${esc(r.run)}" class="${r.run === ui.optSel ? "on" : ""}">${esc(r.run)}${r.done ? "" : " ⋯"}</button>`).join("");
@@ -750,6 +812,7 @@ function render(force) {
   renderEscalations(STATE, force);
   renderPrompt(STATE, force);
   renderOptim(STATE, force);
+  renderContext(STATE);
 }
 async function tick() {
   try {
