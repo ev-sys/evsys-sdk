@@ -35,7 +35,10 @@ dependencies = [
     "google-genai>=0.5",
     "openai>=1.40",
     # --- Prompt optimization ---
-    "gepa>=0.0.7",
+    # optimize_anything's engine-pluggable API (engine=gepa/autoresearch/...)
+    # is newer than the PyPI 0.1.4 wheel; until it ships, install from git:
+    #   uv pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa"
+    "gepa>=0.1.4",
 ]
 
 [project.optional-dependencies]
