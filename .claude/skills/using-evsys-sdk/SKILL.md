@@ -8,7 +8,7 @@ description: How to push training runs (SFT/RL/distillation) to the EvolvingSyst
 This SDK is the **write side** of the EvolvingSystems dashboard. It pushes
 experiments, per-step training metrics, eval runs, predictions, and a final
 conclusion to the backend at `/api/dashboard/api/sdk/...`. The backend persists
-to Supabase; the dashboard at `dev.evolvingsystems.com` reads from there.
+to Supabase; the dashboard at `dev.evolvingsystems.ai` reads from there.
 
 If you only need to **read** previous runs (history, prior hypotheses,
 checkpoints), use the `getting-experiment-context` skill instead.
