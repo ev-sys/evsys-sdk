@@ -178,7 +178,35 @@ def test_collect_optimizations_running_run_not_done(project: Path) -> None:
 
 
 def test_no_optimization_dirs_is_empty(project: Path) -> None:
-    assert collect_state(project, _cfg())["optimizations"] == []
+    s = collect_state(project, _cfg())
+    assert s["optimizations"] == []
+    assert s["context"] == {"sources": {}, "total": 0}
+
+
+def test_optimization_best_prompt_and_examples(project: Path) -> None:
+    run = project / "oa_x"
+    _write_oa_phase(run, "oa-gepa", [0.6])
+    (run / "prompts.json").write_text(json.dumps({"system_prompt": "WRITE LIKE ME"}))
+    (run / "examples.json").write_text(json.dumps(
+        [{"brief": "b", "real": "r", "seed_gen": "s", "seed_score": 0.4,
+          "omni_gen": "o", "omni_score": 0.8}]))
+    (r,) = collect_state(project, _cfg())["optimizations"]
+    assert r["best_prompt"] == "WRITE LIKE ME"
+    assert r["examples"][0]["omni_score"] == 0.8
+
+
+def test_collect_context_items(project: Path) -> None:
+    d = project / ".evsys" / "context" / "directory"
+    d.mkdir(parents=True)
+    rows = [{"item_id": f"i{n}", "source": "directory", "entity": "shrey",
+             "content": f"Subject: hello {n}\n\nbody", "metadata": {"path": f"/x/{n}.txt"}}
+            for n in range(3)]
+    (d / "items.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows) + "{torn")
+    ctx = collect_state(project, _cfg())["context"]
+    assert ctx["total"] == 3
+    items = ctx["sources"]["directory"]
+    assert items[0]["item_id"] == "i2"  # newest first
+    assert items[0]["entity"] == "shrey" and "hello 2" in items[0]["content"]
 
 
 def test_prompt_rewritten_flag(project: Path) -> None:
