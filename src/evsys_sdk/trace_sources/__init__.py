@@ -7,7 +7,8 @@ below), so ``@register_trace_source`` fires on ``import evsys_sdk``.
 
 from __future__ import annotations
 
-# Side-effect import: registers @register_trace_source("langgraph").
+# Side-effect imports: register the built-in @register_trace_source adapters.
+from . import claude_code as _claude_code  # noqa: F401
 from . import langgraph as _langgraph  # noqa: F401
 from .base import BaseTraceSource, TraceHook
 from .runtime import build_trace_sources, run_pull
