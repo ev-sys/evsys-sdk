@@ -80,6 +80,41 @@ class TracesConfig(_Strict):
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
 
 
+class RemoteAgentConfig(_Strict):
+    """The ``trigger.agent.remote`` block — run the trigger + autoresearch
+    agents in E2B sandboxes instead of on the host.
+
+    State moves by **copy-in / copy-out**: the sandbox is staged with a snapshot
+    of exactly what the agent may read (escalation, trace window, live policy,
+    gate fn, prompt file, skills), and only the known artifact set (verdict,
+    ``policy.json``, the gate ``.py``, the prompt file) is copied back — so the
+    daemon's hot-reload semantics are unchanged and the sandbox needs no
+    network path back to the host. Requires ``E2B_API_KEY`` locally and the
+    ``remote`` extra (``pip install evsys-sdk[remote]``).
+    """
+
+    enabled: bool = False
+    """Run agents remotely. The ``--remote`` CLI flag flips this to True."""
+    provider: Literal["e2b"] = "e2b"
+    template: str | None = None
+    """E2B template id. None → the provider default (plus ``setup_cmd``)."""
+    setup_cmd: str | None = "npm install -g @anthropic-ai/claude-code"
+    """Run once after sandbox creation — installs the agents' dependencies.
+    Use a prebuilt ``template`` instead to skip this (faster spawns)."""
+    timeout_s: float = 1800.0
+    """Per-agent wall clock inside the sandbox."""
+    env_passthrough: list[str] = Field(default_factory=lambda: ["ANTHROPIC_API_KEY"])
+    """Local env vars injected into the sandbox (headless claude in a sandbox
+    authenticates via ANTHROPIC_API_KEY; there is no OAuth in there)."""
+    include_traces: Literal["window", "all"] = "window"
+    """How much of each traces.jsonl to stage: the recent tail or everything."""
+    trace_tail_lines: int = 500
+    """Tail size per source when ``include_traces: window``."""
+    autoresearch_sandbox: bool = True
+    """On a YES verdict, run the autoresearch stage in its OWN fresh sandbox
+    (with the same staged skills) instead of inside the trigger agent's."""
+
+
 class TriggerAgentConfig(_Strict):
     """The ``trigger.agent`` block — how an escalation spawns the headless trigger
     agent (``claude -p``). Disabled by default: with ``enabled: false`` the gate
@@ -107,6 +142,8 @@ class TriggerAgentConfig(_Strict):
     """The live artifact autoresearch may rewrite, relative to the spawn cwd.
     Snapshotted to ``<state_dir>/prompt-snapshots/<escalation>.txt`` at spawn time
     so the UI can diff the rewrite against what the agent started from."""
+    remote: RemoteAgentConfig = Field(default_factory=RemoteAgentConfig)
+    """Run the agents in E2B sandboxes instead of on the host."""
 
 
 class TriggerConfig(_Strict):

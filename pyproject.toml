@@ -46,6 +46,11 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
+# Remote (E2B) execution of the trigger + autoresearch agents. Lazy-imported;
+# only needed when trigger.agent.remote.enabled / --remote is used.
+remote = [
+    "e2b>=1.0",
+]
 # Opt-in trace ingestion from hosted observability platforms. Adapters
 # lazy-import their client, so `import evsys_sdk` works without this extra.
 traces = [

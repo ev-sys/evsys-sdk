@@ -122,6 +122,14 @@ def spawn(escalation_path: str | Path, *, agent_cfg: Any, root: str | Path,
     log_file = root / "agent-runs" / f"{escalation_path.stem}.log"
     _snapshot_prompt(escalation_path, agent_cfg=agent_cfg, root=root,
                      cwd=Path(cwd or root.parent.parent))
+    remote_cfg = getattr(agent_cfg, "remote", None)
+    if remote_cfg is not None and getattr(remote_cfg, "enabled", False):
+        from .remote import spawn_remote
+
+        log.info("[trigger] spawning REMOTE agent on %s (detach=%s)", escalation_path.name, detach)
+        return spawn_remote(escalation_path, agent_cfg=agent_cfg, root=root,
+                            cwd=Path(cwd or root.parent.parent),
+                            verdict_path=verdict_path, log_file=log_file, detach=detach)
     cmd = build_command(escalation_path, agent_cfg=agent_cfg, root=root, verdict_path=verdict_path)
     log.info("[trigger] spawning agent on %s (detach=%s)", escalation_path.name, detach)
     return _LAUNCH(cmd, cwd=(cwd or root.parent.parent), log_file=log_file, detach=detach)
