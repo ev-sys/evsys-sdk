@@ -80,27 +80,47 @@ class TracesConfig(_Strict):
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
 
 
+class SandboxSpec(_Strict):
+    """Which sandbox provider runs the agents, by registry name + params. e.g.
+    ``{kind: e2b, params: {template: evsys-agent}}`` or ``{kind: local}``.
+
+    ``kind`` is any ``@register_sandbox`` provider — the built-in ``e2b`` and
+    ``local``, or one the project registers itself. ``params`` are validated
+    against that provider's ``Config``, so provider-specific knobs (an E2B
+    template id, a region, a machine size) live here instead of leaking into
+    the provider-agnostic block above."""
+
+    kind: str = "e2b"
+    """Registry key of the @register_sandbox provider. ``evsys list sandboxes``."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Provider-specific parameters; validated against <Sandbox>.Config."""
+
+
 class RemoteAgentConfig(_Strict):
     """The ``trigger.agent.remote`` block — run the trigger + autoresearch
-    agents in E2B sandboxes instead of on the host.
+    agents in a sandbox instead of on the host.
 
     State moves by **copy-in / copy-out**: the sandbox is staged with a snapshot
     of exactly what the agent may read (escalation, trace window, live policy,
     gate fn, prompt file, skills), and only the known artifact set (verdict,
-    ``policy.json``, the gate ``.py``, the prompt file) is copied back — so the
-    daemon's hot-reload semantics are unchanged and the sandbox needs no
-    network path back to the host. Requires ``E2B_API_KEY`` locally and the
-    ``remote`` extra (``pip install evsys-sdk[remote]``).
+    ``policy.json``, the gate ``.py``, the declared artifacts) is copied back —
+    so the daemon's hot-reload semantics are unchanged and the sandbox needs no
+    network path back to the host.
+
+    Everything here is provider-agnostic; *which* sandbox runs is the
+    :class:`SandboxSpec` under ``sandbox:``. The default (``e2b``) needs
+    ``E2B_API_KEY`` locally and the ``remote`` extra
+    (``pip install evsys-sdk[remote]``).
     """
 
     enabled: bool = False
     """Run agents remotely. The ``--remote`` CLI flag flips this to True."""
-    provider: Literal["e2b"] = "e2b"
-    template: str | None = None
-    """E2B template id. None → the provider default (plus ``setup_cmd``)."""
+    sandbox: SandboxSpec = Field(default_factory=SandboxSpec)
+    """The provider that supplies the sandbox — ``{kind, params}``."""
     setup_cmd: str | None = "npm install -g @anthropic-ai/claude-code"
     """Run once after sandbox creation — installs the agents' dependencies.
-    Use a prebuilt ``template`` instead to skip this (faster spawns)."""
+    A provider that can boot a prebuilt image (e.g. ``sandbox.params.template``
+    on E2B) skips this and spawns much faster. None disables."""
     timeout_s: float = 1800.0
     """Per-agent wall clock inside the sandbox."""
     env_passthrough: list[str] = Field(default_factory=lambda: ["ANTHROPIC_API_KEY"])
@@ -129,7 +149,7 @@ class RemoteAgentConfig(_Strict):
     sdk_install: str | None = "pip install evsys-sdk"
     """Best-effort extra install so the agents can use the SDK in-sandbox
     (evals etc.). Failures are logged into the agent log, not fatal — bake a
-    ``template`` for guaranteed deps. None disables."""
+    provider image for guaranteed deps. None disables."""
 
 
 class TriggerAgentConfig(_Strict):

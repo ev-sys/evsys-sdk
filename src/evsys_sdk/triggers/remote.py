@@ -1,28 +1,35 @@
-"""Remote (E2B) execution for the trigger + autoresearch agents.
+"""Remote (sandboxed) execution for the trigger + autoresearch agents.
 
 Instead of shelling out to ``claude -p`` on the host, each agent runs in its
-own E2B sandbox — the trigger agent first; on a YES verdict, a SECOND fresh
+own fresh sandbox — the trigger agent first; on a YES verdict, a SECOND fresh
 sandbox runs the autoresearch stage. Both get the same staged skills.
+
+*Which* sandbox is a config choice, not a fact about this module: the provider
+is resolved by name through the sandbox registry
+(:mod:`evsys_sdk.sandboxes`), so ``sandbox: {kind: e2b}``,
+``{kind: local}``, or a provider the project registered itself all run the
+identical two-stage flow. Everything below talks to
+:class:`~evsys_sdk.sandboxes.base.BaseSandbox`.
 
 **Why copy-in / copy-out** (the traces-access decision): the agent contract is
 already file-based — an escalation JSON, a window of traces, the live policy,
 the gate fn source, the prompt file, skills. All small. So the sandbox is
-staged with a snapshot of exactly that corpus under :data:`WORKDIR`, the agent
+staged with a snapshot of exactly that corpus under its workdir, the agent
 runs against local-looking relative paths, and afterwards only the known
 artifact set is copied back to the host:
 
   * ``verdict.json``      → the driver's verdicts dir
   * ``policy.json``       → the gate retune (daemon hot-reloads it)
   * the gate ``.py``      → a rewritten trigger fn (hot-reloaded too)
-  * the prompt file       → the autoresearch rewrite
+  * the declared artifacts → the autoresearch rewrites
 
 No tunnels, no host filesystem mounts, no inbound network: the sandbox holds
 nothing but the staged snapshot and the model key. A malicious or confused
-agent can at worst corrupt the four files we explicitly copy back.
+agent can at worst corrupt the files we explicitly copy back.
 
-The E2B SDK is imported lazily (``remote`` extra); tests replace
-:data:`_SANDBOX_FACTORY` with a fake, and a real gated smoke needs
-``E2B_API_KEY``.
+Vendor SDKs are imported lazily by their provider (``e2b`` ships in the
+``remote`` extra). Tests either register a fake provider or replace the
+:data:`_SANDBOX_FACTORY` seam; a real gated smoke needs ``E2B_API_KEY``.
 """
 
 from __future__ import annotations
@@ -34,11 +41,15 @@ from pathlib import Path
 from typing import Any
 
 from ..logger import get_logger
+from ..sandboxes import DEFAULT_WORKDIR, build_sandbox, resolve_envs
 from .agent import build_command
 
 log = get_logger(__name__)
 
-WORKDIR = "/home/user/evsys"
+WORKDIR = DEFAULT_WORKDIR
+"""Default sandbox-side workdir. A provider may use its own (``LocalSandbox``
+stages into a scratch dir) — read ``sandbox.workdir`` rather than this when the
+path has to be real."""
 
 REMOTE_AUTORESEARCH_PROMPT = """You are the evsys **autoresearch agent**, running remotely. The \
 trigger agent already judged this escalation worth fixing — your job is to actually improve the \
@@ -60,44 +71,12 @@ Do this:
 Be decisive; validate before you overwrite."""
 
 
-class _E2BSandbox:
-    """Thin adapter over the E2B SDK (the seam tests fake)."""
-
-    def __init__(self, template: str | None, envs: dict[str, str], timeout_s: float) -> None:
-        from e2b import Sandbox  # lazy: the `remote` extra
-
-        kwargs: dict[str, Any] = {"envs": envs, "timeout": int(timeout_s) + 120}
-        self._sbx = Sandbox(template, **kwargs) if template else Sandbox(**kwargs)
-        self._envs = envs
-
-    def write(self, path: str, content: str) -> None:
-        self._sbx.files.write(path, content)
-
-    def read(self, path: str) -> str | None:
-        try:
-            return self._sbx.files.read(path)
-        except Exception:
-            return None
-
-    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None,
-            on_line: Any = None) -> tuple[int, str]:
-        cb = (lambda data: on_line(str(data))) if on_line else None
-        result = self._sbx.commands.run(
-            cmd, envs=self._envs, timeout=int(timeout_s), cwd=cwd,
-            on_stdout=cb, on_stderr=cb,
-        )
-        out = (result.stdout or "") + (("\n" + result.stderr) if result.stderr else "")
-        return int(result.exit_code or 0), out
-
-    def kill(self) -> None:
-        try:
-            self._sbx.kill()
-        except Exception:  # pragma: no cover - best-effort teardown
-            pass
-
-
 def _make_sandbox(remote_cfg: Any, envs: dict[str, str]) -> Any:
-    return _E2BSandbox(remote_cfg.template, envs, remote_cfg.timeout_s)
+    """Resolve ``remote.sandbox: {kind, params}`` into a started sandbox."""
+    return build_sandbox(
+        getattr(remote_cfg, "sandbox", None) or "e2b",
+        envs=envs, timeout_s=remote_cfg.timeout_s,
+    )
 
 
 _SANDBOX_FACTORY = _make_sandbox  # seam
@@ -175,16 +154,18 @@ def build_manifest(
 
 def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str],
                    remote_cfg: Any, log_file: Path, stage: str) -> tuple[int, str]:
-    for rel, content in manifest.items():
-        sbx.write(f"{WORKDIR}/{rel}", content)
-    if remote_cfg.setup_cmd:
-        code, out = sbx.run(remote_cfg.setup_cmd, timeout_s=600, cwd=WORKDIR)
-        if code != 0:
-            raise RuntimeError(f"[{stage}] setup_cmd failed ({code}): {out[-500:]}")
+    """Stage the snapshot, provision, then run one agent — provider-agnostic:
+    ``stage`` / ``setup`` come from :class:`BaseSandbox`, and only ``exec`` is
+    the provider's own."""
+    sbx.stage(manifest)
+    try:
+        sbx.setup(remote_cfg.setup_cmd, required=True, label="setup_cmd")
+    except Exception as e:
+        raise RuntimeError(f"[{stage}] {e}") from e
     log_file.parent.mkdir(parents=True, exist_ok=True)
     # Observability: the sandbox agent's stdout streams into the SAME
     # agent-runs log the local path uses, line by line — so `evsys ui`'s
-    # transcript panel (and `tail -f`) follows the remote claude live.
+    # transcript panel (and `tail -f`) follows the sandboxed claude live.
     with log_file.open("a") as f:
         f.write(f"\n===== remote {stage}: started =====\n")
         f.flush()
@@ -193,38 +174,21 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
             f.write(line if line.endswith("\n") else line + "\n")
             f.flush()
 
-        if getattr(remote_cfg, "sdk_install", None):
-            code, out = sbx.run(remote_cfg.sdk_install, timeout_s=600, cwd=WORKDIR)
-            if code != 0:  # best-effort: log it, don't kill the run
-                _on_line(f"[sdk_install failed ({code})] {out[-300:]}")
-        code, out = sbx.run(shlex.join(prompt_argv), timeout_s=remote_cfg.timeout_s,
-                            cwd=WORKDIR, on_line=_on_line)
+        # best-effort: a failed SDK install is logged, it does not kill the run
+        sbx.setup(getattr(remote_cfg, "sdk_install", None), required=False,
+                  on_line=_on_line, label="sdk_install")
+        code, out = sbx.exec(shlex.join(prompt_argv), timeout_s=remote_cfg.timeout_s,
+                             cwd=sbx.workdir, on_line=_on_line)
         f.write(f"===== remote {stage}: exit {code} =====\n")
     return code, out
 
 
-def _copy_back(sbx: Any, pairs: list[tuple[str, Path]], baseline: dict[str, str]) -> list[str]:
-    """Copy the allowed artifacts back — but only the ones the agent actually
-    CHANGED vs what was staged (an untouched file must not round-trip: host
-    mtimes drive UI signals like the prompt's 'rewritten' flag)."""
-    landed = []
-    for rel, dest in pairs:
-        content = sbx.read(f"{WORKDIR}/{rel}")
-        if content is None or content == baseline.get(rel):
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
-        landed.append(rel)
-    return landed
-
-
 def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
                verdict_path: Path, log_file: Path) -> dict[str, Any]:
-    """Run the trigger agent (and, on YES, the autoresearch agent) in E2B."""
+    """Run the trigger agent (and, on YES, the autoresearch agent) in whichever
+    sandbox provider ``remote.sandbox.kind`` names."""
     remote_cfg = agent_cfg.remote
-    import os
-
-    envs = {k: os.environ[k] for k in remote_cfg.env_passthrough if os.environ.get(k)}
+    envs = resolve_envs(remote_cfg.env_passthrough)
     prompt_file = getattr(agent_cfg, "prompt_file", None) or "prompt.txt"
     # the general improve-contract; the prompt file is only the DEFAULT artifact
     artifacts = list(remote_cfg.artifacts) or [prompt_file]
@@ -236,12 +200,6 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
 
     # sandbox-relative paths for the mission prompt (same shape as local)
     sbx_esc = f".evsys/triggers/escalations/{escalation_path.name}"
-    sbx_root = f"{WORKDIR}/.evsys/triggers"
-    sbx_verdict = f"{sbx_root}/verdicts/{escalation_path.stem}.json"
-    argv = build_command(
-        f"{WORKDIR}/{sbx_esc}", agent_cfg=agent_cfg, root=Path(sbx_root),
-        verdict_path=sbx_verdict,
-    )
 
     gate_rel = None
     try:
@@ -254,6 +212,13 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
     result: dict[str, Any] = {"stage1_exit": None, "stage2_exit": None, "artifacts": []}
     sbx = _SANDBOX_FACTORY(remote_cfg, envs)
     try:
+        # absolute paths come from the live sandbox, not a constant: a provider
+        # is free to stage somewhere else (LocalSandbox uses a scratch dir).
+        sbx_root = sbx.path(".evsys/triggers")
+        argv = build_command(
+            sbx.path(sbx_esc), agent_cfg=agent_cfg, root=Path(sbx_root),
+            verdict_path=f"{sbx_root}/verdicts/{escalation_path.stem}.json",
+        )
         code, _ = _stage_and_run(sbx, manifest=manifest, prompt_argv=argv,
                                  remote_cfg=remote_cfg, log_file=log_file, stage="trigger-agent")
         result["stage1_exit"] = code
@@ -266,7 +231,7 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
                 pair_map[rel] = cwd / rel
         if gate_rel:
             pair_map[gate_rel] = cwd / gate_rel
-        result["artifacts"] = _copy_back(sbx, list(pair_map.items()), manifest)
+        result["artifacts"] = sbx.collect(list(pair_map.items()), manifest)
     finally:
         sbx.kill()
 
@@ -299,7 +264,7 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
             result["stage2_exit"] = code2
             art_pairs = [(rel, cwd / rel) for rel in manifest2
                          if not rel.startswith(".evsys/") and not rel.startswith("skills/")]
-            result["artifacts"] += _copy_back(sbx2, art_pairs, manifest2)
+            result["artifacts"] += sbx2.collect(art_pairs, manifest2)
         finally:
             sbx2.kill()
 

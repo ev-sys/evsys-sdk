@@ -46,8 +46,9 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
-# Remote (E2B) execution of the trigger + autoresearch agents. Lazy-imported;
-# only needed when trigger.agent.remote.enabled / --remote is used.
+# Hosted sandbox providers for remote agent execution. Each provider lazy-
+# imports its vendor SDK, so `import evsys_sdk` (and the built-in `local`
+# provider) work without this extra — only `sandbox: {kind: e2b}` needs it.
 remote = [
     "e2b>=1.0",
 ]

@@ -1,27 +1,37 @@
-"""Remote (E2B) agent execution — staging manifest, two-stage run, artifact
-copy-back, spawn dispatch, and the --remote CLI override. The E2B SDK is never
-imported: tests replace the _SANDBOX_FACTORY seam with a fake."""
+"""Remote (sandboxed) agent execution — staging manifest, two-stage run,
+artifact copy-back, spawn dispatch, and the --remote CLI override. No vendor
+SDK is ever imported: the fake provider is a real :class:`BaseSandbox`
+subclass, so these also cover the base's stage/setup/collect orchestration."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+
+from pydantic import BaseModel
 
 import evsys_sdk.triggers.agent as agentmod
 import evsys_sdk.triggers.remote as remotemod
-from evsys_sdk.config import RemoteAgentConfig, TriggerAgentConfig
+from evsys_sdk.config import RemoteAgentConfig, SandboxSpec, TriggerAgentConfig
+from evsys_sdk.sandboxes import BaseSandbox
 from evsys_sdk.triggers.remote import WORKDIR, build_manifest, run_remote
 
 
-class FakeSandbox:
-    """Records writes/commands; serves reads from an in-memory fs the test
-    (or a scripted 'agent') populates."""
+class FakeSandbox(BaseSandbox):
+    """An in-memory provider: records commands, serves reads from a dict fs the
+    test (or a scripted 'agent') populates. Implements only the five provider
+    methods — stage/setup/collect come from the base."""
 
-    def __init__(self):
+    name = "fake"
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
         self.fs: dict[str, str] = {}
         self.commands: list[str] = []
         self.killed = False
-        self.on_run = None  # callable(cmd) -> (exit_code, output), may mutate fs
+        # callable(cmd) -> (exit_code, output); may mutate `fs` to play the agent
+        self.on_run: Callable[[str], tuple[int, str]] | None = None
 
     def write(self, path: str, content: str) -> None:
         self.fs[path] = content
@@ -29,7 +39,7 @@ class FakeSandbox:
     def read(self, path: str) -> str | None:
         return self.fs.get(path)
 
-    def run(self, cmd: str, *, timeout_s: float, cwd: str | None = None, on_line=None):
+    def exec(self, cmd: str, *, timeout_s: float, cwd: str | None = None, on_line=None):
         self.commands.append(cmd)
         if self.on_run:
             code_out = self.on_run(cmd)
@@ -208,6 +218,80 @@ class TestRunRemote:
                        verdict_path=root / "verdicts" / "v.json",
                        log_file=root / "agent-runs" / "e.log")
         assert sbx.killed
+
+
+class TestProviderSelection:
+    """The provider is chosen by name through the registry — no seam patched,
+    so this is the path a user's own @register_sandbox class takes."""
+
+    def test_registered_provider_runs_the_flow(self, tmp_path):
+        from evsys_sdk.registry import _sandboxes, register_sandbox
+
+        made: list[FakeSandbox] = []
+
+        @register_sandbox("t_recording")
+        class RecordingSandbox(FakeSandbox):
+            class Config(BaseModel):
+                model_config = {"extra": "forbid"}
+                tag: str = "default"
+
+            def __init__(self, **kw):
+                super().__init__(**kw)
+                made.append(self)
+
+        try:
+            cwd, root, esc = _project(tmp_path)
+            cfg = TriggerAgentConfig(enabled=True, remote=RemoteAgentConfig(
+                enabled=True,
+                sandbox=SandboxSpec(kind="t_recording", params={"tag": "hello"}),
+            ))
+            result = run_remote(esc, agent_cfg=cfg, root=root, cwd=cwd,
+                                verdict_path=root / "verdicts" / "v.json",
+                                log_file=root / "agent-runs" / "e.log")
+            assert result["stage1_exit"] == 0
+            assert made and made[0].cfg.tag == "hello"   # params hit the provider's Config
+            assert made[0].killed
+            # the workdir the provider declares is what the agent's argv uses
+            assert made[0].commands[-1].startswith("claude -p")
+            assert made[0].workdir in made[0].commands[-1]
+        finally:
+            _sandboxes.unregister("t_recording")
+
+    def test_unknown_provider_fails_loudly(self, tmp_path):
+        import pytest
+
+        cwd, root, esc = _project(tmp_path)
+        cfg = TriggerAgentConfig(enabled=True, remote=RemoteAgentConfig(
+            enabled=True, sandbox=SandboxSpec(kind="nope")))
+        with pytest.raises(KeyError, match="No sandbox registered under 'nope'"):
+            run_remote(esc, agent_cfg=cfg, root=root, cwd=cwd,
+                       verdict_path=root / "verdicts" / "v.json",
+                       log_file=root / "agent-runs" / "e.log")
+
+    def test_bad_provider_params_fail_loudly(self, tmp_path):
+        import pytest
+        from pydantic import ValidationError
+
+        from evsys_sdk.registry import _sandboxes, register_sandbox
+
+        @register_sandbox("t_strict")
+        class StrictSandbox(FakeSandbox):
+            class Config(BaseModel):
+                model_config = {"extra": "forbid"}
+                region: str = "us"
+
+        try:
+            cwd, root, esc = _project(tmp_path)
+            cfg = TriggerAgentConfig(enabled=True, remote=RemoteAgentConfig(
+                enabled=True,
+                sandbox=SandboxSpec(kind="t_strict", params={"regoin": "us"}),  # typo
+            ))
+            with pytest.raises(ValidationError):
+                run_remote(esc, agent_cfg=cfg, root=root, cwd=cwd,
+                           verdict_path=root / "verdicts" / "v.json",
+                           log_file=root / "agent-runs" / "e.log")
+        finally:
+            _sandboxes.unregister("t_strict")
 
 
 class TestSpawnDispatch:
