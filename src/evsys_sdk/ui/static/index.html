@@ -121,6 +121,36 @@ svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
 .tooltip .tt-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .tooltip .tt-row b { font-variant-numeric: tabular-nums; font-weight: 550; }
 
+/* the loop, as a strip: each stage shows its count and whether it has fired */
+.pipeline { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
+.stage { flex: 1 1 130px; border: 1px solid var(--border); border-radius: 9px;
+  padding: 12px 14px; background: var(--surface-0); }
+.stage.on { border-color: var(--border-strong); background: var(--surface-1); }
+.stage-v { font-size: 22px; font-weight: 600; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--text-3); }
+.stage.on .stage-v { color: var(--text-1); }
+.stage-l { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+.stage-n { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.arrow { align-self: center; color: var(--text-3); font-size: 14px; }
+.run-block { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.run-block:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.run-block h3 { font-size: 13px; margin: 0 0 10px; font-family: var(--mono); }
+.agent-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .agent-row { grid-template-columns: 1fr; } }
+.agent { border: 1px solid var(--border); border-radius: 9px; padding: 13px 15px;
+  background: var(--surface-0); }
+.agent-h { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 5px; }
+.agent-p { font-size: 12px; color: var(--text-3); margin: 0 0 10px; }
+.chain { font-size: 12px; color: var(--text-2); background: var(--surface-0);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; }
+.msgs { display: flex; flex-direction: column; gap: 8px; }
+.msg { display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 12px;
+  line-height: 1.5; align-items: start; }
+.msg .role { font-family: var(--mono); font-size: 11px; color: var(--text-3);
+  text-align: right; padding-top: 1px; }
+.msg .role.target { color: var(--good); }
+.msg div:last-child { white-space: pre-wrap; word-break: break-word; }
 .empty { color: var(--text-3); font-size: 13px; padding: 22px 0; text-align: center; }
 .item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
   background: var(--surface-1); }
@@ -166,8 +196,8 @@ svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
 <div class="tooltip" id="tt"></div>
 
 <script>
-const S = { state: null, experiments: [], agentRuns: [], view: "overview",
-            detail: null, rollouts: [], rolloutKind: "all", err: null };
+const S = { state: null, experiments: [], agentRuns: [], view: "system",
+            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, err: null };
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const num = (v, d = 3) => v == null || Number.isNaN(Number(v)) ? "–"
@@ -267,6 +297,115 @@ function statusPill(s) {
 }
 
 /* ---------------------------------------------------------------- views */
+
+/* The agent-runs log holds BOTH stages in one file, separated by the stage
+   markers the remote runner writes. Split it so each agent's transcript reads
+   on its own — they are two different agents doing two different jobs. */
+function splitTranscript(log) {
+  const out = { trigger: "", autoresearch: "" };
+  if (!log) return out;
+  const re = /=====\s*remote (trigger-agent|autoresearch):\s*started\s*=====/g;
+  const marks = [];
+  let m;
+  while ((m = re.exec(log))) marks.push({ name: m[1], at: m.index, end: re.lastIndex });
+  if (!marks.length) { out.trigger = log; return out; }   // local runs: one stream
+  marks.forEach((mk, i) => {
+    const body = log.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : log.length);
+    const key = mk.name === "autoresearch" ? "autoresearch" : "trigger";
+    out[key] += body;
+  });
+  return out;
+}
+
+function stage(label, value, note, on) {
+  return `<div class="stage ${on ? "on" : ""}">
+    <div class="stage-v">${value}</div><div class="stage-l">${esc(label)}</div>
+    <div class="stage-n">${esc(note || "")}</div></div>`;
+}
+
+function viewSystem() {
+  const st = S.state || {}, tr = st.traces || {}, tg = st.trigger || {};
+  const gate = tg.log || [], escs = st.escalations || [];
+  const policy = (st.gate || {}).policy || {};
+  const nTraces = tr.total ?? (tr.items || []).length;
+  const yes = escs.filter(e => (e.verdict || {}).worth_autoresearch).length;
+  const agentExps = S.experiments.filter(e => e.trigger);
+  const manualExps = S.experiments.length - agentExps.length;
+  const sig = g => { const v = (g.signal && (g.signal.failure_rate ?? g.signal.rate ??
+    Object.values(g.signal)[0])); return Number(v ?? 0); };
+  const fail = [{ name: "failure rate", points: gate.map((g, i) => ({ x: i, y: sig(g) })) }];
+
+  return `<div class="page-head">
+      <div><h1>${esc(((st.project || {}).name) || "system")}</h1>
+        <p class="sub">A continual-learning system — traces are ingested, a cheap detection
+        function decides when something is wrong, the trigger agent judges whether it is worth
+        acting on, and the autoresearch agent does the ML research.</p></div>
+      <span class="live"><span class="dot"></span>live</span></div>
+
+    <div class="card"><h2>The loop</h2><div class="pipeline">
+      ${stage("Traces ingested", nTraces, `${(tr.sources || []).length} source(s)`, nTraces > 0)}
+      <div class="arrow">→</div>
+      ${stage("Gate evaluations", gate.length, esc(policy.kind || "no detection fn"), gate.length > 0)}
+      <div class="arrow">→</div>
+      ${stage("Escalations", escs.length, "trigger agent judged", escs.length > 0)}
+      <div class="arrow">→</div>
+      ${stage("Worth research", yes, "autoresearch ran", yes > 0)}
+      <div class="arrow">→</div>
+      ${stage("Experiments", agentExps.length, `${manualExps} more from the SDK`, agentExps.length > 0)}
+    </div></div>
+
+    <div class="card"><h2>Detection function</h2>
+      ${Object.keys(policy).length ? `<dl class="kv">
+        <dt>kind</dt><dd><code>${esc(policy.kind || "–")}</code></dd>
+        <dt>source</dt><dd><code>${esc((st.gate || {}).source_path || policy.import_path || "–")}</code></dd>
+        <dt>runs every</dt><dd>${esc(policy.every_n ?? "–")} trace(s) over a window of ${esc(policy.window ?? "–")}</dd>
+        <dt>params</dt><dd><code>${esc(JSON.stringify(policy.params || {}))}</code></dd>
+      </dl>` : '<div class="empty">No trigger configured in this system.yaml.</div>'}
+    </div>
+    ${gate.length ? chartCard("Failure rate per gate evaluation", fail,
+        { height: 176, xLabel: v => "eval " + Math.round(v) }) : ""}
+
+    <div class="card"><h2>Agent runs</h2>
+      ${escs.length ? escs.map(e => {
+        const v = e.verdict || {}, has = v && Object.keys(v).length;
+        const t = splitTranscript(e.agent_log);
+        const ran = S.agentRuns.find(a => a.escalation === e.id) || {};
+        const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
+        return `<div class="run-block">
+          <div class="chart-head"><h3>${esc(e.id)}</h3>
+            <span class="muted" style="font-size:12px">${esc((e.event || {}).reason || "")}</span></div>
+          <div class="agent-row">
+            <div class="agent">
+              <div class="agent-h"><b>Trigger agent</b>
+                ${has ? `<span class="pill ${v.worth_autoresearch ? "good" : ""}">${v.worth_autoresearch ? "✓ escalate" : "✕ stand down"}</span>`
+                      : '<span class="pill">no verdict</span>'}</div>
+              <p class="agent-p">Judges whether this batch is a real, recurring failure worth spending research on.</p>
+              ${v.hypothesis ? `<dl class="kv"><dt>hypothesis</dt><dd>${esc(v.hypothesis)}</dd></dl>` : ""}
+              ${t.trigger ? `<details class="item"><summary>transcript</summary><pre>${esc(t.trigger.slice(-6000))}</pre></details>`
+                          : '<div class="empty" style="padding:10px 0">no transcript</div>'}
+            </div>
+            <div class="agent">
+              <div class="agent-h"><b>Autoresearch agent</b>
+                ${v.worth_autoresearch ? `<span class="pill good">ran${ran.sandbox ? " in " + esc(ran.sandbox) : ""}</span>`
+                                       : '<span class="pill">not triggered</span>'}</div>
+              <p class="agent-p">Does the ML research: designs and launches experiments, then rewrites the artifact.</p>
+              ${mine.length ? `<table><tbody>${mine.map(x => `<tr class="clickable" data-exp="${esc(x.id)}">
+                  <td><b>${esc(x.experiment_name)}</b></td><td>${statusPill(x.status)}</td>
+                  <td class="num">${x.best_score == null ? "–" : num(x.best_score)}</td></tr>`).join("")}</tbody></table>`
+                : '<div class="empty" style="padding:10px 0">no experiments launched</div>'}
+              ${t.autoresearch ? `<details class="item"><summary>transcript</summary><pre>${esc(t.autoresearch.slice(-6000))}</pre></details>` : ""}
+            </div>
+          </div></div>`;
+      }).join("") : '<div class="empty">The gate has not fired yet — no agent has run.</div>'}
+    </div>
+
+    <div class="card"><h2>Trace sources</h2>
+      ${(tr.sources || []).length ? `<table><thead><tr><th>Source</th></tr></thead><tbody>`
+        + tr.sources.map(x => `<tr><td><code>${esc(typeof x === "string" ? x : (x.name || x.kind || ""))}</code></td></tr>`).join("")
+        + `</tbody></table>`
+        : '<div class="empty">No trace sources configured.</div>'}</div>`;
+}
+
 function viewOverview() {
   const st = S.state || {}, tr = st.traces || {}, tg = st.trigger || {};
   const exps = S.experiments;
@@ -320,8 +459,14 @@ function viewDetail() {
   if (!d) return '<button class="back" id="back">← all experiments</button><div class="empty">loading…</div>';
   const exp = d.experiment || {};
   const runs = (d.ungrouped_runs || []).concat((d.groups || []).flatMap(g => g.runs || []));
-  const run = runs[0];
-  if (!run) return '<button class="back" id="back">← all experiments</button><div class="empty">This experiment has no runs.</div>';
+  if (!runs.length) return '<button class="back" id="back">← all experiments</button><div class="empty">This experiment has no runs.</div>';
+  if (!runs.some(r => r.id === S.runId)) S.runId = runs[0].id;
+  const run = runs.find(r => r.id === S.runId);
+  const runTabs = runs.length > 1 ? `<div class="toolbar" style="margin-bottom:16px">
+      <span class="muted" style="font-size:12px">runs (training generations)</span>
+      ${runs.map(r => `<button class="chip" data-run="${esc(r.id)}" aria-pressed="${r.id === S.runId}">
+        ${esc((r.run_config && r.run_config.name) || r.id.slice(0, 8))}${r.seed != null ? " · seed " + esc(r.seed) : ""}</button>`).join("")}
+    </div>` : "";
 
   const byName = {};
   (run.metrics || []).forEach(p => (byName[p.name] = byName[p.name] || []).push(p));
@@ -337,6 +482,7 @@ function viewDetail() {
     <div class="page-head">
       <div><h1>${esc(exp.experiment_name || "experiment")}</h1>
         <p class="sub">${esc(exp.hypothesis || "")}</p></div>${statusPill(exp.status)}</div>
+    ${runTabs}
     <div class="grid g4" style="margin-bottom:16px">
       <div class="tile"><div class="label">Algorithm</div>
         <div class="value" style="font-size:20px">${esc(run.recipe_kind || "–")}</div>
@@ -365,10 +511,68 @@ function viewDetail() {
       + run.checkpoints.map(c => `<tr><td>${esc(c.label || "–")}</td><td class="num">${c.step ?? "–"}</td>
           <td>${c.is_final ? "✓" : ""}</td><td><code>${esc((c.uri || "–").slice(0, 56))}</code></td></tr>`).join("")
       + `</tbody></table></div>` : ""}
+    <div class="card"><h2>Data</h2>
+      <p class="agent-p">What went in, and what the transform chain turned it into.</p>
+      <div id="data"><div class="empty">loading…</div></div></div>
     <div class="card"><div class="chart-head"><h2>Rollouts</h2>
         <div class="toolbar">${["all", "train", "validation", "eval"].map(k =>
           `<button class="chip" data-kind="${k}" aria-pressed="${S.rolloutKind === k}">${k}</button>`).join("")}</div></div>
       <div id="rollouts"><div class="empty">loading…</div></div></div>`;
+}
+
+
+/* The two final formats look nothing alike and deserve different rendering:
+   SFT rows are a conversation, harbor RL rows are a task + a verifier. */
+function renderRow(row, fmt) {
+  if (fmt === "chat_messages" && Array.isArray(row.messages)) {
+    return `<div class="msgs">` + row.messages.map(m =>
+      `<div class="msg"><span class="role">${esc(m.role || "")}</span>
+        <div>${esc(typeof m.content === "string" ? m.content : JSON.stringify(m.content))}</div></div>`).join("")
+      + (row.target_assistant ? `<div class="msg"><span class="role target">target</span>
+          <div>${esc(row.target_assistant)}</div></div>` : "") + `</div>`;
+  }
+  if (fmt === "harbor_task") {
+    const v = row.verifier || {};
+    return `<dl class="kv">
+      <dt>task_id</dt><dd><code>${esc(row.task_id || "")}</code></dd>
+      <dt>instruction</dt><dd>${esc(row.instruction || "")}</dd>
+      <dt>verifier</dt><dd><code>${esc(v.kind || v.fn_name || "")}</code>${v.expected !== undefined ? ` → expects <code>${esc(String(v.expected))}</code>` : ""}</dd>
+      ${row.metadata && Object.keys(row.metadata).length ? `<dt>metadata</dt><dd><code>${esc(JSON.stringify(row.metadata))}</code></dd>` : ""}
+    </dl>`;
+  }
+  if (fmt === "prompt_dataset") {
+    return `<dl class="kv"><dt>inputs</dt><dd><code>${esc(JSON.stringify(row.inputs))}</code></dd>
+      <dt>expected</dt><dd>${esc(String(row.expected))}</dd></dl>`;
+  }
+  return `<pre>${esc(JSON.stringify(row, null, 2))}</pre>`;
+}
+
+const FMT_LABEL = { chat_messages: "SFT · chat messages", harbor_task: "RL · harbor task",
+                    prompt_dataset: "prompt dataset", unknown: "unrecognised" };
+
+function renderData() {
+  const el = $("#data"); if (!el) return;
+  const d = S.data;
+  if (!d) { el.innerHTML = '<div class="empty">loading…</div>'; return; }
+  const raw = d.stages.raw, train = d.stages.train;
+  if (!raw.n && !train.n) {
+    el.innerHTML = '<div class="empty">No data recorded for this run.</div>'; return;
+  }
+  const src = Object.entries(d.source || {}).map(([k, v]) => `${k}=${v}`).join(" · ");
+  const chain = (d.transforms || []).length
+    ? d.transforms.map(t => `<code>${esc(t.kind || t)}</code>`).join(' <span class="muted">→</span> ')
+    : '<span class="muted">no transforms — the rows are used as loaded</span>';
+  const pane = (title, st, i) => `<div class="agent">
+      <div class="agent-h"><b>${title}</b>
+        <span class="pill">${esc(FMT_LABEL[st.format] || st.format)}</span></div>
+      <p class="agent-p">${st.n ? `showing ${Math.min(st.n, 3)} of the first ${st.n} row(s)` : "not recorded"}</p>
+      ${st.rows.slice(0, 3).map((r, j) => `<details class="item" ${j === 0 ? "open" : ""}>
+          <summary><span class="mono muted">row ${j}</span></summary>
+          <div style="padding:12px 14px;border-top:1px solid var(--border)">${renderRow(r, st.format)}</div>
+        </details>`).join("")}
+    </div>`;
+  el.innerHTML = `<div class="chain">${src ? `<span class="muted">${esc(src)}</span> <span class="muted">→</span> ` : ""}${chain}</div>
+    <div class="agent-row">${pane("Raw — as loaded", raw, 0)}${pane("Training data — after transforms", train, 1)}</div>`;
 }
 
 function renderRollouts() {
@@ -415,9 +619,10 @@ function viewAgents() {
 }
 
 function viewTraces() {
-  const recent = ((S.state || {}).traces || {}).recent || [];
+  const t = (S.state || {}).traces || {};
+  const recent = t.items || t.recent || [];
   return `<div class="page-head"><div><h1>Traces</h1>
-      <p class="sub">Production traces ingested into the local store.</p></div></div>
+      <p class="sub">${t.total ?? recent.length} trace(s) ingested into the local store.</p></div></div>
     <div class="card">${recent.length ? `<table><thead><tr><th>Trace</th><th>Source</th>
         <th>Messages</th><th>When</th></tr></thead><tbody>`
       + recent.slice(0, 40).map(t => `<tr><td><code>${esc(String(t.trace_id || "").slice(0, 10))}</code></td>
@@ -438,10 +643,10 @@ function viewPrompt() {
 }
 
 const VIEWS = [
-  { id: "overview",    label: "Overview",     fn: viewOverview },
-  { id: "experiments", label: "Experiments",  fn: viewExperiments, count: () => S.experiments.length },
-  { id: "agents",      label: "Agents",       fn: viewAgents,      count: () => ((S.state || {}).escalations || []).length },
-  { id: "traces",      label: "Traces",       fn: viewTraces },
+  { id: "system",      label: "System",        fn: viewSystem,
+    count: () => ((S.state || {}).escalations || []).length },
+  { id: "experiments", label: "Experiments",   fn: viewExperiments, count: () => S.experiments.length },
+  { id: "traces",      label: "Traces",        fn: viewTraces },
   { id: "prompt",      label: "Live artifact", fn: viewPrompt },
 ];
 
@@ -462,15 +667,18 @@ function render() {
   const main = $("#main");
   if (S.err) { main.innerHTML = `<div class="card"><div class="empty">${esc(S.err)}</div></div>`; return; }
   main.innerHTML = S.view === "detail" ? viewDetail() : (VIEWS.find(v => v.id === S.view) || VIEWS[0]).fn();
-  if (S.view === "detail") renderRollouts();
+  if (S.view === "detail") { renderRollouts(); renderData(); }
 }
 
-async function loadRollouts() {
-  const runs = (S.detail.ungrouped_runs || []).concat((S.detail.groups || []).flatMap(g => g.runs || []));
-  if (!runs[0]) return;
+async function loadRun() {
+  if (!S.runId) return;
   const q = S.rolloutKind === "all" ? "" : "?kind=" + S.rolloutKind;
-  S.rollouts = (await get(`/api/runs/${runs[0].id}/predictions${q}`)).predictions || [];
-  renderRollouts();
+  const [preds, data] = await Promise.all([
+    get(`/api/runs/${S.runId}/predictions${q}`).catch(() => ({ predictions: [] })),
+    get(`/api/runs/${S.runId}/data`).catch(() => null),
+  ]);
+  S.rollouts = preds.predictions || []; S.data = data;
+  renderRollouts(); renderData();
 }
 
 document.addEventListener("click", async e => {
@@ -478,9 +686,10 @@ document.addEventListener("click", async e => {
   if (nb) { S.view = nb.dataset.view; S.detail = null; render(); return; }
   const row = e.target.closest("tr[data-exp]");
   if (row) {
-    S.view = "detail"; S.detail = null; S.rollouts = []; render();
+    S.view = "detail"; S.detail = null; S.rollouts = []; S.data = null; render();
+    S.runId = null; S.data = null;
     S.detail = await get("/api/experiments/" + row.dataset.exp + "/detail");
-    render(); loadRollouts(); return;
+    render(); loadRun(); return;
   }
   if (e.target.closest("#back")) { S.view = "experiments"; S.detail = null; render(); return; }
   const chip = e.target.closest(".chip[data-kind]");
@@ -488,8 +697,11 @@ document.addEventListener("click", async e => {
     S.rolloutKind = chip.dataset.kind;
     document.querySelectorAll(".chip[data-kind]").forEach(c =>
       c.setAttribute("aria-pressed", c.dataset.kind === S.rolloutKind));
-    loadRollouts();
+    loadRun();
+    return;
   }
+  const rb = e.target.closest(".chip[data-run]");
+  if (rb && S.detail) { S.runId = rb.dataset.run; render(); loadRun(); }
 });
 document.addEventListener("click", e => {
   if (!e.target.closest("#theme")) return;

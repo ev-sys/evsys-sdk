@@ -323,6 +323,7 @@ def _dashboard_route(project_dir: Path, path: str, full_path: str) -> tuple[int,
       /api/experiments/<id>/detail           ExperimentDetail
       /api/evals/<eval_id>/predictions       one eval's rollouts (?limit=&offset=)
       /api/runs/<run_id>/predictions         a run's rollouts (?kind=train|validation|eval)
+      /api/runs/<run_id>/data                raw + transformed data and the transform chain
       /api/agent-runs                        what each agent run produced
     """
     from urllib.parse import parse_qs, urlparse
@@ -344,6 +345,8 @@ def _dashboard_route(project_dir: Path, path: str, full_path: str) -> tuple[int,
                                           offset=int(one("offset", 0)))
         elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "predictions":
             payload = {"predictions": db.run_predictions(parts[2], kind=one("kind"))}
+        elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "data":
+            payload = db.run_data(parts[2])
         elif parts == ["api", "agent-runs"]:
             payload = db.agent_runs()
         else:

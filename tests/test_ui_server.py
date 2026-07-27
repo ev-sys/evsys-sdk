@@ -286,7 +286,7 @@ def test_http_index(server: str) -> None:
     assert r.status == 200
     # the shell + the views it can render; the data arrives over /api/*
     assert "<title>evsys</title>" in body
-    for view in ("Overview", "Experiments", "Agents", "Traces"):
+    for view in ("System", "Experiments", "Traces"):
         assert view in body
 
 

@@ -64,6 +64,10 @@ from .rollout_capture import (
 
 logger = logging.getLogger(__name__)
 
+DATA_SAMPLE_ROWS = 20
+"""Rows of each pipeline stage mirrored for the UI — enough to see what the
+transform did to a row, not a second copy of the dataset."""
+
 
 # ---------------------------------------------------------------------------
 # LogContext — experiment-wide context shared across ALL hooks (both scopes)
@@ -174,6 +178,10 @@ class Callback:
         """Fires after every train step's metric row is written. The
         universal "do something per step" hook (printing, plotting,
         custom metric derivations, gradient debugging)."""
+
+    def on_raw_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
+        """Fires once in setup with the rows as LOADED, before
+        ``data.transforms`` ran — the input side of the conversion."""
 
     def on_train_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
         """Fires once in setup with the FINAL examples fed to the model (after
@@ -796,17 +804,28 @@ class LocalLoggerCallback(Callback):
             print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
 
     # --- data going in ----------------------------------------------------
+    def on_raw_data(self, ctx: LogContext, rows: list[dict]) -> None:
+        self._write_data_stage(ctx, "raw", rows, "raw_data.jsonl")
+
     def on_train_data(self, ctx: LogContext, rows: list[dict]) -> None:
+        self._write_data_stage(ctx, "train", rows, "training_data.jsonl")
+
+    def _write_data_stage(self, ctx: LogContext, kind: str, rows: list[dict],
+                          filename: str) -> None:
+        """One end of the transform chain: the full set to the run's logs, a
+        capped sample to the mirror for the UI to render."""
         d = self._ensure_dir(ctx)
         if d is None:
             return
         import json  # noqa: PLC0415
-        fp = self._phase_dir("data") / "training_data.jsonl"
+        fp = self._phase_dir("data") / filename
         with fp.open("w") as f:
             for r in rows:
                 f.write(json.dumps(r, default=str) + "\n")
+        if self._mirror is not None and self._mirror_run:
+            self._mirror.log_data(self._mirror_run, kind, rows[:DATA_SAMPLE_ROWS])
         if self.print_every:
-            print(f"  [training_data] {len(rows)} rows → {fp}", flush=True)
+            print(f"  [{kind}_data] {len(rows)} rows → {fp}", flush=True)
 
     # --- training rollouts (--dry) ----------------------------------------
     def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
