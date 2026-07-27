@@ -29,6 +29,7 @@ from .constants import (
     LOCAL_EXPERIMENT_FILE,
     LOCAL_GENERATION_FILE,
     LOCAL_METRICS_FILE,
+    LOCAL_CHECKPOINTS_FILE,
     LOCAL_PREDICTIONS_FILE,
     EVSYS_LOG_DIR_ENV,
 )
@@ -116,6 +117,12 @@ class LocalExperimentStore:
     def log_eval(self, generation_id: str, body: dict[str, Any]) -> None:
         with self._lock:
             self._append_jsonl(self._gen_dir(generation_id) / LOCAL_EVALS_FILE, body)
+
+    def add_checkpoint(self, generation_id: str, body: dict[str, Any]) -> None:
+        """Mirror a checkpoint row. Previously absent, which is why every run
+        reported zero checkpoints locally however many it actually saved."""
+        with self._lock:
+            self._append_jsonl(self._gen_dir(generation_id) / LOCAL_CHECKPOINTS_FILE, body)
 
     def log_predictions(self, generation_id: str, predictions: list[dict[str, Any]]) -> None:
         with self._lock:

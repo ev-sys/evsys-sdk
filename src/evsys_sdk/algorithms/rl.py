@@ -60,6 +60,18 @@ class RLConfig(BaseAlgorithmConfig):
     n_concurrent: int = 4
     max_retries: int = 2
 
+    environment: dict[str, Any] | None = None
+    """Where each rollout EXECUTES — harbor's environment spec, e.g.
+    ``{type: modal, kwargs: {sandbox_timeout_secs: 3600}}`` or
+    ``{type: docker}``. None → harbor's in-process NoOp environment (the model
+    talks, nothing runs). Set this when the task needs a real machine: the
+    agent's tool calls then execute in that sandbox, not on your host."""
+    snapshot: dict[str, Any] | None = None
+    """Codebase to upload into that environment, e.g.
+    ``{repo_dir: ., ref: HEAD, base_image: "python:3.12-slim"}`` — so the
+    student's tool calls run against the same repo state the traces came from.
+    Content-hashed, so an unchanged repo reuses the built image."""
+
 
 @register_algorithm("rl")
 class RL(BaseAlgorithm):
@@ -79,6 +91,14 @@ class RL(BaseAlgorithm):
         self._tasks = [self._prep_task(t) for t in tasks]
         self._backend = backend
         self._snapshot_i = 0
+        # A snapshot spec means "upload this codebase into every rollout
+        # environment" — content-hashed, so an unchanged repo reuses the image.
+        self._env_writer = None
+        if self.cfg.snapshot:
+            from ..training.snapshot import make_env_writer
+
+            self._env_writer = make_env_writer(
+                self.cfg.snapshot, Path(ctx.output_dir) / ".harbor" / "stage")
         # Rollouts are materialized + persisted under the run's workspace on
         # disk; training rollouts are NOT uploaded to the dashboard (only eval
         # rollouts are — see harbor_eval).
@@ -118,6 +138,8 @@ class RL(BaseAlgorithm):
             agent_import_path=self.cfg.agent_import_path,
             n_concurrent=self.cfg.n_concurrent,
             max_retries=self.cfg.max_retries,
+            environment=self.cfg.environment,
+            env_writer=self._env_writer,
         )
         all_groups = groups  # keep originals so --dry can log dropped rollouts
         if self.cfg.drop_constant_reward:

@@ -35,12 +35,14 @@ from __future__ import annotations
 import csv
 import logging
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ..local_store import LocalExperimentStore
 from ..provenance import current_trigger, trigger_tags
 from ..registry import get_callback, register_callback
 
@@ -52,7 +54,13 @@ if TYPE_CHECKING:
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
 
-from .rollout_capture import DEFAULT_ROLLOUT_CAP, KIND_TRAIN, RolloutCapture
+from .rollout_capture import (
+    DEFAULT_ROLLOUT_CAP,
+    KIND_EVAL,
+    KIND_TRAIN,
+    KIND_VALIDATION,
+    RolloutCapture,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -672,7 +680,9 @@ class LocalLoggerCallback(Callback):
         "validation": "validation", "test": "test",
     }
 
-    def __init__(self, *, print_every: int = 1, keys: list[str] | None = None) -> None:
+    def __init__(self, *, print_every: int = 1, keys: list[str] | None = None,
+                 mirror: bool = True, log_dir: str | None = None,
+                 rollout_cap: int = DEFAULT_ROLLOUT_CAP) -> None:
         self.print_every = int(print_every)
         self.keys = keys
         self._dir: Path | None = None
@@ -680,12 +690,33 @@ class LocalLoggerCallback(Callback):
         self._evals: list[dict] = []
         self._hypothesis: str | None = None
         self._runs: list[dict] = []   # one record per arm: {dir, run_key, status, evals}
+        # The machine-readable mirror, written alongside the human-readable
+        # logs and completely independent of the dashboard: `evsys_logger` owns
+        # the dashboard, this owns local. The two are allowed to drift.
+        self._mirror = LocalExperimentStore(log_dir) if mirror else None
+        self._mirror_exp: str | None = None
+        self._mirror_run: str | None = None
+        self._capture = RolloutCapture(rollout_cap)
 
     # --- experiment scope -------------------------------------------------
     def on_experiment_start(self, ctx: LogContext) -> None:
         meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
         self._hypothesis = meta.get("hypothesis")
         self._write_experiment_md(ctx, conclusion=None)
+        if self._mirror is not None:
+            trigger = current_trigger()
+            self._mirror_exp = str(uuid.uuid4())
+            payload: dict[str, Any] = {
+                "experiment_name": getattr(ctx.config, "name", "experiment"),
+                "hypothesis": self._hypothesis,
+                "tags": list(meta.get("tags") or []) + trigger_tags(trigger),
+                "status": "running",
+            }
+            if trigger:
+                # which escalation caused this — the autoresearch view's key
+                payload["config"] = {"trigger": trigger}
+            self._mirror.create_experiment(self._mirror_exp, payload)
+            ctx.ids.setdefault("local_experiment_id", self._mirror_exp)
 
     def _write_experiment_md(self, ctx: LogContext, *, conclusion: str | None) -> None:
         out = Path(ctx.output_dir)
@@ -706,6 +737,18 @@ class LocalLoggerCallback(Callback):
         (self._dir / "hypothesis.md").write_text(
             f"# {ctx.run_key or 'run'} — hypothesis\n\n{self._hypothesis or '(none)'}\n"
         )
+        if self._mirror is not None:
+            self._mirror_run = str(uuid.uuid4())
+            self._capture = RolloutCapture(self._capture.cap)   # per-run budget
+            rc = ctx.run_config
+            self._mirror.create_run(self._mirror_run, {
+                "experiment_id": self._mirror_exp,
+                "seed": getattr(rc, "seed", None),
+                "recipe_kind": getattr(getattr(rc, "algorithm", None), "kind", None),
+                "run_config": rc.model_dump() if hasattr(rc, "model_dump") else None,
+                "status": "running",
+            })
+            ctx.ids.setdefault("local_run_id", self._mirror_run)
         if self.print_every:
             print(f"[local_logger] run {ctx.run_key} → {self._dir}", flush=True)
 
@@ -730,9 +773,12 @@ class LocalLoggerCallback(Callback):
         if fp is None:
             fp = (self._phase_dir(folder) / "metrics.jsonl").open("a")
             self._metrics_fps[folder] = fp
-        fp.write(json.dumps({"step": step, "split": split,
-                             "metrics": {k: float(v) for k, v in metrics.items()}}) + "\n")
+        row = {"step": step, "split": split,
+               "metrics": {k: float(v) for k, v in metrics.items()}}
+        fp.write(json.dumps(row) + "\n")
         fp.flush()
+        if self._mirror is not None and self._mirror_run:
+            self._mirror.log_step(self._mirror_run, row)
 
     def on_step_end(self, state: LoopState, step_idx, batch, metrics) -> None:
         self._write_metrics(step_idx, metrics, "train")
@@ -788,6 +834,20 @@ class LocalLoggerCallback(Callback):
         with fp.open("a") as f:
             for rec in recs:
                 f.write(json.dumps(rec, default=str) + "\n")
+        if self._mirror is not None and self._mirror_run:
+            left = self._capture.remaining(KIND_TRAIN)
+            if left != 0:
+                from .rollout_capture import training_rollout_rows  # noqa: PLC0415
+
+                kept = self._capture.take(
+                    KIND_TRAIN, training_rollout_rows(rollouts, step=step_idx, limit=left))
+                # recs carry the decoded completion text recovered from harbor;
+                # graft it on so a rollout is readable, not just token ids.
+                for row, rec in zip(kept, recs):
+                    if not row.get("completion"):
+                        row["completion"] = rec.get("text") or ""
+                if kept:
+                    self._mirror.log_predictions(self._mirror_run, kept)
         if self.print_every:
             print(f"  [rollouts step {step_idx}] {len(recs)} trajectories → {fp}", flush=True)
 
@@ -831,12 +891,42 @@ class LocalLoggerCallback(Callback):
                     row = dict(p) if isinstance(p, dict) else {"prediction": p}
                     row.setdefault("benchmark", ename)
                     f.write(json.dumps(row, default=str) + "\n")
+        if self._mirror is not None and self._mirror_run:
+            eval_id = str(uuid.uuid4())
+            self._mirror.log_eval(self._mirror_run, {
+                "id": eval_id, "step": step, "metrics": metrics,
+                "benchmark_id": getattr(eval_result, "benchmark_id", None),
+            })
+            # in-loop evals answer "is it improving?", the final pass "how good
+            # is it now?" — keep them distinguishable in the rollout stream.
+            kind = KIND_VALIDATION if step is not None else KIND_EVAL
+            rows = [{**(p if isinstance(p, dict) else {"prediction": p}),
+                     "eval_id": eval_id, "kind": kind} for p in (predictions or [])]
+            kept = self._capture.take(kind, rows)
+            if kept:
+                self._mirror.log_predictions(self._mirror_run, kept)
         if self.print_every:
             cells = " ".join(f"{k}={_fmt_value(v)}" for k, v in metrics.items())
             print(f"  [benchmark {ename}/{split}] {cells}  n_pred={len(predictions)}", flush=True)
 
+    def on_checkpoint(self, state: LoopState, row: ManifestRow) -> None:
+        if self._mirror is None or not self._mirror_run:
+            return
+        self._mirror.add_checkpoint(self._mirror_run, {
+            "id": str(uuid.uuid4()),
+            "uri": str(getattr(row, "path", "") or getattr(row, "uri", "") or ""),
+            "label": getattr(row, "name", None),
+            "step": getattr(row, "step", None),
+            "is_final": bool(getattr(row, "is_final", False)),
+        })
+
     # --- close out --------------------------------------------------------
     def on_run_end(self, ctx, run_result, arm) -> None:
+        if self._mirror is not None and self._mirror_run:
+            self._mirror.update_run(self._mirror_run, {
+                "status": getattr(run_result, "status", None) or "completed",
+                "error_message": getattr(run_result, "error", None),
+            })
         if self._dir is not None:
             self._runs.append({
                 "dir": self._dir, "run_key": ctx.run_key,

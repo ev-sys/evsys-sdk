@@ -16,9 +16,8 @@ The three endpoints the experiment views use:
 Everything is read fresh per call — a training run is appending to these files
 while you look at them, and a stale cache is worse than a slow read.
 
-What is honestly absent: **checkpoints**. ``LocalStore`` has no checkpoint
-writer (the dashboard has ``EP_ADD_CHECKPOINT``, the local mirror never got
-one), so ``checkpoints`` is always ``[]`` here rather than fabricated.
+Runs carry their checkpoints too, now that ``LocalStore`` has a checkpoint
+writer — a run that saved none still reports none rather than inventing any.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ..constants import (
+    LOCAL_CHECKPOINTS_FILE,
     LOCAL_EVALS_FILE,
     LOCAL_EXPERIMENT_FILE,
     LOCAL_GENERATION_FILE,
@@ -244,8 +244,7 @@ class LocalDashboard:
         rec["seed"] = _coerce(rec.get("seed"))
         rec["metrics"] = self._metric_points(run_id)
         rec["evals"] = self._evals(run_id)
-        # No local checkpoint writer exists — report the truth, don't invent.
-        rec["checkpoints"] = []
+        rec["checkpoints"] = self._checkpoints(run_id)
         rec["rollout_counts"] = self._rollout_counts(run_id)
         return rec
 
@@ -274,6 +273,18 @@ class LocalDashboard:
                 "step": row.get("step"),
                 "metrics": {k: v for k, v in (row.get("metrics") or {}).items()},
                 "breakdowns": row.get("breakdowns"),
+            })
+        return out
+
+    def _checkpoints(self, run_id: str) -> list[dict]:
+        out = []
+        for i, row in enumerate(_read_jsonl(self._gen_dir(run_id) / LOCAL_CHECKPOINTS_FILE)):
+            out.append({
+                "id": row.get("id") or f"{run_id}-ckpt-{i}",
+                "label": row.get("label"),
+                "step": row.get("step"),
+                "uri": row.get("uri") or "",
+                "is_final": bool(row.get("is_final")),
             })
         return out
 

@@ -92,10 +92,15 @@ class TestExperimentDetail:
         run = _mirror(tmp_path).experiment_detail("exp1")["groups"][0]["runs"][0]
         assert run["seed"] == 42
 
-    def test_checkpoints_are_empty_not_invented(self, tmp_path):
-        """There is no local checkpoint writer — say so rather than fabricate."""
-        run = _mirror(tmp_path).experiment_detail("exp1")["groups"][0]["runs"][0]
-        assert run["checkpoints"] == []
+    def test_checkpoints_read_from_the_mirror(self, tmp_path):
+        db = _mirror(tmp_path)
+        (tmp_path / "generations" / "runA" / "checkpoints.jsonl").write_text(
+            json.dumps({"id": "c1", "uri": "tinker://ckpt", "step": 2, "is_final": True}) + "\n")
+        run = db.experiment_detail("exp1")["groups"][0]["runs"][0]
+        assert run["checkpoints"] == [
+            {"id": "c1", "label": None, "step": 2, "uri": "tinker://ckpt", "is_final": True}]
+        # a run that saved none still reports none, rather than inventing
+        assert db.experiment_detail("exp1")["ungrouped_runs"][0]["checkpoints"] == []
 
     def test_rollout_counts_per_kind(self, tmp_path):
         d = _mirror(tmp_path).experiment_detail("exp1")
