@@ -305,13 +305,15 @@ function statusPill(s) {
    markers the remote runner writes. Split it so each agent's transcript reads
    on its own — they are two different agents doing two different jobs. */
 function splitTranscript(log) {
-  const out = { trigger: "", autoresearch: "" };
+  // `combined` is the local case: ONE `claude -p` process plays both roles, so
+  // there are no stage markers to split on and the transcript belongs to both.
+  const out = { trigger: "", autoresearch: "", combined: "" };
   if (!log) return out;
   const re = /=====\s*remote (trigger-agent|autoresearch):\s*started\s*=====/g;
   const marks = [];
   let m;
   while ((m = re.exec(log))) marks.push({ name: m[1], at: m.index, end: re.lastIndex });
-  if (!marks.length) { out.trigger = log; return out; }   // local runs: one stream
+  if (!marks.length) { out.combined = log; return out; }   // local: one process, both roles
   marks.forEach((mk, i) => {
     const body = log.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : log.length);
     const key = mk.name === "autoresearch" ? "autoresearch" : "trigger";
@@ -385,7 +387,8 @@ function viewSystem() {
               <p class="agent-p">Judges whether this batch is a real, recurring failure worth spending research on.</p>
               ${v.hypothesis ? `<dl class="kv"><dt>hypothesis</dt><dd>${esc(v.hypothesis)}</dd></dl>` : ""}
               ${t.trigger ? `<details class="item"><summary>transcript</summary><pre>${esc(t.trigger.slice(-6000))}</pre></details>`
-                          : '<div class="empty" style="padding:10px 0">no transcript</div>'}
+                : t.combined ? '<div class="muted" style="font-size:12px">see the combined transcript below</div>'
+                : '<div class="empty" style="padding:10px 0">no transcript yet</div>'}
             </div>
             <div class="agent">
               <div class="agent-h"><b>Autoresearch agent</b>
@@ -396,9 +399,18 @@ function viewSystem() {
                   <td><b>${esc(x.experiment_name)}</b></td><td>${statusPill(x.status)}</td>
                   <td class="num">${x.best_score == null ? "–" : num(x.best_score)}</td></tr>`).join("")}</tbody></table>`
                 : '<div class="empty" style="padding:10px 0">no experiments launched</div>'}
-              ${t.autoresearch ? `<details class="item"><summary>transcript</summary><pre>${esc(t.autoresearch.slice(-6000))}</pre></details>` : ""}
+              ${t.autoresearch ? `<details class="item"><summary>transcript</summary><pre>${esc(t.autoresearch.slice(-6000))}</pre></details>`
+                : t.combined ? '<div class="muted" style="font-size:12px">see the combined transcript below</div>'
+                : ""}
             </div>
-          </div></div>`;
+          </div>
+          ${t.combined ? `<details class="item" style="margin-top:10px" open>
+              <summary><b>Combined transcript</b>
+                <span class="muted">one process ran both roles — no stage split</span>
+                <span style="flex:1"></span>
+                <span class="muted mono">${t.combined.length} chars</span></summary>
+              <pre>${esc(t.combined.slice(-12000))}</pre></details>` : ""}
+        </div>`;
       }).join("") : '<div class="empty">The gate has not fired yet — no agent has run.</div>'}
     </div>
 
@@ -473,9 +485,16 @@ function viewDetail() {
 
   const byName = {};
   (run.metrics || []).forEach(p => (byName[p.name] = byName[p.name] || []).push(p));
-  const mk = n => byName[n] ? [{ name: n, points: byName[n].map(p => ({ x: p.step, y: p.value })) }] : null;
-  const reward = mk("reward/mean"), loss = mk("train/loss") || mk("train/mean_loss");
-  const shown = ["reward/mean", "train/loss", "train/mean_loss"];
+  const mk = n => n && byName[n]
+    ? [{ name: n, points: byName[n].map(p => ({ x: p.step, y: p.value })) }] : null;
+  // Metric names are algorithm-specific — RL emits reward/mean, SFT emits
+  // train_mean_nll, SDFT its own. Match on meaning, not on a hardcoded key,
+  // or the headline chart silently vanishes for half the algorithms.
+  const find = re => Object.keys(byName).find(n => re.test(n));
+  const rewardKey = find(/^reward\/mean$|reward.*mean|mean.*reward/i);
+  const lossKey = find(/loss|nll|perplexity/i);
+  const reward = mk(rewardKey), loss = mk(lossKey);
+  const shown = [rewardKey, lossKey].filter(Boolean);
   const others = Object.keys(byName).filter(n => !shown.includes(n));
   const rc = run.rollout_counts || {};
   const total = Object.values(rc).reduce((a, b) => a + b, 0);
@@ -497,8 +516,8 @@ function viewDetail() {
       <div class="tile"><div class="label">Checkpoints</div><div class="value">${(run.checkpoints || []).length}</div>
         <div class="foot">${(run.checkpoints || []).some(c => c.is_final) ? "final saved" : "no final"}</div></div>
     </div>
-    ${reward ? chartCard("Mean reward per step", reward, { xLabel: stepLabel }) : ""}
-    ${loss ? chartCard("Training loss per step", loss, { xLabel: stepLabel }) : ""}
+    ${reward ? chartCard(`${rewardKey} per step`, reward, { xLabel: stepLabel }) : ""}
+    ${loss ? chartCard(`${lossKey} per step`, loss, { xLabel: stepLabel }) : ""}
     ${others.length ? `<div class="card"><h2>Other metrics</h2><table><thead><tr>
         <th>Metric</th><th>First</th><th>Last</th><th>Points</th></tr></thead><tbody>`
       + others.map(n => { const s = byName[n]; return `<tr><td><code>${esc(n)}</code></td>
