@@ -47,8 +47,8 @@ def _record_launch(monkeypatch):
     """Patch the launch seam; return a list that captures (cmd, kwargs)."""
     calls: list[dict] = []
 
-    def fake(cmd, *, cwd, log_file, detach):
-        calls.append({"cmd": cmd, "cwd": str(cwd), "detach": detach})
+    def fake(cmd, *, cwd, log_file, detach, env=None):
+        calls.append({"cmd": cmd, "cwd": str(cwd), "detach": detach, "env": env or {}})
         log_file.parent.mkdir(parents=True, exist_ok=True)
         log_file.write_text("stub")
 
@@ -129,7 +129,7 @@ def test_resolve_hook_passes_agent_cfg(tmp_path, monkeypatch):
 # 4. A failing launch never kills ingestion --------------------------------
 
 def test_spawn_failure_is_isolated(tmp_path, monkeypatch):
-    def boom(cmd, *, cwd, log_file, detach):
+    def boom(cmd, *, cwd, log_file, detach, env=None):
         raise OSError("claude not found")
 
     monkeypatch.setattr(agentmod, "_LAUNCH", boom)
@@ -165,7 +165,7 @@ def test_real_launch_detached(tmp_path):
 # 6. Foreground spawn returns the completed process ------------------------
 
 def test_spawn_foreground_returns_proc(tmp_path, monkeypatch):
-    def fake(cmd, *, cwd, log_file, detach):
+    def fake(cmd, *, cwd, log_file, detach, env=None):
         log_file.parent.mkdir(parents=True, exist_ok=True)
         log_file.write_text("ran")
         assert detach is False

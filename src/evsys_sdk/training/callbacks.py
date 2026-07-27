@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ..provenance import current_trigger, trigger_tags
 from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
@@ -936,10 +937,21 @@ class EvsysLoggerCallback(Callback):
         if store is None:
             return
         meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        # Stamp the escalation that caused this, when an agent spawned us. This
+        # is what lets the UI answer "what did the autoresearch agent try?" —
+        # without it every experiment is an orphan. Carried in `config` (an
+        # already-accepted dict field, so no backend schema change) plus tags,
+        # which make it a one-query filter locally and on the dashboard.
+        trigger = current_trigger()
+        tags = list(meta.get("tags") or []) + trigger_tags(trigger)
+        config = dict(meta.get("config") or {})
+        if trigger:
+            config["trigger"] = trigger
         resp = store.create_experiment(
             experiment_name=getattr(ctx.config, "name", "experiment"),
             hypothesis=meta.get("hypothesis"),
-            tags=list(meta.get("tags") or []) or None,
+            tags=tags or None,
+            config=config or None,
         )
         eid = self._id(resp)
         if eid:

@@ -100,8 +100,15 @@ class LocalDashboard:
 
     # -- GET /api/experiments ---------------------------------------------
 
-    def experiments(self) -> list[dict]:
-        """Every experiment in the mirror, newest first."""
+    def experiments(self, *, escalation: str | None = None,
+                    agent: str | None = None) -> list[dict]:
+        """Every experiment in the mirror, newest first.
+
+        ``escalation`` / ``agent`` filter to what one agent run produced —
+        the query the autoresearch view is built on ("show me what the agent
+        tried for this escalation"). Reads the stamp
+        :mod:`evsys_sdk.provenance` writes into ``config.trigger``.
+        """
         out: list[dict] = []
         if not self._experiments_dir.is_dir():
             return out
@@ -111,9 +118,42 @@ class LocalDashboard:
                 continue
             rec.setdefault("id", d.name)
             rec["n_runs"] = len(self._runs_for(d.name))
+            # Lift the stamp to the top level so a reader never has to know it
+            # rides inside `config`.
+            rec["trigger"] = (rec.get("config") or {}).get("trigger")
+            trig = rec["trigger"] or {}
+            if escalation and trig.get("escalation") != escalation:
+                continue
+            if agent and trig.get("agent") != agent:
+                continue
             out.append(rec)
         out.sort(key=lambda r: str(r.get("_created_at") or ""), reverse=True)
         return out
+
+    def agent_runs(self) -> list[dict]:
+        """One row per agent run that produced experiments — the index the
+        autoresearch view lists. Empty until agents start stamping (an
+        experiment a human launched by hand belongs to no agent run)."""
+        by_key: dict[tuple, dict] = {}
+        for exp in self.experiments():
+            trig = exp.get("trigger")
+            if not trig:
+                continue
+            key = (trig.get("escalation"), trig.get("agent"))
+            row = by_key.setdefault(key, {
+                "escalation": trig.get("escalation"),
+                "agent": trig.get("agent"),
+                "sandbox": trig.get("sandbox"),
+                "experiments": [],
+            })
+            row["experiments"].append({
+                "id": exp["id"],
+                "experiment_name": exp.get("experiment_name"),
+                "status": exp.get("status"),
+                "best_score": exp.get("best_score"),
+                "n_runs": exp.get("n_runs", 0),
+            })
+        return list(by_key.values())
 
     # -- GET /api/experiments/<id>/detail ----------------------------------
 

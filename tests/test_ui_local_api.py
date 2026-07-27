@@ -153,3 +153,45 @@ class TestResilience:
         run_b = db.experiment_detail("exp1")["ungrouped_runs"][0]
         assert run_b["metrics"] == []
         assert run_b["evals"]          # unaffected
+
+
+class TestAgentScoping:
+    """The autoresearch view's core query: what did this agent run produce?"""
+
+    def _stamped(self, tmp_path):
+        import json as _json
+        db = _mirror(tmp_path)
+        # a second experiment, stamped as an autoresearch agent's work
+        ed = tmp_path / "experiments" / "exp2"
+        ed.mkdir(parents=True)
+        (ed / "experiment.json").write_text(_json.dumps({
+            "id": "exp2", "experiment_name": "agent-try-1", "status": "completed",
+            "config": {"trigger": {"escalation": "escalation-000015",
+                                   "agent": "autoresearch", "sandbox": "e2b"}},
+            "_created_at": "1785000100.0",
+        }))
+        return db
+
+    def test_filter_by_escalation(self, tmp_path):
+        db = self._stamped(tmp_path)
+        assert len(db.experiments()) == 2
+        scoped = db.experiments(escalation="escalation-000015")
+        assert [e["id"] for e in scoped] == ["exp2"]
+        assert scoped[0]["trigger"]["sandbox"] == "e2b"
+
+    def test_filter_by_agent(self, tmp_path):
+        db = self._stamped(tmp_path)
+        assert [e["id"] for e in db.experiments(agent="autoresearch")] == ["exp2"]
+        assert db.experiments(agent="trigger") == []
+
+    def test_unstamped_experiments_have_a_null_trigger(self, tmp_path):
+        db = self._stamped(tmp_path)
+        manual = next(e for e in db.experiments() if e["id"] == "exp1")
+        assert manual["trigger"] is None
+
+    def test_agent_runs_index(self, tmp_path):
+        runs = self._stamped(tmp_path).agent_runs()
+        assert len(runs) == 1                      # the hand-run experiment is not one
+        assert runs[0]["escalation"] == "escalation-000015"
+        assert runs[0]["agent"] == "autoresearch"
+        assert [e["experiment_name"] for e in runs[0]["experiments"]] == ["agent-try-1"]

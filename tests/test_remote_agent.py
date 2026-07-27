@@ -252,8 +252,10 @@ class TestProviderSelection:
             assert made and made[0].cfg.tag == "hello"   # params hit the provider's Config
             assert made[0].killed
             # the workdir the provider declares is what the agent's argv uses
-            assert made[0].commands[-1].startswith("claude -p")
-            assert made[0].workdir in made[0].commands[-1]
+            agent_cmd = next(c for c in made[0].commands if c.startswith("claude -p"))
+            assert made[0].workdir in agent_cmd
+            # and the results sync sweeps the mirror before the box dies
+            assert any(f"find {made[0].workdir}/evsys_sdk" in c for c in made[0].commands)
         finally:
             _sandboxes.unregister("t_recording")
 
