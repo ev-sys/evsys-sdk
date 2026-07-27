@@ -33,7 +33,9 @@ def build_sandbox(spec: Any, *, envs: dict[str, str] | None = None,
     cls = get_sandbox(kind)
     sbx = cls(envs=envs, timeout_s=timeout_s, **params)
     if start:
-        sbx.start()
+        # ensure_started, not start: the result is commonly used as a context
+        # manager too, and starting twice would orphan the first sandbox.
+        sbx.ensure_started()
     return sbx
 
 

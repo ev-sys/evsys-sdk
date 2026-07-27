@@ -52,6 +52,12 @@ dev = [
 remote = [
     "e2b>=1.0",
 ]
+# The `modal` sandbox provider. Modal is also the hosted rollout environment
+# (`environment: {type: modal}`), so a training run that already uses Modal
+# needs nothing extra to ALSO run its agents there.
+remote-modal = [
+    "modal>=1.0",
+]
 # Opt-in trace ingestion from hosted observability platforms. Adapters
 # lazy-import their client, so `import evsys_sdk` works without this extra.
 traces = [

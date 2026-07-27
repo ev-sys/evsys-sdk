@@ -108,6 +108,39 @@ class TestBaseOrchestration:
             assert box.started and not box.killed
         assert sbx.killed
 
+    def test_an_already_started_sandbox_is_not_started_again(self):
+        """`build_sandbox` starts, and the result is usually then used as a
+        context manager. Starting twice would allocate a SECOND (billed)
+        sandbox and orphan the first — its handle is simply overwritten."""
+        starts = []
+
+        class Counting(MemSandbox):
+            def start(self):
+                starts.append(1)
+                super().start()
+
+        sbx = Counting()
+        sbx.ensure_started()
+        with sbx:
+            pass
+        assert starts == [1]
+
+    def test_build_sandbox_result_is_reusable_as_a_context_manager(self):
+        starts = []
+
+        class Counting(MemSandbox):
+            def start(self):
+                starts.append(1)
+                super().start()
+
+        try:
+            register_sandbox("t_count")(Counting)
+            with build_sandbox("t_count") as sbx:
+                assert sbx.started
+            assert starts == [1]
+        finally:
+            _sandboxes.unregister("t_count")
+
     def test_teardown_never_raises(self):
         class Exploding(MemSandbox):
             def kill(self):
@@ -126,7 +159,7 @@ class TestBaseOrchestration:
 
 class TestRegistryAndFactory:
     def test_builtins_are_registered(self):
-        assert {"e2b", "local"} <= set(list_sandboxes())
+        assert {"e2b", "local", "modal"} <= set(list_sandboxes())
         assert available_sandboxes() == list_sandboxes()
         assert get_sandbox("e2b").name == "e2b"
 
@@ -272,6 +305,159 @@ def fake_e2b(monkeypatch):
     mod.Sandbox = _FakeE2BSandbox
     monkeypatch.setitem(sys.modules, "e2b", mod)
     return _FakeE2BSandbox
+
+
+class _FakeModalFilesystem:
+    def __init__(self):
+        self.files: dict[str, str] = {}
+        self.dirs: list[str] = []
+
+    def make_directory(self, path, *, create_parents=False):
+        self.dirs.append(path)
+
+    def write_text(self, data, remote_path):
+        self.files[remote_path] = data
+
+    def read_text(self, remote_path):
+        if remote_path not in self.files:
+            raise FileNotFoundError(remote_path)
+        return self.files[remote_path]
+
+
+class _FakeModalProcess:
+    def __init__(self, chunks, err, code):
+        self.stdout = iter(chunks)
+        self.stderr = type("S", (), {"read": lambda _s: err})()
+        self._code = code
+
+    def wait(self):
+        return self._code
+
+
+class _FakeModalSandbox:
+    created: ClassVar[list[tuple[tuple, dict]]] = []
+    object_id = "sb-fake"
+
+    def __init__(self, *args, **kwargs):
+        _FakeModalSandbox.created.append((args, kwargs))
+        self.filesystem = _FakeModalFilesystem()
+        self.exec_calls: list[dict] = []
+        self.terminated = False
+
+    @classmethod
+    def create(cls, *args, **kwargs):
+        return cls(*args, **kwargs)
+
+    def exec(self, *args, **kw):
+        self.exec_calls.append(dict(kw, argv=args))
+        # two chunks, multi-line — the provider must split them for on_line
+        return _FakeModalProcess(["hello\nworld\n", "tail\n"], "oops\n", 5)
+
+    def terminate(self):
+        self.terminated = True
+
+
+@pytest.fixture
+def fake_modal(monkeypatch):
+    """Install a stub ``modal`` module — no account, no spawn, no spend."""
+    import sys
+    import types
+
+    _FakeModalSandbox.created = []
+    mod = types.ModuleType("modal")
+    made_images: list[str] = []
+
+    class _Image:
+        def __init__(self, tag):
+            self.tag = tag
+            self.pip: list[str] = []
+
+        def pip_install(self, *pkgs):
+            self.pip.extend(pkgs)
+            return self
+
+    mod.Image = type("ImageNS", (), {
+        "from_registry": staticmethod(lambda tag, **kw: _Image(tag)),
+        "debian_slim": staticmethod(lambda **kw: _Image("debian_slim")),
+    })
+    mod.App = type("AppNS", (), {
+        "lookup": staticmethod(lambda name, **kw: made_images.append(name) or f"app:{name}"),
+    })
+    mod.Sandbox = _FakeModalSandbox
+    monkeypatch.setitem(sys.modules, "modal", mod)
+    _FakeModalSandbox.apps = made_images
+    return _FakeModalSandbox
+
+
+class TestModalProvider:
+    def test_config_surface(self):
+        cls = get_sandbox("modal")
+        cfg = cls.Config(app_name="my-agents", image="python:3.12-slim",
+                         image_pip=["e2b"], cpu=2.0, memory=4096)
+        assert cfg.app_name == "my-agents" and cfg.image_pip == ["e2b"]
+        with pytest.raises(ValidationError):
+            cls.Config(app_nmae="typo")
+
+    def test_start_creates_a_sandbox_under_the_app(self, fake_modal):
+        sbx = build_sandbox(
+            {"kind": "modal", "params": {"app_name": "evsys-test", "cpu": 2.0,
+                                         "memory": 2048, "region": "us-east"}},
+            envs={"ANTHROPIC_API_KEY": "k"}, timeout_s=300)
+        args, kwargs = fake_modal.created[-1]
+        assert args == ("sleep", "infinity")           # holds the box open
+        assert kwargs["app"] == "app:evsys-test"
+        assert kwargs["timeout"] == 300 + 120          # TTL head-room
+        assert kwargs["env"] == {"ANTHROPIC_API_KEY": "k"}
+        assert kwargs["workdir"] == sbx.workdir
+        assert (kwargs["cpu"], kwargs["memory"], kwargs["region"]) == (2.0, 2048, "us-east")
+        assert kwargs["block_network"] is False        # agents need the model API
+        assert sbx.workdir in sbx._sbx.filesystem.dirs
+        sbx.kill()
+
+    def test_unset_resource_knobs_are_left_to_modal(self, fake_modal):
+        sbx = build_sandbox("modal", timeout_s=60)
+        _, kwargs = fake_modal.created[-1]
+        assert not {"cpu", "memory", "gpu", "region"} & set(kwargs)
+        assert "env" not in kwargs                     # no passthrough vars set
+        sbx.kill()
+
+    def test_custom_image_and_pip_layer(self, fake_modal):
+        sbx = build_sandbox({"kind": "modal", "params": {
+            "image": "python:3.12-slim", "image_pip": ["evsys-sdk", "e2b"]}}, timeout_s=60)
+        _, kwargs = fake_modal.created[-1]
+        assert kwargs["image"].tag == "python:3.12-slim"
+        assert kwargs["image"].pip == ["evsys-sdk", "e2b"]
+        sbx.kill()
+
+    def test_file_and_command_round_trip(self, fake_modal):
+        lines: list[str] = []
+        with build_sandbox("modal", timeout_s=60) as sbx:
+            inner = sbx._sbx
+            sbx.stage({"skills/a/SKILL.md": "# a"})
+            assert inner.filesystem.files[f"{sbx.workdir}/skills/a/SKILL.md"] == "# a"
+            assert f"{sbx.workdir}/skills/a" in inner.filesystem.dirs  # parents made
+            assert sbx.read(sbx.path("skills/a/SKILL.md")) == "# a"
+            assert sbx.read(sbx.path("missing.txt")) is None
+            code, out = sbx.exec("run me", timeout_s=42, cwd="/w", on_line=lines.append)
+
+        assert code == 5
+        assert out == "hello\nworld\ntail\n\noops\n"     # stdout chunks + stderr
+        assert lines == ["hello", "world", "tail", "oops"]  # chunks split to lines
+        call = inner.exec_calls[-1]
+        assert call["argv"] == ("bash", "-lc", "run me")
+        assert call["workdir"] == "/w" and call["timeout"] == 42
+        assert inner.terminated and sbx._sbx is None
+
+    def test_kill_is_best_effort_and_idempotent(self, fake_modal):
+        sbx = build_sandbox("modal", timeout_s=60)
+        sbx._sbx.terminate = lambda: (_ for _ in ()).throw(RuntimeError("modal down"))
+        sbx.kill()
+        sbx.kill()
+
+    def test_block_network_is_opt_in(self, fake_modal):
+        sbx = build_sandbox({"kind": "modal", "params": {"block_network": True}}, timeout_s=60)
+        assert fake_modal.created[-1][1]["block_network"] is True
+        sbx.kill()
 
 
 class TestE2BProvider:

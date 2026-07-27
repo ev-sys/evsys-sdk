@@ -87,6 +87,7 @@ class BaseSandbox:
                  timeout_s: float = 1800.0, **params: Any) -> None:
         self.envs = dict(envs or {})
         self.timeout_s = float(timeout_s)
+        self._started = False
         # Validate adapter params against the adapter's Config (loud on a typo).
         self.cfg: Any = self.Config(**params) if self.Config is not None else None
 
@@ -113,8 +114,18 @@ class BaseSandbox:
 
     # -- generic orchestration --------------------------------------------
 
-    def __enter__(self) -> BaseSandbox:
+    def ensure_started(self) -> None:
+        """Start exactly once. Every entry point goes through here rather than
+        calling ``start()``: a provider's ``start()`` allocates real, billed
+        infrastructure, and calling it twice orphans the first sandbox (the
+        handle is overwritten, so nothing ever tears it down)."""
+        if self._started:
+            return
         self.start()
+        self._started = True
+
+    def __enter__(self) -> BaseSandbox:
+        self.ensure_started()
         return self
 
     def __exit__(self, *exc: Any) -> None:
@@ -122,6 +133,8 @@ class BaseSandbox:
             self.kill()
         except Exception:  # pragma: no cover - best-effort teardown
             log.debug("[sandbox:%s] teardown failed", self.name, exc_info=True)
+        finally:
+            self._started = False
 
     def path(self, rel: str) -> str:
         """Sandbox-absolute path for a workdir-relative one."""

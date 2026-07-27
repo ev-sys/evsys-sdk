@@ -465,11 +465,15 @@ five methods:
 | `exec(cmd, *, timeout_s, cwd, on_line)` | run a command, streaming output |
 | `kill()` | tear down (best-effort, never raises) |
 
-Built-ins: **`e2b`** (hosted microVMs; needs `E2B_API_KEY` and the `remote`
-extra — `params: {template, metadata}`) and **`local`** (a scratch dir +
-subprocess on this host: the same file contract, *no* isolation — for
-developing the loop without an API key). `evsys list sandboxes` shows what is
-registered.
+Built-ins:
+
+| Provider | Needs | Notes |
+|---|---|---|
+| `e2b` | `E2B_API_KEY`, `[remote]` extra | Hosted microVMs. `params: {template, metadata}` |
+| `modal` | `~/.modal.toml` (`modal token set`), `[remote-modal]` extra | Same account as `environment: {type: modal}` rollouts, so a Modal training run needs nothing extra to run its agents there too. `params: {app_name, image, image_pip, cpu, memory, gpu, region, block_network}` |
+| `local` | nothing | Scratch dir + subprocess on this host — the same file contract, **no** isolation. For developing the loop without any account. |
+
+`evsys list sandboxes` shows what is registered.
 
 ```python
 from evsys_sdk import BaseSandbox, register_sandbox
