@@ -62,6 +62,12 @@ class TraceSourceSpec(_Strict):
 
     kind: str
     """Registry key of the @register_trace_source adapter, e.g. 'langgraph'."""
+    import_path: str | None = None
+    """Where the adapter's ``@register_trace_source`` code lives, imported
+    before the source resolves (registration is an import side effect): a
+    ``.py`` file path or a dotted module. Without it, ``kind`` must already be
+    importable by the daemon — which it cannot be for a source the researcher
+    wrote in their own project. Mirrors ``trigger.import_path``."""
     params: dict[str, Any] = Field(default_factory=dict)
     """Adapter-specific parameters; validated against <TraceSource>.Config."""
     pull_every: str = "60s"

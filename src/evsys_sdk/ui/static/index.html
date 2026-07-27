@@ -197,7 +197,7 @@ svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
 
 <script>
 const S = { state: null, experiments: [], agentRuns: [], view: "system",
-            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, err: null };
+            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, traceId: null, err: null };
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const num = (v, d = 3) => v == null || Number.isNaN(Number(v)) ? "–"
@@ -618,16 +618,44 @@ function viewAgents() {
       }).join("") : '<div class="card"><div class="empty">No escalations yet — the gate has not fired.</div></div>'}`;
 }
 
+function viewTrace() {
+  const t = (((S.state || {}).traces || {}).items || []).find(x => x.trace_id === S.traceId);
+  if (!t) return '<button class="back" id="back-traces">← all traces</button><div class="empty">Trace not found.</div>';
+  const md = t.metadata || {}, fb = t.feedback || [];
+  return `<button class="back" id="back-traces">← all traces</button>
+    <div class="page-head"><div><h1 class="mono" style="font-size:16px">${esc(t.trace_id)}</h1>
+      <p class="sub">${esc(md.source || "")} · ${esc(String(md.timestamp || "").slice(0, 19))}</p></div></div>
+    ${fb.length ? `<div class="card"><h2>Feedback</h2><table><thead><tr><th>Signal</th><th>Score</th>
+        <th>Comment</th></tr></thead><tbody>` + fb.map(f => `<tr><td><code>${esc(f.key || "")}</code></td>
+        <td class="num">${f.score == null ? "–" : num(f.score, 2)}</td>
+        <td class="muted">${esc(f.comment || "")}</td></tr>`).join("") + `</tbody></table></div>` : ""}
+    <div class="card"><h2>Conversation</h2>
+      <div class="msgs">${(t.messages || []).map(m => {
+        const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2);
+        const calls = (m.tool_calls || []).map(tc =>
+          `\n→ ${(tc.function || {}).name || tc.name || "tool"}(${esc(((tc.function || {}).arguments) || "")})`).join("");
+        return `<div class="msg"><span class="role">${esc(m.role || "")}</span>
+          <div>${esc(c)}${calls ? `<span class="muted">${calls}</span>` : ""}</div></div>`;
+      }).join("")}</div></div>
+    <div class="card"><h2>Metadata</h2><dl class="kv">${Object.entries(md).map(([k, v]) =>
+      `<dt>${esc(k)}</dt><dd><code>${esc(String(v).slice(0, 140))}</code></dd>`).join("")}</dl></div>`;
+}
+
 function viewTraces() {
   const t = (S.state || {}).traces || {};
   const recent = t.items || t.recent || [];
   return `<div class="page-head"><div><h1>Traces</h1>
       <p class="sub">${t.total ?? recent.length} trace(s) ingested into the local store.</p></div></div>
     <div class="card">${recent.length ? `<table><thead><tr><th>Trace</th><th>Source</th>
-        <th>Messages</th><th>When</th></tr></thead><tbody>`
-      + recent.slice(0, 40).map(t => `<tr><td><code>${esc(String(t.trace_id || "").slice(0, 10))}</code></td>
-          <td>${esc(t.source || "")}</td><td class="num">${(t.messages || []).length}</td>
-          <td class="num muted">${esc(String((t.metadata || {}).timestamp || "").slice(0, 19))}</td></tr>`).join("")
+        <th>Messages</th><th>Feedback</th><th>When</th></tr></thead><tbody>`
+      + recent.slice(0, 60).map(x => {
+          const md = x.metadata || {}, fb = (x.feedback || [])[0];
+          return `<tr class="clickable" data-trace="${esc(x.trace_id)}">
+            <td><code>${esc(String(x.trace_id || "").slice(0, 12))}</code></td>
+            <td>${esc(md.source || "")}</td><td class="num">${(x.messages || []).length}</td>
+            <td class="num muted">${fb ? esc(fb.key) + " " + num(fb.score, 2) : "–"}</td>
+            <td class="num muted">${esc(String(md.timestamp || "").slice(0, 19))}</td></tr>`;
+        }).join("")
       + `</tbody></table>` : '<div class="empty">No traces ingested yet.</div>'}</div>`;
 }
 
@@ -656,7 +684,8 @@ function renderNav() {
     + `<div class="group">system</div>`
     + VIEWS.map(v => {
         const c = v.count ? v.count() : 0;
-        const on = S.view === v.id || (S.view === "detail" && v.id === "experiments");
+        const on = S.view === v.id || (S.view === "detail" && v.id === "experiments")
+             || (S.view === "trace" && v.id === "traces");
         return `<button data-view="${v.id}" aria-current="${on}"><span>${v.label}</span>${c ? `<span class="count">${c}</span>` : ""}</button>`;
       }).join("")
     + `<button class="theme" id="theme">◐ theme</button>`;
@@ -666,7 +695,9 @@ function render() {
   renderNav();
   const main = $("#main");
   if (S.err) { main.innerHTML = `<div class="card"><div class="empty">${esc(S.err)}</div></div>`; return; }
-  main.innerHTML = S.view === "detail" ? viewDetail() : (VIEWS.find(v => v.id === S.view) || VIEWS[0]).fn();
+  main.innerHTML = S.view === "detail" ? viewDetail()
+    : S.view === "trace" ? viewTrace()
+    : (VIEWS.find(v => v.id === S.view) || VIEWS[0]).fn();
   if (S.view === "detail") { renderRollouts(); renderData(); }
 }
 
@@ -692,6 +723,9 @@ document.addEventListener("click", async e => {
     render(); loadRun(); return;
   }
   if (e.target.closest("#back")) { S.view = "experiments"; S.detail = null; render(); return; }
+  if (e.target.closest("#back-traces")) { S.view = "traces"; S.traceId = null; render(); return; }
+  const trow = e.target.closest("tr[data-trace]");
+  if (trow) { S.traceId = trow.dataset.trace; S.view = "trace"; render(); return; }
   const chip = e.target.closest(".chip[data-kind]");
   if (chip && S.detail) {
     S.rolloutKind = chip.dataset.kind;
@@ -722,7 +756,7 @@ async function tick() {
     ]);
     S.state = state; S.experiments = experiments; S.agentRuns = agentRuns; S.err = null;
   } catch (err) { S.err = String(err); }
-  if (S.view === "detail") renderNav(); else render();
+  if (S.view === "detail" || S.view === "trace") renderNav(); else render();
 }
 tick(); setInterval(tick, 4000);
 </script>
