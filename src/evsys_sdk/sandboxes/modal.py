@@ -17,6 +17,7 @@ infinity`` open while the agent's commands ``exec`` into them.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -51,6 +52,17 @@ class ModalSandbox(BaseSandbox):
         image_pip: list[str] = Field(default_factory=list)
         """Packages layered onto the image at build time. Cached by Modal, so
         this is cheaper than reinstalling via ``setup_cmd`` on every spawn."""
+        apt_install: list[str] = Field(default_factory=list)
+        """System packages for the image, e.g. ``["nodejs", "npm"]``. A headless
+        `claude` is an npm package, so an agent sandbox needs node — and the
+        default slim image has none, which is what stops `setup_cmd` dead."""
+        local_dirs: dict[str, str] = Field(default_factory=dict)
+        """``{local path: path in the image}`` copied in at build time. The way
+        to give a sandboxed agent an SDK that is not on PyPI — a working branch,
+        a private package — without baking credentials into the image."""
+        run_commands: list[str] = Field(default_factory=list)
+        """Commands baked into the image after the copies. Cached by Modal, so
+        an install here is paid once per image rather than on every spawn."""
         cpu: float | None = None
         """Cores to request. None → Modal's default."""
         memory: int | None = None
@@ -63,6 +75,14 @@ class ModalSandbox(BaseSandbox):
         must stay False unless the mission is fully offline."""
         region: str | None = None
         """Pin a region (e.g. ``us-east``); None → Modal chooses."""
+        user: str | None = None
+        """Run commands as this (non-root) user, creating it in the image.
+
+        Modal containers are root, and a headless `claude` refuses
+        `--dangerously-skip-permissions` as root — which is the only way to let
+        an autonomous agent run shell commands without an interactive approval
+        that will never come. Setting a user is what makes a *fully* autonomous
+        agent sandbox possible."""
 
     def __init__(self, **kw: Any) -> None:
         super().__init__(**kw)
@@ -70,12 +90,34 @@ class ModalSandbox(BaseSandbox):
         self._app: Any = None
 
     def _build_image(self, modal: Any) -> Any:
-        image = (modal.Image.from_registry(self.cfg.image) if self.cfg.image
-                 else modal.Image.debian_slim())
-        return image.pip_install(*self.cfg.image_pip) if self.cfg.image_pip else image
+        image = (modal.Image.from_registry(self.cfg.image, add_python="3.12")
+                 if self.cfg.image else modal.Image.debian_slim())
+        if self.cfg.apt_install:
+            image = image.apt_install(*self.cfg.apt_install)
+        if self.cfg.image_pip:
+            image = image.pip_install(*self.cfg.image_pip)
+        for local, remote in self.cfg.local_dirs.items():
+            # copy=True so later run_commands can see the files
+            image = image.add_local_dir(str(Path(local).expanduser()), remote, copy=True,
+                                        ignore=["**/.git", "**/__pycache__", "**/.venv",
+                                                "**/node_modules", "**/outputs"])
+        for cmd in self.cfg.run_commands:
+            image = image.run_commands(cmd)
+        if self.cfg.user:
+            u = self.cfg.user
+            image = image.run_commands(
+                f"id -u {u} >/dev/null 2>&1 || useradd -m -s /bin/bash {u}",
+                f"mkdir -p /home/{u}/evsys && chown -R {u} /home/{u}",
+            )
+        return image
 
     def start(self) -> None:
         import modal  # lazy: the `remote-modal` extra
+
+        # /root is mode 700, so a non-root agent cannot even traverse into a
+        # workdir beneath it. Stage into that user's own home instead.
+        if self.cfg.user:
+            self.workdir = f"/home/{self.cfg.user}/evsys"
 
         self._app = modal.App.lookup(self.cfg.app_name, create_if_missing=True)
         kwargs: dict[str, Any] = {
@@ -97,6 +139,9 @@ class ModalSandbox(BaseSandbox):
         # as exec calls, exactly like the E2B provider.
         self._sbx = modal.Sandbox.create("sleep", "infinity", **kwargs)
         self._sbx.filesystem.make_directory(self.workdir, create_parents=True)
+        if self.cfg.user:
+            self._sbx.exec("bash", "-lc",
+                           f"chown -R {self.cfg.user} {self.workdir}").wait()
         log.info("[sandbox:modal] %s (app=%s)", self._sbx.object_id, self.cfg.app_name)
 
     def write(self, path: str, content: str) -> None:
@@ -113,9 +158,13 @@ class ModalSandbox(BaseSandbox):
 
     def exec(self, cmd: str, *, timeout_s: float, cwd: str | None = None,
              on_line: OnLine | None = None) -> tuple[int, str]:
+        # `-p` preserves the environment: a plain `su user -c` RESETS it, so the
+        # passed-through ANTHROPIC_API_KEY/TINKER_API_KEY never reach the agent
+        # and it fails silently with a zero exit.
+        argv = (["su", "-p", self.cfg.user, "-c", cmd] if self.cfg.user
+                else ["bash", "-lc", cmd])
         proc = self._sbx.exec(
-            "bash", "-lc", cmd,
-            workdir=cwd or self.workdir, timeout=int(timeout_s), text=True,
+            *argv, workdir=cwd or self.workdir, timeout=int(timeout_s), text=True,
         )
         chunks: list[str] = []
         # Modal yields buffered chunks, not lines — split so `on_line` gets one
