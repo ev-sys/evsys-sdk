@@ -188,8 +188,11 @@ class Callback:
         the chat template / rendering). Lets a logger persist exactly what went
         into training."""
 
-    def on_rollout(self, state: LoopState, step_idx: int, rollouts: list[Any]) -> None:
-        """Fires per step with the algorithm's on-policy rollouts — only when
+    def on_rollout(self, state: LoopState, step_idx: int, rollouts: list[Any],
+                   items: list[Any] | None = None) -> None:
+        """Fires per step with the algorithm's on-policy rollouts, and the items
+        they were sampled from (aligned 1:1) when the algorithm supplies them
+        — only when
         ``log_rollouts`` is on (e.g. a ``--dry`` run) and the algorithm set
         ``batch.rollouts`` (RL/SDFT do; SFT never does)."""
 
@@ -828,7 +831,7 @@ class LocalLoggerCallback(Callback):
             print(f"  [{kind}_data] {len(rows)} rows → {fp}", flush=True)
 
     # --- training rollouts (--dry) ----------------------------------------
-    def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
+    def on_rollout(self, state: LoopState, step_idx, rollouts, items=None) -> None:
         if self._dir is None:
             return
         import json  # noqa: PLC0415
@@ -858,8 +861,8 @@ class LocalLoggerCallback(Callback):
             if left != 0:
                 from .rollout_capture import training_rollout_rows  # noqa: PLC0415
 
-                kept = self._capture.take(
-                    KIND_TRAIN, training_rollout_rows(rollouts, step=step_idx, limit=left))
+                kept = self._capture.take(KIND_TRAIN, training_rollout_rows(
+                    rollouts, step=step_idx, limit=left, items=items))
                 # recs carry the decoded completion text recovered from harbor;
                 # graft it on so a rollout is readable, not just token ids.
                 for row, rec in zip(kept, recs):

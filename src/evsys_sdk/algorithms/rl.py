@@ -148,7 +148,7 @@ class RL(BaseAlgorithm):
             return TrainingBatch(
                 data=[], loss_fn="importance_sampling",
                 metrics={"reward/n_trajectories": 0.0},
-                rollouts=all_groups,
+                rollouts=all_groups, rollout_items=batch,
             )
 
         advantages = compute_advantages(groups)
@@ -157,6 +157,9 @@ class RL(BaseAlgorithm):
         return TrainingBatch(
             data=datums, loss_fn="importance_sampling",
             metrics=metrics, rollouts=groups,
+            # the tasks these groups were sampled from, so a captured rollout
+            # carries its instruction and what the verifier expected
+            rollout_items=[t for t, g in zip(batch, all_groups) if g in groups],
         )
 
     def _hyperparams_extra(self) -> dict[str, Any]:

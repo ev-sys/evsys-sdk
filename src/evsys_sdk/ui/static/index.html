@@ -142,6 +142,9 @@ svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
 .agent-h { display: flex; align-items: center; justify-content: space-between;
   gap: 10px; margin-bottom: 5px; }
 .agent-p { font-size: 12px; color: var(--text-3); margin: 0 0 10px; }
+.reg { display: flex; flex-wrap: wrap; gap: 6px; }
+.reg-item { background: var(--surface-0); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px; }
 .chain { font-size: 12px; color: var(--text-2); background: var(--surface-0);
   border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; }
 .msgs { display: flex; flex-direction: column; gap: 8px; }
@@ -197,7 +200,7 @@ svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
 
 <script>
 const S = { state: null, experiments: [], agentRuns: [], view: "system",
-            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, traceId: null, err: null };
+            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, traceId: null, registry: null, err: null };
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const num = (v, d = 3) => v == null || Number.isNaN(Number(v)) ? "–"
@@ -659,6 +662,29 @@ function viewTraces() {
       + `</tbody></table>` : '<div class="empty">No traces ingested yet.</div>'}</div>`;
 }
 
+function viewRegistry() {
+  const r = S.registry || {};
+  const kinds = Object.keys(r);
+  const LABEL = {
+    algorithm: "Algorithms", verifier: "Verifiers", metric: "Metrics",
+    data_store: "Data stores", backend: "Backends", inference_client: "Inference clients",
+    transform: "Transforms", callback: "Callbacks", trace_source: "Trace sources",
+    trigger: "Detection functions", sandbox: "Sandbox providers", context_source: "Context sources",
+  };
+  return `<div class="page-head"><div><h1>Registry</h1>
+      <p class="sub">Everything this system can resolve by name from YAML — the built-ins plus
+      anything the project registered itself.</p></div></div>
+    ${kinds.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">`
+      + kinds.map(k => `<div class="card" style="margin:0">
+          <div class="chart-head"><h2>${esc(LABEL[k] || k)}</h2>
+            <span class="count">${(r[k] || []).length}</span></div>
+          ${(r[k] || []).length ? `<div class="reg">${r[k].map(n =>
+            `<code class="reg-item">${esc(n)}</code>`).join("")}</div>`
+            : '<div class="muted" style="font-size:12px">none registered</div>'}
+        </div>`).join("") + `</div>`
+      : '<div class="card"><div class="empty">Registry unavailable.</div></div>'}`;
+}
+
 function viewPrompt() {
   const p = (S.state || {}).prompt || {};
   return `<div class="page-head"><div><h1>Live artifact</h1>
@@ -675,6 +701,8 @@ const VIEWS = [
     count: () => ((S.state || {}).escalations || []).length },
   { id: "experiments", label: "Experiments",   fn: viewExperiments, count: () => S.experiments.length },
   { id: "traces",      label: "Traces",        fn: viewTraces },
+  { id: "registry",    label: "Registry",      fn: viewRegistry,
+    count: () => Object.values(S.registry || {}).reduce((a, v) => a + v.length, 0) },
   { id: "prompt",      label: "Live artifact", fn: viewPrompt },
 ];
 
@@ -749,12 +777,14 @@ let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(ren
 
 async function tick() {
   try {
-    const [state, experiments, agentRuns] = await Promise.all([
+    const [state, experiments, agentRuns, registry] = await Promise.all([
       get("/api/state").catch(() => ({})),
       get("/api/experiments").catch(() => []),
       get("/api/agent-runs").catch(() => []),
+      S.registry ? Promise.resolve(S.registry) : get("/api/registry").catch(() => ({})),
     ]);
-    S.state = state; S.experiments = experiments; S.agentRuns = agentRuns; S.err = null;
+    S.state = state; S.experiments = experiments; S.agentRuns = agentRuns;
+    S.registry = registry; S.err = null;
   } catch (err) { S.err = String(err); }
   if (S.view === "detail" || S.view === "trace") renderNav(); else render();
 }

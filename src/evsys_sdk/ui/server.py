@@ -325,6 +325,7 @@ def _dashboard_route(project_dir: Path, path: str, full_path: str) -> tuple[int,
       /api/runs/<run_id>/predictions         a run's rollouts (?kind=train|validation|eval)
       /api/runs/<run_id>/data                raw + transformed data and the transform chain
       /api/agent-runs                        what each agent run produced
+      /api/registry                          every extension resolvable by name
     """
     from urllib.parse import parse_qs, urlparse
 
@@ -349,6 +350,12 @@ def _dashboard_route(project_dir: Path, path: str, full_path: str) -> tuple[int,
             payload = db.run_data(parts[2])
         elif parts == ["api", "agent-runs"]:
             payload = db.agent_runs()
+        elif parts == ["api", "registry"]:
+            # everything this process can resolve by name from YAML — the
+            # extension surface, including anything the project registered
+            from ..registry import _all_registries
+
+            payload = {kind: sorted(reg.list()) for kind, reg in _all_registries().items()}
         else:
             return 404, "text/plain", b"not found"
     except Exception as e:  # a bad read must not take the whole UI down
@@ -367,7 +374,8 @@ def _make_handler(project_dir: Path, cfg: SystemConfig, prompt_file: Path | None
                 state = collect_state(project_dir, cfg, prompt_file=prompt_file)
                 self._reply(200, "application/json", json.dumps(state).encode())
             elif path.startswith("/api/experiments") or path.startswith("/api/evals") \
-                    or path.startswith("/api/agent-runs") or path.startswith("/api/runs"):
+                    or path.startswith("/api/agent-runs") or path.startswith("/api/runs") \
+                    or path.startswith("/api/registry"):
                 # The dashboard-shaped surface, served from the local mirror —
                 # the same JSON the hosted API returns, so the frontend's
                 # components render local runs unchanged.
