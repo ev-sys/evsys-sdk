@@ -89,15 +89,21 @@ def test_harbor_validation_uploads_eval_per_step(monkeypatch):
     assert [e["step"] for e in store.evals] == [5, 10]
     assert all(e["run_id"] == "run123" for e in store.evals)
     assert all(e["benchmark_id"] == "bench9" for e in store.evals)
-    # Two tasks × two validations = 4 eval predictions, eval_id threaded through.
+    # Two tasks x two validations = 4 eval predictions, eval_id threaded through.
     assert len(store.preds) == 4
     assert {p["eval_id"] for p in store.preds} == {"eval_5", "eval_10"}
-    assert all(p["kind"] == "eval" for p in store.preds)
+    # An in-training validation is tagged `validation`, not `eval`: it answers
+    # "is it improving?", where the final pass answers "how good is it now?".
+    assert all(p["kind"] == "validation" for p in store.preds)
 
 
-def test_harbor_validation_skips_upload_without_eval_id(monkeypatch):
-    """If create_eval yields no id, predictions are NOT uploaded — orphan rows
-    couldn't be told apart from other evals on the run."""
+def test_harbor_validation_falls_back_to_a_local_eval_id(monkeypatch):
+    """A backend that mints no eval id must NOT cost us the rollouts.
+
+    Offline, `_post` returns None and `create_eval` answers `{"ok": True}` with
+    no id — which used to make the evaluator drop every prediction, so no local
+    run ever persisted a single validation rollout. A stable local id is
+    synthesised instead."""
     async def _fake_score(tasks, **kwargs):
         return [TrajectoryGroup(trajectories=[Trajectory(
             turns=[Turn(prompt_tokens=[1], completion_tokens=[2], logprobs=[-0.1])],
@@ -111,7 +117,7 @@ def test_harbor_validation_skips_upload_without_eval_id(monkeypatch):
             self.preds: list[dict] = []
 
         def create_eval(self, **kw):
-            return {}  # no id
+            return {}  # no id — the offline shape
 
         def add_prediction(self, **kw):
             self.preds.append(kw)
@@ -122,7 +128,10 @@ def test_harbor_validation_skips_upload_without_eval_id(monkeypatch):
         engine="harbor", model_name="m", store=store, run_id="r1",
     )
     asyncio.run(ev.evaluate(object(), model_path="tinker://ckpt", step=5))
-    assert store.preds == []
+
+    assert len(store.preds) == 2                       # both tasks landed
+    assert {p["eval_id"] for p in store.preds} == {"local-r1-step5"}
+    assert all(p["kind"] == "validation" for p in store.preds)
 
 
 def test_non_harbor_engine_uses_sampler_path(monkeypatch):

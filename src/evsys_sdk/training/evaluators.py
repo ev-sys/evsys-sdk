@@ -29,6 +29,12 @@ import tinker
 
 from ..benchmark import Benchmark
 from ..inference.chat_templated import ChatTemplatedInference
+from .rollout_capture import (
+    DEFAULT_ROLLOUT_CAP,
+    KIND_EVAL,
+    KIND_VALIDATION,
+    RolloutCapture,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +151,15 @@ class BenchmarkEvaluator:
     store: Any = None
     run_id: str | None = None
     benchmark_id: str | None = None
+    rollout_cap: int = DEFAULT_ROLLOUT_CAP
+    """Rollouts persisted per kind for this run (0 off, negative unlimited).
+    Only the first N are kept — enough to inspect what the model produces,
+    without writing tens of thousands of rows nobody reads."""
+
+    _capture: RolloutCapture = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._capture = RolloutCapture(self.rollout_cap)
 
     async def evaluate(
         self, sampler: Any, *,
@@ -227,16 +242,25 @@ class BenchmarkEvaluator:
                 logger.exception("create_eval failed for run %s", self.run_id)
         # Each validation mints its own eval (tagged with `step`); the per-task
         # predictions hang off that eval_id so step-5 / step-10 / final evals
-        # stay distinguishable. No eval_id → don't upload orphan predictions.
+        # stay distinguishable. Offline there IS no backend id — `_post` returns
+        # None and create_eval answers {"ok": True} — so synthesise a stable
+        # local one rather than dropping the rollouts, which is what used to
+        # happen: no local run ever persisted a single validation rollout.
         if eval_id is None:
-            logger.warning(
-                "skipping val rollout upload for run %s step %s: no eval_id",
-                self.run_id, step,
-            )
+            eval_id = f"local-{self.run_id}-step{step if step is not None else 'final'}"
+            logger.debug("no backend eval_id for run %s step %s; using %s",
+                         self.run_id, step, eval_id)
+        # Periodic in-training evals answer "is it improving?"; the final pass
+        # answers "how good is it now?" — different questions, different kinds.
+        kind = KIND_VALIDATION if step is not None else KIND_EVAL
+        left = self._capture.remaining(kind)
+        if left == 0:
             return
         try:
-            preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step)
-            upload_eval_rollouts(self.store, self.run_id, preds)
+            preds = eval_predictions(tasks, groups, eval_id=eval_id, step=step, kind=kind)
+            kept = self._capture.take(kind, preds)
+            if kept:
+                upload_eval_rollouts(self.store, self.run_id, kept)
         except Exception:  # pragma: no cover — defensive
             logger.exception("eval rollout upload failed for run %s", self.run_id)
 

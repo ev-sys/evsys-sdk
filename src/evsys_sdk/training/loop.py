@@ -34,6 +34,7 @@ import tinker
 from .backend import Backend, LossCallable, SamplingClient
 from .callbacks import Callback, LoopState
 from .checkpoints import CheckpointManager, ManifestRow
+from .rollout_capture import DEFAULT_ROLLOUT_CAP, KIND_TRAIN, RolloutCapture
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,7 @@ class TrainingLoop:
         log_context: Any = None,
         log_prefix: str = "",
         log_rollouts: bool = False,
+        rollout_cap: int = DEFAULT_ROLLOUT_CAP,
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
         self.backend = backend
@@ -219,6 +221,10 @@ class TrainingLoop:
         self.log_context = log_context
         self.log_prefix = log_prefix
         self.log_rollouts = log_rollouts
+        # Capped capture of on-policy training rollouts: the first N land in the
+        # run's predictions so they can be inspected locally. `log_rollouts`
+        # (a --dry run) still surfaces every rollout, uncapped.
+        self.rollout_capture = RolloutCapture(rollout_cap)
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
             log_path=self.output_dir, save_every=save_every
@@ -280,7 +286,8 @@ class TrainingLoop:
 
         # Surface on-policy rollouts (RL/SDFT set batch.rollouts) to loggers when
         # rollout logging is on (e.g. a --dry run). SFT leaves rollouts None.
-        if self.log_rollouts and batch.rollouts and state is not None:
+        if batch.rollouts and state is not None and (
+                self.log_rollouts or self.rollout_capture.remaining(KIND_TRAIN) != 0):
             self._dispatch("on_rollout", state, step, batch.rollouts)
 
         # A step can legitimately yield no trainable data — e.g. RL with
