@@ -144,6 +144,18 @@ class ModalSandbox(BaseSandbox):
                            f"chown -R {self.cfg.user} {self.workdir}").wait()
         log.info("[sandbox:modal] %s (app=%s)", self._sbx.object_id, self.cfg.app_name)
 
+    def stage(self, manifest: dict[str, str]) -> None:
+        """Stage, then hand the tree to the sandbox user.
+
+        The filesystem API writes as root, so everything staged lands root-owned
+        — and a non-root agent then cannot write its verdict into its own
+        workdir, or create the directories it needs. Chown after staging, not
+        before: the files do not exist yet at start()."""
+        super().stage(manifest)
+        if self.cfg.user:
+            self._sbx.exec("bash", "-lc",
+                           f"chown -R {self.cfg.user} /home/{self.cfg.user}").wait()
+
     def write(self, path: str, content: str) -> None:
         parent = path.rsplit("/", 1)[0]
         if parent:
@@ -158,11 +170,17 @@ class ModalSandbox(BaseSandbox):
 
     def exec(self, cmd: str, *, timeout_s: float, cwd: str | None = None,
              on_line: OnLine | None = None) -> tuple[int, str]:
-        # `-p` preserves the environment: a plain `su user -c` RESETS it, so the
-        # passed-through ANTHROPIC_API_KEY/TINKER_API_KEY never reach the agent
-        # and it fails silently with a zero exit.
-        argv = (["su", "-p", self.cfg.user, "-c", cmd] if self.cfg.user
-                else ["bash", "-lc", cmd])
+        if self.cfg.user:
+            # `-p` preserves the environment — a plain `su user -c` RESETS it, so
+            # the passed-through ANTHROPIC_API_KEY never reaches the agent and it
+            # fails silently with a zero exit. But -p also preserves HOME=/root,
+            # which the agent then cannot write (claude keeps session state
+            # under $HOME/.claude), so HOME is re-pointed explicitly.
+            home = f"/home/{self.cfg.user}"
+            argv = ["su", "-p", self.cfg.user, "-c",
+                    f"export HOME={home}; cd {cwd or self.workdir}; {cmd}"]
+        else:
+            argv = ["bash", "-lc", cmd]
         proc = self._sbx.exec(
             *argv, workdir=cwd or self.workdir, timeout=int(timeout_s), text=True,
         )
