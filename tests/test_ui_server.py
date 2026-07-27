@@ -284,7 +284,10 @@ def test_http_index(server: str) -> None:
     with urllib.request.urlopen(f"{server}/") as r:
         body = r.read().decode()
     assert r.status == 200
-    assert "continual-learning observatory" in body
+    # the shell + the views it can render; the data arrives over /api/*
+    assert "<title>evsys</title>" in body
+    for view in ("Overview", "Experiments", "Agents", "Traces"):
+        assert view in body
 
 
 def test_http_api_state(server: str) -> None:
