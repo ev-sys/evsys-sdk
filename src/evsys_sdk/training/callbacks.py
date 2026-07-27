@@ -912,12 +912,14 @@ class LocalLoggerCallback(Callback):
     def on_checkpoint(self, state: LoopState, row: ManifestRow) -> None:
         if self._mirror is None or not self._mirror_run:
             return
+        # ManifestRow is {name, batch, epoch, state_path, sampler_path} — the
+        # sampler path is the one you can actually load for inference.
         self._mirror.add_checkpoint(self._mirror_run, {
             "id": str(uuid.uuid4()),
-            "uri": str(getattr(row, "path", "") or getattr(row, "uri", "") or ""),
-            "label": getattr(row, "name", None),
-            "step": getattr(row, "step", None),
-            "is_final": bool(getattr(row, "is_final", False)),
+            "uri": row.sampler_path or row.state_path or "",
+            "label": row.name,
+            "step": row.batch,
+            "is_final": row.name == "final",
         })
 
     # --- close out --------------------------------------------------------
@@ -941,6 +943,12 @@ class LocalLoggerCallback(Callback):
         self._metrics_fps = {}
 
     def on_experiment_end(self, ctx, result) -> None:
+        if self._mirror is not None and self._mirror_exp:
+            self._mirror.update_experiment(self._mirror_exp, {
+                "status": "completed",
+                "best_score": getattr(result, "best_score", None),
+                "conclusion": getattr(result, "conclusion", None),
+            })
         if self._hypothesis is None:
             self._hypothesis = getattr(result, "hypothesis", None)
         conclusion = getattr(result, "conclusion", None)
