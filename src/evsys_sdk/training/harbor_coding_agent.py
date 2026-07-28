@@ -34,6 +34,27 @@ from .harbor_agents import BasicLoopAgent
 log = get_logger(__name__)
 
 _BASH_BLOCK = re.compile(r"```bash\s*\n(.*?)```", re.DOTALL)
+
+
+def _as_text(content: Any) -> str:
+    """Message content as a string.
+
+    A chat response's ``content`` is a plain string for some providers and a
+    LIST of content blocks for others. Every rollout of this agent crashed with
+    ``TypeError: expected string or bytes-like object, got 'list'`` the moment a
+    block-style response arrived, so no trajectory was ever harvested and reward
+    was structurally 0."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, str):
+                parts.append(b)
+            elif isinstance(b, dict):
+                parts.append(str(b.get("text") or b.get("content") or ""))
+        return "\n".join(p for p in parts if p)
+    return "" if content is None else str(content)
 _FINAL_MARKER = "<final>"
 _COMPLETION_FILE = "completion.txt"
 _VERIFIER_SPEC_FILE = "sandbox_verifier.json"
@@ -69,9 +90,9 @@ class CodingLoopAgent(BasicLoopAgent):
     def name() -> str:
         return "evsys-coding-loop"
 
-    async def _exec_blocks(self, environment: BaseEnvironment, text: str) -> str | None:
+    async def _exec_blocks(self, environment: BaseEnvironment, text: Any) -> str | None:
         """Run each fenced bash block; return combined output (None = no blocks)."""
-        blocks = _BASH_BLOCK.findall(text)
+        blocks = _BASH_BLOCK.findall(_as_text(text))
         if not blocks:
             return None
         chunks: list[str] = []
@@ -95,7 +116,7 @@ class CodingLoopAgent(BasicLoopAgent):
         final_text = ""
         for _ in range(max(1, self._max_turns)):
             resp = await chat.chat(message)
-            final_text = resp.content or ""
+            final_text = _as_text(resp.content)
             if self._final_marker in final_text:
                 break
             tool_output = await self._exec_blocks(environment, final_text)
