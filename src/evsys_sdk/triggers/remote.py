@@ -156,6 +156,24 @@ def build_manifest(
 # ---------------------------------------------------------------------------
 
 
+STREAMING_ARGS = ("--output-format", "stream-json", "--verbose")
+"""Make a headless agent narrate itself.
+
+``claude -p`` with the default text format prints ONE block, at the end. In a
+sandbox that log is the only window there is, so a 40-minute run shows an empty
+transcript the whole way and is indistinguishable from a hung one — which is
+exactly how the first Modal run read. ``stream-json`` emits one JSON event per
+step instead, and the line callback below writes each straight into the
+agent-runs log as it happens."""
+
+
+def _streaming(argv: list[str]) -> list[str]:
+    """Add the streaming flags unless the caller already chose a format."""
+    if "--output-format" in argv:
+        return argv
+    return [*argv, *STREAMING_ARGS]
+
+
 def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str],
                    remote_cfg: Any, log_file: Path, stage: str) -> tuple[int, str]:
     """Stage the snapshot, provision, then run one agent — provider-agnostic:
@@ -184,7 +202,7 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
         # `< /dev/null`: a headless claude waits ~3s for stdin it will never
         # get in a sandbox, then warns. Close it explicitly.
         try:
-            code, out = sbx.exec(shlex.join(prompt_argv) + " < /dev/null",
+            code, out = sbx.exec(shlex.join(_streaming(prompt_argv)) + " < /dev/null",
                                  timeout_s=remote_cfg.timeout_s,
                                  cwd=sbx.workdir, on_line=_on_line)
         except Exception as e:

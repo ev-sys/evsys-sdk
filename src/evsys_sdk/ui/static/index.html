@@ -194,6 +194,12 @@ details.dd > summary::before { content: "›"; color: var(--t5); }
 details.dd[open] > summary::before { content: "⌄"; }
 details.dd .dbody { padding: 12px; border-top: 1px solid var(--line-soft);
   display: flex; flex-direction: column; gap: 10px; }
+/* a streamed agent transcript: one labelled step per event */
+.steps { display: flex; flex-direction: column; gap: 8px; }
+.step { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: start; }
+.step > .tag { justify-self: start; overflow: hidden; text-overflow: ellipsis; max-width: 92px; }
+.step pre.code { max-height: 260px; }
+.step pre.code.tight { background: none; border: 0; padding: 0; max-height: none; color: var(--t2); }
 .msgs { display: flex; flex-direction: column; gap: 8px; }
 .msg { display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 11.5px; line-height: 1.55; }
 .msg .role { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--t5); text-align: right; }
@@ -369,6 +375,70 @@ function splitTranscript(log) {
   return out;
 }
 
+/* A remote agent runs with `--output-format stream-json`, so its log is one
+   JSON event per line rather than a wall of text. Parse it into steps; return
+   null for a plain-text log so the raw view still works. */
+function parseStream(text) {
+  const steps = [];
+  let jsonLines = 0, otherLines = 0;
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s) continue;
+    if (s[0] !== "{") { otherLines++; continue; }
+    let ev;
+    try { ev = JSON.parse(s); } catch { otherLines++; continue; }
+    jsonLines++;
+    const msg = ev.message || {};
+    const blocks = Array.isArray(msg.content) ? msg.content
+      : typeof msg.content === "string" ? [{ type: "text", text: msg.content }] : [];
+    if (ev.type === "system") {
+      // only `init` carries anything to read; the rest are bookkeeping ticks
+      if (ev.subtype === "init") {
+        steps.push({ kind: "system", label: "init",
+                     body: [ev.model, ev.cwd].filter(Boolean).join("  ") });
+      }
+    } else if (ev.type === "result") {
+      steps.push({ kind: ev.is_error ? "error" : "result", label: ev.subtype || "result",
+                   body: ev.result || "",
+                   meta: [ev.num_turns != null ? ev.num_turns + " turns" : "",
+                          ev.duration_ms != null ? Math.round(ev.duration_ms / 1000) + "s" : "",
+                          ev.total_cost_usd != null ? "$" + Number(ev.total_cost_usd).toFixed(3) : ""]
+                     .filter(Boolean).join(" · ") });
+    } else {
+      for (const b of blocks) {
+        if (b.type === "text" && b.text && b.text.trim()) {
+          steps.push({ kind: msg.role === "user" ? "user" : "assistant",
+                       label: msg.role || ev.type, body: b.text });
+        } else if (b.type === "tool_use") {
+          const inp = b.input || {};
+          steps.push({ kind: "tool", label: b.name || "tool",
+                       body: inp.command || inp.file_path || inp.pattern || inp.path
+                             || (inp.prompt ? String(inp.prompt) : JSON.stringify(inp)) });
+        } else if (b.type === "tool_result") {
+          const c = typeof b.content === "string" ? b.content
+            : Array.isArray(b.content) ? b.content.map(x => x.text || "").join("\n") : "";
+          steps.push({ kind: b.is_error ? "error" : "result", label: "result", body: c });
+        }
+      }
+    }
+  }
+  return jsonLines > otherLines && steps.length ? steps : null;
+}
+
+const STEP_TAG = { tool: "blue", error: "red", result: "green", system: "", user: "", assistant: "" };
+
+function renderSteps(steps) {
+  return `<div class="steps">` + steps.map(s => {
+    const long = (s.body || "").length > 400;
+    return `<div class="step">
+      <span class="tag ${STEP_TAG[s.kind] ?? ""}">${esc(s.label)}</span>
+      <div>${s.body ? `<pre class="code${long ? "" : " tight"}">${esc(
+        long ? s.body.slice(0, 4000) : s.body)}</pre>` : ""}
+        ${s.meta ? `<div class="m" style="color:var(--t5);font-size:10px;margin-top:4px">${esc(s.meta)}</div>` : ""}
+      </div></div>`;
+  }).join("") + `</div>`;
+}
+
 const allRuns = d => (d.ungrouped_runs || []).concat((d.groups || []).flatMap(g => g.runs || []));
 const runLabel = r => (r.run_config && r.run_config.name) || String(r.id).slice(0, 8);
 const gateSignal = g => { const s = g.signal || {}; const v = s.failure_rate ?? s.rate ?? Object.values(s)[0];
@@ -526,9 +596,15 @@ function viewEscalation() {
   const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
   const pane = (title, who, body) => `<div class="panel">
       <div class="ph"><b>${esc(title)}</b>${who}</div>${body}</div>`;
-  const transcript = (label, text) => text ? `<details class="dd" open>
-      <summary>${esc(label)}<span class="right m" style="color:var(--t5)">${text.length} chars</span></summary>
-      <div class="dbody"><pre class="code">${esc(text.slice(-14000))}</pre></div></details>` : "";
+  const transcript = (label, text) => {
+    if (!text) return "";
+    const steps = parseStream(text);
+    return `<details class="dd" open>
+      <summary>${esc(label)}<span class="right m" style="color:var(--t5)">${
+        steps ? steps.length + " step(s)" : text.length + " chars"}</span></summary>
+      <div class="dbody">${steps ? renderSteps(steps)
+        : `<pre class="code">${esc(text.slice(-14000))}</pre>`}</div></details>`;
+  };
 
   return `<button class="back" id="back-sys">← system</button>
     <div class="panel"><div class="ph"><b>${esc(e.id)}</b>
