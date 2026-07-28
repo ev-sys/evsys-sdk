@@ -151,8 +151,9 @@ class TestSandboxResultsSync:
 
             def exec(self, cmd, *, timeout_s, cwd=None, on_line=None):
                 # emulate `find <dir> -type f`
-                target = cmd.split("find ")[1].split(" -type")[0].strip("'\"")
-                hits = [p for p in sorted(self.fs) if p.startswith(target + "/")]
+                target = cmd.split("find ")[1].split(" -type")[0].strip("'\"").rstrip("/")
+                prefix = target + "/"
+                hits = [p for p in sorted(self.fs) if p.startswith(prefix)]
                 return 0, "\n".join(hits) + "\n"
 
         return _Box()
@@ -184,3 +185,37 @@ class TestSandboxResultsSync:
     def test_missing_tree_is_empty_not_an_error(self, tmp_path):
         box = self._sandbox({"prompt.txt": "x"})
         assert box.collect_tree("evsys_sdk", tmp_path) == []
+
+    def test_mirror_is_pinned_to_the_live_workdir(self, tmp_path):
+        """``EVSYS_LOG_DIR`` must follow the sandbox that is actually running.
+
+        It used to be built from the module's default workdir, so on any
+        provider that stages elsewhere (``local``'s scratch dir, ``modal`` with
+        ``user:``) the mirror pointed at a directory the agent never wrote to —
+        and every experiment it ran died with the box.
+        """
+        from evsys_sdk.triggers.remote import _pin_mirror
+
+        box = self._sandbox({})
+        box.workdir = "/home/agent/evsys"
+        _pin_mirror(box)
+        assert box.envs["EVSYS_LOG_DIR"] == "/home/agent/evsys/evsys_sdk"
+
+    def test_files_the_agent_created_come_home(self, tmp_path):
+        """`collect` only round-trips paths that were STAGED. A script the agent
+        wrote, the dataset it curated and its run log were invisible — the
+        actual evidence of what it did died with the sandbox."""
+        from evsys_sdk.triggers.remote import _collect_new_files
+
+        box = self._sandbox({
+            "gate.py": "staged",                       # staged in, unchanged
+            "my_experiment.py": "the agent wrote this",
+            "rl_tasks.jsonl": '{"task_id": "t1"}\n',
+            "experiment.log": "EXPERIMENT DONE",
+            "evsys_sdk/experiments/e1/experiment.json": "{}",   # nested: tree sync
+        })
+        landed = _collect_new_files(box, tmp_path, {"gate.py": "staged"})
+        assert sorted(landed) == ["experiment.log", "my_experiment.py", "rl_tasks.jsonl"]
+        assert (tmp_path / "my_experiment.py").read_text() == "the agent wrote this"
+        assert not (tmp_path / "gate.py").exists()          # unchanged, no round-trip
+        assert not (tmp_path / "evsys_sdk").exists()        # left to collect_tree

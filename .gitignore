@@ -21,6 +21,8 @@ examples/configs/generated_*.yaml
 
 # Local run artifacts — the mirror, run outputs and loop state are per-machine
 # scratch, never source. They were committed by accident and reached four PRs.
-evsys_sdk/
-outputs/
-.evsys/
+# Anchored to the repo root: unanchored, `evsys_sdk/` also swallowed the
+# library's own `src/evsys_sdk/`, so edits to it were silently unstageable.
+/evsys_sdk/
+/outputs/
+/.evsys/
