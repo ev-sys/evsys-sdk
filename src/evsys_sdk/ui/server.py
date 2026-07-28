@@ -254,6 +254,16 @@ def _collect_gate(project_dir: Path, cfg: SystemConfig, root: Path) -> dict:
     return {"policy": policy, "source": source, "source_path": source_path}
 
 
+def _sdk_version() -> str | None:
+    """Installed evsys-sdk version, or None when it cannot be determined."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("evsys-sdk")
+    except PackageNotFoundError:
+        return None
+
+
 def collect_state(
     project_dir: Path,
     cfg: SystemConfig,
@@ -288,7 +298,8 @@ def collect_state(
     prompt_diff, diff_base = _prompt_diff(escalations, prompt_text)
 
     return {
-        "project": {"name": project_dir.name, "dir": str(project_dir), "daemon_live": daemon_live, "now": now},
+        "project": {"name": project_dir.name, "dir": str(project_dir), "daemon_live": daemon_live,
+                    "now": now, "mirror": DEFAULT_MIRROR_DIR, "sdk_version": _sdk_version()},
         "traces": traces,
         "trigger": {
             "log": log,

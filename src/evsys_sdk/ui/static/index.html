@@ -3,243 +3,288 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>evsys</title>
+<title>evsys/obs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
-/* Palette: the validated reference instance. Both modes are selected, not
-   flipped — the dark column is the same hues re-stepped for the dark surface.
-   Only the three categorical slots that clear the all-pairs gate are used. */
-:root {
-  color-scheme: light;
-  --surface-0: #f6f5f3;
-  --surface-1: #fcfcfb;
-  --surface-2: #f0efec;
-  --border:    #e3e1dc;
-  --border-strong: #cfccc4;
-  --text-1: #0b0b0b;
-  --text-2: #52514e;
-  --text-3: #86847d;
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --good: #0ca30c;
-  --warning: #fab219;
-  --critical: #d03b3b;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  --sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
-  --radius: 10px;
+/* Two selected palettes, not one flipped: the dark column is the reference
+   instance, the light column is re-stepped against a light surface so the
+   accents keep their contrast rather than glowing. */
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0A0B0D; --panel: #0E1013; --panel-2: #0B0D10; --raised: #14171B;
+  --line: #1E2126; --line-soft: #191C20; --row: #15181C; --hover: #111418;
+  --t1: #E6E8EA; --t2: #B7BDC5; --t3: #8A9099; --t4: #5C6470; --t5: #4A505A;
+  --blue: #4C8DFF; --blue-dim: #6E9BFF; --blue-line: #24406E; --blue-fill: #10182B;
+  --green: #4FB477; --green-line: #1F3F2E;
+  --amber: #D9A544; --amber-line: #3D3320;
+  --red: #D9584C; --red-line: #3D2523;
+  --track: #16191D;
 }
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232322;
-    --border: #2e2e2c; --border-strong: #45443f;
-    --text-1: #ffffff; --text-2: #c3c2b7; --text-3: #8d8b81;
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+@media (prefers-color-scheme: light) {
+  :root:where(:not([data-theme="dark"])) {
+    color-scheme: light;
+    --bg: #FBFBFA; --panel: #FFFFFF; --panel-2: #F7F7F5; --raised: #F2F2EF;
+    --line: #E2E2DD; --line-soft: #EAEAE6; --row: #EFEFEB; --hover: #F5F5F2;
+    --t1: #14161A; --t2: #3E434B; --t3: #5F656E; --t4: #868C95; --t5: #A0A6AE;
+    --blue: #1F5FD0; --blue-dim: #2A6BE0; --blue-line: #BFD3F5; --blue-fill: #EDF3FE;
+    --green: #17794D; --green-line: #BFE0CD;
+    --amber: #8A6208; --amber-line: #EADFBE;
+    --red: #C0362C; --red-line: #F0CBC6;
+    --track: #EAEAE6;
   }
 }
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232322;
-  --border: #2e2e2c; --border-strong: #45443f;
-  --text-1: #ffffff; --text-2: #c3c2b7; --text-3: #8d8b81;
-  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FBFBFA; --panel: #FFFFFF; --panel-2: #F7F7F5; --raised: #F2F2EF;
+  --line: #E2E2DD; --line-soft: #EAEAE6; --row: #EFEFEB; --hover: #F5F5F2;
+  --t1: #14161A; --t2: #3E434B; --t3: #5F656E; --t4: #868C95; --t5: #A0A6AE;
+  --blue: #1F5FD0; --blue-dim: #2A6BE0; --blue-line: #BFD3F5; --blue-fill: #EDF3FE;
+  --green: #17794D; --green-line: #BFE0CD;
+  --amber: #8A6208; --amber-line: #EADFBE;
+  --red: #C0362C; --red-line: #F0CBC6;
+  --track: #EAEAE6;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--surface-0); color: var(--text-1);
-  font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+html, body { margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--t1); font-size: 13px; letter-spacing: .01em;
+  font-family: "IBM Plex Sans", ui-sans-serif, -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.m, .num, code, pre { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.num { font-variant-numeric: tabular-nums; }
+::selection { background: var(--blue-fill); }
+@keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 
-.shell { display: grid; grid-template-columns: 214px 1fr; min-height: 100vh; }
-.navcol { border-right: 1px solid var(--border); background: var(--surface-1); }
-nav { padding: 20px 12px; position: sticky; top: 0; max-height: 100vh;
-  overflow-y: auto; display: flex; flex-direction: column; }
-.brand { display: flex; align-items: baseline; gap: 8px; padding: 0 10px 6px; }
-.brand b { font-size: 15px; letter-spacing: -0.01em; }
-.brand span { font-size: 11px; color: var(--text-3); font-family: var(--mono);
-  overflow: hidden; text-overflow: ellipsis; }
-nav button { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  width: 100%; padding: 7px 10px; margin-bottom: 2px; border: 0; border-radius: 7px;
-  background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer; }
-nav button:hover { background: var(--surface-2); color: var(--text-1); }
-nav button[aria-current="true"] { background: var(--surface-2); color: var(--text-1); font-weight: 550; }
-nav .count { font: 11px/1 var(--mono); color: var(--text-3); background: var(--surface-0);
-  border: 1px solid var(--border); border-radius: 20px; padding: 3px 7px; }
-nav .group { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--text-3); padding: 18px 10px 6px; }
-main { padding: 28px 32px 64px; max-width: 1160px; }
+.shell { display: flex; min-height: 100vh; }
 
-.page-head { display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; margin-bottom: 22px; }
-h1 { font-size: 21px; letter-spacing: -0.02em; margin: 0 0 4px; font-weight: 600; }
-.sub { color: var(--text-2); font-size: 13px; margin: 0; }
-h2 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
-.muted { color: var(--text-3); }
+/* ---- sidebar ---- */
+.side { width: 208px; flex: 0 0 208px; border-right: 1px solid var(--line-soft);
+  padding: 20px 0; display: flex; flex-direction: column; gap: 26px;
+  position: sticky; top: 0; height: 100vh; }
+.brand { padding: 0 18px; display: flex; flex-direction: column; gap: 3px; }
+.brand b { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600;
+  letter-spacing: .04em; }
+.brand b i { color: var(--blue); font-style: normal; }
+.brand span { font-size: 10.5px; color: var(--t4); letter-spacing: .06em; text-transform: uppercase; }
+.navlist { display: flex; flex-direction: column; gap: 1px; }
+.navlist button { display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 18px; border: 0; border-left: 2px solid transparent; background: none;
+  color: var(--t3); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.navlist button:hover { background: var(--hover); color: var(--t1); }
+.navlist button[aria-current="true"] { border-left-color: var(--blue); color: var(--t1); }
+.navlist .d { width: 5px; height: 5px; border-radius: 50%; background: var(--line); flex: 0 0 auto; }
+.navlist button[aria-current="true"] .d { background: var(--blue); }
+.navlist .n { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--t5); }
+.env { padding: 0 18px; margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.env h4 { margin: 0; font-size: 10px; color: var(--t5); letter-spacing: .08em;
+  text-transform: uppercase; font-weight: 400; }
+.env dl { margin: 0; display: flex; flex-direction: column; gap: 6px;
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--t4); }
+.env dl > div { display: flex; justify-content: space-between; gap: 8px; }
+.env dd { margin: 0; color: var(--t3); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 96px; }
+.env dd.on { color: var(--green); }
+.env button { border: 1px solid var(--line); background: none; color: var(--t3);
+  border-radius: 3px; padding: 5px 8px; font: inherit; font-size: 11px; cursor: pointer; text-align: left; }
+.env button:hover { color: var(--t1); border-color: var(--t5); }
 
-.card { background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
-.grid { display: grid; gap: 14px; }
-.g4 { grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
+/* ---- content ---- */
+.body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { border-bottom: 1px solid var(--line-soft); padding: 16px 28px;
+  display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap; }
+.topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+.topbar .sub { color: var(--t3); font-size: 12px; margin: 5px 0 0; }
+.stats { margin-left: auto; display: flex; gap: 26px; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.stat b { font-family: "IBM Plex Mono", monospace; font-size: 16px; font-weight: 500;
+  font-variant-numeric: tabular-nums; }
+.stat span { font-size: 10px; color: var(--t4); letter-spacing: .06em; text-transform: uppercase; }
+.view { padding: 22px 28px 44px; display: flex; flex-direction: column; gap: 20px; }
+.cols { display: grid; gap: 18px; align-items: start; }
+.c2 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+.c3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.c5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1100px) { .c5 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } }
 
-.tile { background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 15px 17px; }
-.tile .label { font-size: 12px; color: var(--text-2); margin-bottom: 7px; }
-.tile .value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums; line-height: 1.1; }
-.tile .foot { font-size: 12px; color: var(--text-3); margin-top: 5px; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: 4px; }
+.panel > .ph { padding: 12px 16px; border-bottom: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ph b { font-size: 12px; font-weight: 500; }
+.ph .note { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: var(--t4); }
+.ph .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.pb { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+/* Dense grids keep their column widths and scroll rather than crushing a
+   column to nothing when the panel is half-width. */
+.scroll { overflow-x: auto; }
+.scroll > .rows { min-width: var(--rows-min, 620px); }
 
-.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
-  padding: 2px 9px; border-radius: 20px; border: 1px solid var(--border-strong);
-  color: var(--text-2); white-space: nowrap; }
-.pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
-.pill.warn { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
-.pill.crit { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); }
+/* ---- loop strip ---- */
+.pipe { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; row-gap: 12px; }
+.pipe > div { display: flex; align-items: stretch; flex: 1 1 210px; min-width: 210px; }
+.stage { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--panel);
+  border-radius: 4px; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
+.stage.on { border-color: var(--blue-line); }
+.stage .sh { display: flex; align-items: baseline; gap: 7px; }
+.stage .sh em { font-style: normal; font-size: 11.5px; font-weight: 500; color: var(--t2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage .sh .who { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 9.5px;
+  color: var(--t5); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.stage .v { font-family: "IBM Plex Mono", monospace; font-size: 22px; font-weight: 500; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--t5); }
+.stage.on .v { color: var(--t1); }
+.stage .s { font-size: 11px; color: var(--t3); line-height: 1.45; }
+.arrow { width: 26px; display: flex; align-items: center; justify-content: center;
+  color: var(--line); font-size: 12px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; font-weight: 500; color: var(--text-3); font-size: 11px;
-  text-transform: uppercase; letter-spacing: .05em; padding: 0 12px 8px 0; }
-td { padding: 9px 12px 9px 0; border-top: 1px solid var(--border); vertical-align: top; }
-tr.clickable { cursor: pointer; }
-tr.clickable:hover td { background: var(--surface-2); }
-.num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px; }
-code { font-family: var(--mono); font-size: 12px; }
-.mono { font-family: var(--mono); font-size: 12px; }
+/* ---- tables ---- */
+.rows { display: flex; flex-direction: column; }
+.rows .hd, .rows .r { display: grid; gap: 12px; padding: 9px 16px; align-items: baseline; }
+.rows .hd { border-bottom: 1px solid var(--line-soft); font-size: 9.5px; color: var(--t5);
+  letter-spacing: .07em; text-transform: uppercase; }
+.rows .r { border-bottom: 1px solid var(--row); font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px; color: var(--t3); }
+.rows .r:last-child { border-bottom: 0; }
+.rows .r.click { cursor: pointer; }
+.rows .r.click:hover { background: var(--hover); }
+.rows .r .k { color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rows .r .r-a { text-align: right; }
+.rows .sans { font-family: "IBM Plex Sans", sans-serif; font-size: 12px; }
 
-.chart-head { display: flex; align-items: baseline; justify-content: space-between;
-  gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
-.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block;
-  margin-right: 5px; vertical-align: -1px; }
-svg.plot { display: block; width: 100%; overflow: visible; }
-svg.plot .grid-line { stroke: var(--border); stroke-width: 1; }
-svg.plot .axis-text { fill: var(--text-3); font: 11px var(--mono); }
-svg.plot .cross { stroke: var(--border-strong); stroke-width: 1; }
-.tooltip { position: fixed; pointer-events: none; z-index: 40; opacity: 0;
-  background: var(--surface-1); border: 1px solid var(--border-strong);
-  border-radius: 8px; padding: 8px 10px; font-size: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.14); transition: opacity .08s; min-width: 130px; }
-.tooltip .tt-step { color: var(--text-3); font-family: var(--mono); font-size: 11px; margin-bottom: 5px; }
-.tooltip .tt-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.tooltip .tt-row b { font-variant-numeric: tabular-nums; font-weight: 550; }
+.tag { font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 2px 6px;
+  border-radius: 3px; border: 1px solid var(--line); color: var(--t3); white-space: nowrap; }
+.tag.blue { color: var(--blue); border-color: var(--blue-line); background: var(--blue-fill); }
+.tag.green { color: var(--green); border-color: var(--green-line); }
+.tag.amber { color: var(--amber); border-color: var(--amber-line); }
+.tag.red { color: var(--red); border-color: var(--red-line); }
+.dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.dot.live { background: var(--green); animation: pulse 2.4s ease-in-out infinite; }
 
-/* the loop, as a strip: each stage shows its count and whether it has fired */
-.pipeline { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; }
-.stage { flex: 1 1 130px; border: 1px solid var(--border); border-radius: 9px;
-  padding: 12px 14px; background: var(--surface-0); }
-.stage.on { border-color: var(--border-strong); background: var(--surface-1); }
-.stage-v { font-size: 22px; font-weight: 600; letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; color: var(--text-3); }
-.stage.on .stage-v { color: var(--text-1); }
-.stage-l { font-size: 12px; color: var(--text-2); margin-top: 3px; }
-.stage-n { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.arrow { align-self: center; color: var(--text-3); font-size: 14px; }
-.run-block { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
-.run-block:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
-.run-block h3 { font-size: 13px; margin: 0 0 10px; font-family: var(--mono); }
-.agent-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 900px) { .agent-row { grid-template-columns: 1fr; } }
-.agent { border: 1px solid var(--border); border-radius: 9px; padding: 13px 15px;
-  background: var(--surface-0); }
-.agent-h { display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; margin-bottom: 5px; }
-.agent-p { font-size: 12px; color: var(--text-3); margin: 0 0 10px; }
-.reg { display: flex; flex-wrap: wrap; gap: 6px; }
-.reg-item { background: var(--surface-0); border: 1px solid var(--border);
-  border-radius: 6px; padding: 3px 8px; }
-.chain { font-size: 12px; color: var(--text-2); background: var(--surface-0);
-  border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; }
+.bar { flex: 1; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--blue); }
+.meter { display: flex; align-items: center; gap: 10px;
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; }
+.meter .lbl { color: var(--t3); width: 150px; flex: 0 0 150px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.meter .val { color: var(--t2); width: 62px; text-align: right; }
+
+pre.code { margin: 0; padding: 10px 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 3px; color: var(--t3);
+  font-size: 10.5px; line-height: 1.65; overflow: auto; max-height: 340px;
+  white-space: pre-wrap; word-break: break-word; }
+.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 12px; }
+.kv dt { color: var(--t5); font-family: "IBM Plex Mono", monospace; font-size: 10.5px; padding-top: 1px; }
+.kv dd { margin: 0; color: var(--t2); line-height: 1.5; }
+.lbl { font-size: 10px; color: var(--t5); letter-spacing: .07em; text-transform: uppercase; }
+.empty { color: var(--t4); font-size: 11.5px; padding: 18px 16px; }
+.chip { border: 1px solid var(--line); background: none; color: var(--t3); border-radius: 3px;
+  padding: 3px 9px; font: inherit; font-size: 10.5px; cursor: pointer;
+  font-family: "IBM Plex Mono", monospace; }
+.chip[aria-pressed="true"] { color: var(--blue); border-color: var(--blue-line); background: var(--blue-fill); }
+.back { background: none; border: 0; color: var(--t3); font: inherit; font-size: 11.5px;
+  cursor: pointer; padding: 0; text-align: left; align-self: flex-start; }
+.back:hover { color: var(--t1); }
+details.dd { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+details.dd + details.dd { margin-top: 6px; }
+details.dd > summary { cursor: pointer; padding: 8px 12px; display: flex; gap: 10px;
+  align-items: center; font-size: 11.5px; list-style: none; }
+details.dd > summary::-webkit-details-marker { display: none; }
+details.dd > summary::before { content: "›"; color: var(--t5); }
+details.dd[open] > summary::before { content: "⌄"; }
+details.dd .dbody { padding: 12px; border-top: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; gap: 10px; }
 .msgs { display: flex; flex-direction: column; gap: 8px; }
-.msg { display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 12px;
-  line-height: 1.5; align-items: start; }
-.msg .role { font-family: var(--mono); font-size: 11px; color: var(--text-3);
-  text-align: right; padding-top: 1px; }
-.msg .role.target { color: var(--good); }
-.msg div:last-child { white-space: pre-wrap; word-break: break-word; }
-.empty { color: var(--text-3); font-size: 13px; padding: 22px 0; text-align: center; }
-.item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
-  background: var(--surface-1); }
-.item summary { cursor: pointer; padding: 9px 13px; display: flex; gap: 11px;
-  align-items: center; font-size: 13px; }
-.item summary::-webkit-details-marker { display: none; }
-.item pre { margin: 0; padding: 12px 14px; border-top: 1px solid var(--border);
-  background: var(--surface-2); border-radius: 0 0 8px 8px; overflow-x: auto;
-  font: 12px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word;
-  max-height: 380px; }
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px;
-  font-size: 13px; margin: 0; }
-.kv dt { color: var(--text-3); }
-.kv dd { margin: 0; }
-.toolbar { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
-.chip { border: 1px solid var(--border-strong); background: var(--surface-1);
-  color: var(--text-2); border-radius: 20px; padding: 3px 11px; font-size: 12px; cursor: pointer; }
-.chip[aria-pressed="true"] { background: var(--text-1); color: var(--surface-1);
-  border-color: var(--text-1); }
-.back { background: none; border: 0; color: var(--text-2); cursor: pointer;
-  font: inherit; padding: 0 0 12px; }
-.back:hover { color: var(--text-1); }
-.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
-.live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-.theme { margin-top: auto; border: 1px solid var(--border); background: var(--surface-0);
-  color: var(--text-2); border-radius: 7px; padding: 6px 10px; font-size: 12px;
-  cursor: pointer; text-align: left; }
-.theme:hover { color: var(--text-1); }
-@media (max-width: 820px) {
-  .shell { grid-template-columns: 1fr; }
-  nav { position: static; max-height: none; flex-direction: row; gap: 4px; overflow-x: auto; padding: 10px; }
-  .theme { margin-top: 0; }
-  nav .group, .brand { display: none; }
-  main { padding: 18px; }
+.msg { display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 11.5px; line-height: 1.55; }
+.msg .role { font-family: "IBM Plex Mono", monospace; font-size: 10px; color: var(--t5); text-align: right; }
+.msg .role.t { color: var(--green); }
+.msg > div:last-child { white-space: pre-wrap; word-break: break-word; color: var(--t2); }
+
+svg.plot { display: block; width: 100%; overflow: visible; }
+svg.plot .g { stroke: var(--line-soft); stroke-width: 1; }
+svg.plot .ax { fill: var(--t5); font: 9px "IBM Plex Mono", monospace; }
+svg.plot .cross { stroke: var(--line); stroke-width: 1; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-family: "IBM Plex Mono", monospace;
+  font-size: 10px; color: var(--t3); }
+.legend i { width: 10px; height: 2px; display: inline-block; margin-right: 6px; vertical-align: 3px; }
+.tt { position: fixed; pointer-events: none; z-index: 40; opacity: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; font-size: 11px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28); transition: opacity .08s; min-width: 130px; }
+.tt .s { color: var(--t5); font-family: "IBM Plex Mono", monospace; font-size: 10px; margin-bottom: 5px; }
+.tt .row { display: flex; justify-content: space-between; gap: 14px; }
+.tt .row b { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-weight: 500; }
+
+@media (max-width: 860px) {
+  .shell { flex-direction: column; }
+  .side { width: auto; flex: none; height: auto; position: static; flex-direction: row;
+    align-items: center; gap: 12px; padding: 10px 14px; overflow-x: auto;
+    border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .navlist { flex-direction: row; }
+  .navlist button { border-left: 0; border-bottom: 2px solid transparent; padding: 6px 10px; }
+  .navlist button[aria-current="true"] { border-left-color: transparent; border-bottom-color: var(--blue); }
+  .env { margin-top: 0; }
+  .env h4, .env dl { display: none; }
+  .view, .topbar { padding-left: 14px; padding-right: 14px; }
 }
 </style>
 </head>
 <body>
 <div class="shell">
-  <div class="navcol"><nav id="nav"></nav></div>
-  <main id="main"></main>
+  <aside class="side">
+    <div class="brand"><b>evsys<i>/</i>obs</b><span id="brandsub"></span></div>
+    <div class="navlist" id="nav"></div>
+    <div class="env">
+      <h4>environment</h4>
+      <dl id="envlist"></dl>
+      <button id="theme">◐ theme</button>
+    </div>
+  </aside>
+  <div class="body">
+    <div class="topbar" id="top"></div>
+    <div class="view" id="main"></div>
+  </div>
 </div>
-<div class="tooltip" id="tt"></div>
+<div class="tt" id="tt"></div>
 
 <script>
-const S = { state: null, experiments: [], agentRuns: [], view: "system",
-            detail: null, rollouts: [], rolloutKind: "all", data: null, runId: null, traceId: null, registry: null, err: null };
+const S = { state: null, experiments: [], agentRuns: [], registry: null, err: null,
+            view: "system", detail: null, runId: null, rollouts: [], rolloutKind: "all",
+            data: null, traceId: null, escId: null };
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const num = (v, d = 3) => v == null || Number.isNaN(Number(v)) ? "–"
-  : (Math.abs(v) >= 100000 || (Math.abs(v) < 0.001 && v != 0)) ? Number(v).toExponential(1)
+const num = (v, d = 3) => v == null || v === "" || Number.isNaN(Number(v)) ? "–"
+  : (Math.abs(v) >= 1e5 || (Math.abs(v) < 1e-3 && Number(v) !== 0)) ? Number(v).toExponential(1)
   : Number(Number(v).toFixed(d)).toString();
 const ago = ts => {
   if (!ts) return "–";
   const s = Date.now() / 1000 - Number(ts);
-  if (s < 60) return Math.max(0, s | 0) + "s ago";
-  if (s < 3600) return ((s / 60) | 0) + "m ago";
-  if (s < 86400) return ((s / 3600) | 0) + "h ago";
-  return ((s / 86400) | 0) + "d ago";
+  if (s < 60) return Math.max(0, s | 0) + "s";
+  if (s < 3600) return ((s / 60) | 0) + "m";
+  if (s < 86400) return ((s / 3600) | 0) + "h";
+  return ((s / 86400) | 0) + "d";
 };
 async function get(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " → " + r.status); return r.json(); }
+const empty = t => `<div class="empty">${esc(t)}</div>`;
 
-/* ---- charts: 2px lines, hairline solid grid, r=4 end markers with a 2px
-   surface ring, direct end-labels (also the relief for the sub-3:1 light hue),
-   crosshair tooltip. Never two y-scales on one plot. ---- */
-const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
+/* ---------------------------------------------------------------- charts */
+const SERIES = ["var(--blue)", "var(--amber)", "var(--green)"];
 
 function lineChart(el, series, opts) {
   opts = opts || {};
-  const W = Math.max(el.clientWidth || 640, 260), H = opts.height || 190;
-  const P = { t: 14, r: 60, b: 26, l: 46 };
+  const W = Math.max(el.clientWidth || 560, 260), H = opts.height || 168;
+  const P = { t: 10, r: 56, b: 22, l: 42 };
   const pts = series.flatMap(s => s.points);
-  if (!pts.length) { el.innerHTML = '<div class="empty">no data yet</div>'; return; }
+  if (!pts.length) { el.innerHTML = empty("no points"); return; }
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   if (x1 === x0) x1 = x0 + 1;
-  if (y1 === y0) { const s = Math.abs(y0 || 1) * .5; y1 = y0 + s; y0 = y0 - s; }
+  if (y1 === y0) { const s = Math.abs(y0 || 1) * .5; y1 = y0 + s; y0 -= s; }
+  const nonNeg = ys.every(v => v >= 0);
   const pad = (y1 - y0) * .12; y0 -= pad; y1 += pad;
-  // round the axis to clean steps rather than raw range fractions
-  const nice = (r, round) => {
-    const e = Math.floor(Math.log10(r)), f = r / Math.pow(10, e);
-    const nf = round ? (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10)
-                     : (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10);
-    return nf * Math.pow(10, e);
-  };
-  const step = nice((y1 - y0) / 4, true);
+  if (nonNeg && y0 < 0) y0 = 0;   // a rate or a loss never goes below zero
+  const nice = r => { const e = Math.floor(Math.log10(r)), f = r / Math.pow(10, e);
+    return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * Math.pow(10, e); };
+  const step = nice((y1 - y0) / 4);
   y0 = Math.floor(y0 / step) * step; y1 = Math.ceil(y1 / step) * step;
   const X = v => P.l + (v - x0) / (x1 - x0) * (W - P.l - P.r);
   const Y = v => H - P.b - (v - y0) / (y1 - y0) * (H - P.t - P.b);
@@ -247,18 +292,17 @@ function lineChart(el, series, opts) {
   let svg = `<svg class="plot" viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(opts.title || "chart")}">`;
   for (let v = y0; v <= y1 + step / 2; v += step) {
     const y = Y(v).toFixed(1);
-    svg += `<line class="grid-line" x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}"/>`
-        +  `<text class="axis-text" x="${P.l - 8}" y="${(+y + 3.5).toFixed(1)}" text-anchor="end">${num(v, 2)}</text>`;
+    svg += `<line class="g" x1="${P.l}" y1="${y}" x2="${W - P.r}" y2="${y}"/>`
+        +  `<text class="ax" x="${P.l - 7}" y="${(+y + 3).toFixed(1)}" text-anchor="end">${num(v, 2)}</text>`;
   }
-  [x0, x1].forEach(v => svg += `<text class="axis-text" x="${X(v).toFixed(1)}" y="${H - 8}" text-anchor="middle">${opts.xLabel ? opts.xLabel(v) : num(v, 0)}</text>`);
-
+  [x0, x1].forEach((v, i) => svg += `<text class="ax" x="${X(v).toFixed(1)}" y="${H - 6}" text-anchor="${i ? "end" : "start"}">${opts.xLabel ? opts.xLabel(v) : num(v, 0)}</text>`);
   series.forEach((s, i) => {
     const c = SERIES[i % SERIES.length];
     const d = s.points.map((p, j) => (j ? "L" : "M") + X(p.x).toFixed(1) + "," + Y(p.y).toFixed(1)).join(" ");
     svg += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     const last = s.points[s.points.length - 1];
-    svg += `<circle cx="${X(last.x).toFixed(1)}" cy="${Y(last.y).toFixed(1)}" r="4" fill="${c}" stroke="var(--surface-1)" stroke-width="2"/>`
-        +  `<text class="axis-text" x="${(X(last.x) + 10).toFixed(1)}" y="${(Y(last.y) + 3.5).toFixed(1)}" style="fill:var(--text-2)">${num(last.y, 2)}</text>`;
+    svg += `<circle cx="${X(last.x).toFixed(1)}" cy="${Y(last.y).toFixed(1)}" r="4" fill="${c}" stroke="var(--panel)" stroke-width="2"/>`
+        +  `<text class="ax" x="${(X(last.x) + 9).toFixed(1)}" y="${(Y(last.y) + 3).toFixed(1)}" style="fill:var(--t3)">${num(last.y, 2)}</text>`;
   });
   svg += `<line class="cross" x1="0" y1="${P.t}" x2="0" y2="${H - P.b}" style="opacity:0"/>`
       +  `<rect x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/></svg>`;
@@ -271,10 +315,10 @@ function lineChart(el, series, opts) {
     const xv = x0 + (sx - P.l) / (W - P.l - P.r) * (x1 - x0);
     cross.setAttribute("x1", sx); cross.setAttribute("x2", sx); cross.style.opacity = 1;
     const near = series[0].points.reduce((a, b) => Math.abs(b.x - xv) < Math.abs(a.x - xv) ? b : a);
-    tt.innerHTML = `<div class="tt-step">${opts.xLabel ? opts.xLabel(near.x) : "x " + num(near.x, 0)}</div>`
+    tt.innerHTML = `<div class="s">${opts.xLabel ? opts.xLabel(near.x) : num(near.x, 0)}</div>`
       + series.map((s, i) => {
           const p = s.points.reduce((a, b) => Math.abs(b.x - xv) < Math.abs(a.x - xv) ? b : a);
-          return `<div class="tt-row"><span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${SERIES[i % SERIES.length]};margin-right:6px"></i>${esc(s.name)}</span><b>${num(p.y, 3)}</b></div>`;
+          return `<div class="row"><span><i style="display:inline-block;width:9px;height:2px;background:${SERIES[i % SERIES.length]};margin-right:6px;vertical-align:3px"></i>${esc(s.name)}</span><b>${num(p.y, 3)}</b></div>`;
         }).join("");
     tt.style.opacity = 1;
     tt.style.left = Math.min(e.clientX + 14, innerWidth - 200) + "px";
@@ -283,467 +327,569 @@ function lineChart(el, series, opts) {
   hit.addEventListener("mouseleave", () => { tt.style.opacity = 0; cross.style.opacity = 0; });
 }
 
-const legend = s => s.length < 2 ? "" :   /* one series needs no legend box */
-  `<div class="legend">${s.map((x, i) => `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${esc(x.name)}</span>`).join("")}</div>`;
-
-function chartCard(title, series, opts) {
+function chartPanel(title, note, series, opts) {
   const id = "c" + Math.random().toString(36).slice(2, 8);
   setTimeout(() => { const el = $("#" + id); if (el) lineChart(el, series, Object.assign({ title }, opts)); }, 0);
-  return `<div class="card"><div class="chart-head"><h2>${esc(title)}</h2>${legend(series)}</div><div id="${id}"></div></div>`;
+  const leg = series.length < 2 ? "" : `<div class="legend">${series.map((s, i) =>
+    `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+  return `<div class="panel"><div class="ph"><b>${esc(title)}</b>
+      ${note ? `<span class="note">${esc(note)}</span>` : ""}</div>
+    <div class="pb"><div id="${id}"></div>${leg}</div></div>`;
 }
 
-function statusPill(s) {
+function rows(cols, headers, body) {
+  const g = `style="grid-template-columns:${cols}"`;
+  return `<div class="rows"><div class="hd" ${g}>${headers.map(h => `<span${h[0] === ">" ? ' class="r-a"' : ""}>${esc(h.replace(/^>/, ""))}</span>`).join("")}</div>${body(g)}</div>`;
+}
+
+const statusTag = s => {
   const k = String(s || "").toLowerCase();
-  const cls = k === "completed" ? "good" : k === "failed" ? "crit" : k === "running" ? "warn" : "";
-  const icon = k === "completed" ? "✓" : k === "failed" ? "✕" : k === "running" ? "◐" : "•";
-  return `<span class="pill ${cls}"><span aria-hidden="true">${icon}</span>${esc(s || "unknown")}</span>`;
-}
+  const c = k === "completed" ? "green" : k === "failed" ? "red" : k === "running" ? "blue" : "";
+  return `<span class="tag ${c}">${esc(s || "unknown")}</span>`;
+};
+const rewardTag = r => r == null ? '<span class="tag">–</span>'
+  : `<span class="tag ${r >= 1 ? "green" : r > 0 ? "amber" : "red"}">${num(r, 2)}</span>`;
 
-/* ---------------------------------------------------------------- views */
+/* --------------------------------------------------------------- helpers */
 
-/* The agent-runs log holds BOTH stages in one file, separated by the stage
-   markers the remote runner writes. Split it so each agent's transcript reads
-   on its own — they are two different agents doing two different jobs. */
+/* One agent-runs log holds BOTH stages when they run remotely, separated by the
+   markers the remote runner writes; a local run is one process playing both
+   roles, so there is nothing to split. */
 function splitTranscript(log) {
-  // `combined` is the local case: ONE `claude -p` process plays both roles, so
-  // there are no stage markers to split on and the transcript belongs to both.
   const out = { trigger: "", autoresearch: "", combined: "" };
   if (!log) return out;
   const re = /=====\s*remote (trigger-agent|autoresearch):\s*started\s*=====/g;
-  const marks = [];
-  let m;
+  const marks = []; let m;
   while ((m = re.exec(log))) marks.push({ name: m[1], at: m.index, end: re.lastIndex });
-  if (!marks.length) { out.combined = log; return out; }   // local: one process, both roles
+  if (!marks.length) { out.combined = log; return out; }
   marks.forEach((mk, i) => {
-    const body = log.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : log.length);
-    const key = mk.name === "autoresearch" ? "autoresearch" : "trigger";
-    out[key] += body;
+    out[mk.name === "autoresearch" ? "autoresearch" : "trigger"] +=
+      log.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : log.length);
   });
   return out;
 }
 
-function stage(label, value, note, on) {
-  return `<div class="stage ${on ? "on" : ""}">
-    <div class="stage-v">${value}</div><div class="stage-l">${esc(label)}</div>
-    <div class="stage-n">${esc(note || "")}</div></div>`;
+const allRuns = d => (d.ungrouped_runs || []).concat((d.groups || []).flatMap(g => g.runs || []));
+const runLabel = r => (r.run_config && r.run_config.name) || String(r.id).slice(0, 8);
+const gateSignal = g => { const s = g.signal || {}; const v = s.failure_rate ?? s.rate ?? Object.values(s)[0];
+  return v == null ? null : Number(v); };
+
+/* ----------------------------------------------------------------- chrome */
+
+function topbar() {
+  const st = S.state || {}, p = st.project || {};
+  const escs = st.escalations || [];
+  const gate = (st.trigger || {}).log || [];
+  const runs = S.experiments.reduce((a, e) => a + (e.n_runs || 0), 0);
+  const stats = [
+    [(st.traces || {}).total ?? 0, "traces"],
+    [gate.length, "gate evals"],
+    [escs.length, "escalations"],
+    [S.experiments.length, "experiments"],
+    [runs, "runs"],
+  ];
+  const gp = (st.gate || {}).policy || {};
+  return `<div style="min-width:0">
+      <h1>${esc(p.name || "")}</h1>
+      <p class="sub m">${esc(p.dir || "")}</p>
+    </div>
+    <div class="stats">${stats.map(([v, l]) =>
+      `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("")}</div>`;
 }
+
+function renderChrome() {
+  const st = S.state || {}, p = st.project || {};
+  $("#brandsub").textContent = p.name || "";
+  const counts = {
+    system: ((st.escalations || []).length) || 0,
+    experiments: S.experiments.length,
+    traces: (st.traces || {}).total ?? 0,
+    registry: Object.values(S.registry || {}).reduce((a, v) => a + v.length, 0),
+    artifact: (st.prompt || {}).text ? 1 : 0,
+  };
+  const on = id => S.view === id
+    || (S.view === "detail" && id === "experiments")
+    || (S.view === "trace" && id === "traces")
+    || (S.view === "escalation" && id === "system");
+  $("#nav").innerHTML = VIEWS.map(v =>
+    `<button data-view="${v.id}" aria-current="${on(v.id)}"><span class="d"></span>
+      <span>${esc(v.label)}</span><span class="n">${counts[v.id] || ""}</span></button>`).join("");
+  $("#envlist").innerHTML = [
+    ["project", esc(p.name || "–"), ""],
+    ["daemon", p.daemon_live ? "live" : "idle", p.daemon_live ? "on" : ""],
+    ["mirror", esc(p.mirror || "–"), ""],
+    ["sdk", esc(p.sdk_version || "–"), ""],
+  ].map(([k, v, c]) => `<div><dt>${k}</dt><dd class="${c}">${v}</dd></div>`).join("");
+  $("#top").innerHTML = topbar();
+}
+
+/* ------------------------------------------------------------------ views */
 
 function viewSystem() {
   const st = S.state || {}, tr = st.traces || {}, tg = st.trigger || {};
   const gate = tg.log || [], escs = st.escalations || [];
   const policy = (st.gate || {}).policy || {};
-  const nTraces = tr.total ?? (tr.items || []).length;
   const yes = escs.filter(e => (e.verdict || {}).worth_autoresearch).length;
   const agentExps = S.experiments.filter(e => e.trigger);
-  const manualExps = S.experiments.length - agentExps.length;
-  const sig = g => { const v = (g.signal && (g.signal.failure_rate ?? g.signal.rate ??
-    Object.values(g.signal)[0])); return Number(v ?? 0); };
-  const fail = [{ name: "failure rate", points: gate.map((g, i) => ({ x: i, y: sig(g) })) }];
+  const runs = S.experiments.reduce((a, e) => a + (e.n_runs || 0), 0);
+  const sig = gate.map(gateSignal).filter(v => v != null);
 
-  return `<div class="page-head">
-      <div><h1>${esc(((st.project || {}).name) || "system")}</h1>
-        <p class="sub">A continual-learning system — traces are ingested, a cheap detection
-        function decides when something is wrong, the trigger agent judges whether it is worth
-        acting on, and the autoresearch agent does the ML research.</p></div>
-      <span class="live"><span class="dot"></span>live</span></div>
+  const stages = [
+    { n: tr.total ?? 0, name: "traces ingested", who: (tr.sources || []).length + " src",
+      sub: (tr.sources || []).join(", ") },
+    { n: gate.length, name: "gate evaluations", who: "detection fn",
+      sub: policy.kind ? policy.kind + " · every " + (policy.every_n ?? "?") + " over " + (policy.window ?? "?") : "" },
+    { n: escs.length, name: "escalations", who: "gate", sub: escs.map(e => e.id).slice(-2).join(", ") },
+    { n: yes, name: "worth research", who: "trigger agent",
+      sub: escs.filter(e => e.verdict).length + " verdict(s)" },
+    { n: agentExps.length, name: "experiments", who: "autoresearch",
+      sub: runs + " run(s) · " + (S.experiments.length - agentExps.length) + " not agent-stamped" },
+  ];
 
-    <div class="card"><h2>The loop</h2><div class="pipeline">
-      ${stage("Traces ingested", nTraces, `${(tr.sources || []).length} source(s)`, nTraces > 0)}
-      <div class="arrow">→</div>
-      ${stage("Gate evaluations", gate.length, esc(policy.kind || "no detection fn"), gate.length > 0)}
-      <div class="arrow">→</div>
-      ${stage("Escalations", escs.length, "trigger agent judged", escs.length > 0)}
-      <div class="arrow">→</div>
-      ${stage("Worth research", yes, "autoresearch ran", yes > 0)}
-      <div class="arrow">→</div>
-      ${stage("Experiments", agentExps.length, `${manualExps} more from the SDK`, agentExps.length > 0)}
-    </div></div>
+  return `<div class="pipe">${stages.map((s, i) => `<div>
+      <div class="stage ${s.n ? "on" : ""}">
+        <div class="sh"><em>${esc(s.name)}</em><span class="who">${esc(s.who)}</span></div>
+        <div class="v">${s.n}</div>
+        <div class="s">${esc(s.sub || "")}</div>
+      </div>${i < stages.length - 1 ? '<div class="arrow">→</div>' : ""}
+    </div>`).join("")}</div>
 
-    <div class="card"><h2>Detection function</h2>
-      ${Object.keys(policy).length ? `<dl class="kv">
-        <dt>kind</dt><dd><code>${esc(policy.kind || "–")}</code></dd>
-        <dt>source</dt><dd><code>${esc((st.gate || {}).source_path || policy.import_path || "–")}</code></dd>
-        <dt>runs every</dt><dd>${esc(policy.every_n ?? "–")} trace(s) over a window of ${esc(policy.window ?? "–")}</dd>
-        <dt>params</dt><dd><code>${esc(JSON.stringify(policy.params || {}))}</code></dd>
-      </dl>` : '<div class="empty">No trigger configured in this system.yaml.</div>'}
-    </div>
-    ${gate.length ? chartCard("Failure rate per gate evaluation", fail,
-        { height: 176, xLabel: v => "eval " + Math.round(v) }) : ""}
+    ${sig.length ? chartPanel("gate signal", policy.kind || "",
+        [{ name: "failure_rate", points: sig.map((y, i) => ({ x: i, y })) }],
+        { height: 150, xLabel: v => "eval " + Math.round(v) }) : ""}
 
-    <div class="card"><h2>Agent runs</h2>
-      ${escs.length ? escs.map(e => {
-        const v = e.verdict || {}, has = v && Object.keys(v).length;
-        const t = splitTranscript(e.agent_log);
-        const ran = S.agentRuns.find(a => a.escalation === e.id) || {};
-        const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
-        return `<div class="run-block">
-          <div class="chart-head"><h3>${esc(e.id)}</h3>
-            <span class="muted" style="font-size:12px">${esc((e.event || {}).reason || "")}</span></div>
-          <div class="agent-row">
-            <div class="agent">
-              <div class="agent-h"><b>Trigger agent</b>
-                ${has ? `<span class="pill ${v.worth_autoresearch ? "good" : ""}">${v.worth_autoresearch ? "✓ escalate" : "✕ stand down"}</span>`
-                      : '<span class="pill">no verdict</span>'}</div>
-              <p class="agent-p">Judges whether this batch is a real, recurring failure worth spending research on.</p>
-              ${v.hypothesis ? `<dl class="kv"><dt>hypothesis</dt><dd>${esc(v.hypothesis)}</dd></dl>` : ""}
-              ${t.trigger ? `<details class="item"><summary>transcript</summary><pre>${esc(t.trigger.slice(-6000))}</pre></details>`
-                : t.combined ? '<div class="muted" style="font-size:12px">see the combined transcript below</div>'
-                : '<div class="empty" style="padding:10px 0">no transcript yet</div>'}
-            </div>
-            <div class="agent">
-              <div class="agent-h"><b>Autoresearch agent</b>
-                ${v.worth_autoresearch ? `<span class="pill good">ran${ran.sandbox ? " in " + esc(ran.sandbox) : ""}</span>`
-                                       : '<span class="pill">not triggered</span>'}</div>
-              <p class="agent-p">Does the ML research: designs and launches experiments, then rewrites the artifact.</p>
-              ${mine.length ? `<table><tbody>${mine.map(x => `<tr class="clickable" data-exp="${esc(x.id)}">
-                  <td><b>${esc(x.experiment_name)}</b></td><td>${statusPill(x.status)}</td>
-                  <td class="num">${x.best_score == null ? "–" : num(x.best_score)}</td></tr>`).join("")}</tbody></table>`
-                : '<div class="empty" style="padding:10px 0">no experiments launched</div>'}
-              ${t.autoresearch ? `<details class="item"><summary>transcript</summary><pre>${esc(t.autoresearch.slice(-6000))}</pre></details>`
-                : t.combined ? '<div class="muted" style="font-size:12px">see the combined transcript below</div>'
-                : ""}
-            </div>
-          </div>
-          ${t.combined ? `<details class="item" style="margin-top:10px" open>
-              <summary><b>Combined transcript</b>
-                <span class="muted">one process ran both roles — no stage split</span>
-                <span style="flex:1"></span>
-                <span class="muted mono">${t.combined.length} chars</span></summary>
-              <pre>${esc(t.combined.slice(-12000))}</pre></details>` : ""}
-        </div>`;
-      }).join("") : '<div class="empty">The gate has not fired yet — no agent has run.</div>'}
+    <div class="cols c2">
+      <div class="panel">
+        <div class="ph"><b>Gate log</b><span class="note">${gate.length}</span>
+          <span class="right"><span class="dot ${(st.project || {}).daemon_live ? "live" : ""}"></span></span></div>
+        ${gate.length ? `<div class="scroll">${rows("64px 96px 1fr 74px",
+          ["#", "event", "reason", ">signal"], g => gate.slice(-14).reverse().map((row, i) => {
+            const v = gateSignal(row);
+            return `<div class="r" ${g}>
+              <span>${gate.length - 1 - i}</span>
+              <span class="${row.escalate ? "" : ""}"><span class="tag ${row.escalate ? "amber" : ""}">${esc(row.event || "")}</span></span>
+              <span class="sans">${esc(row.reason || "")}</span>
+              <span class="r-a num">${v == null ? "–" : num(v, 3)}</span></div>`;
+          }).join(""))}</div>` : empty("the gate has not run yet")}
+      </div>
+
+      <div class="panel">
+        <div class="ph"><b>Detection function</b>
+          <span class="note">${esc((st.gate || {}).source_path || policy.import_path || "")}</span></div>
+        ${Object.keys(policy).length ? `<div class="pb">
+          <dl class="kv">
+            <dt>kind</dt><dd class="m">${esc(policy.kind || "–")}</dd>
+            <dt>every_n</dt><dd class="m">${esc(policy.every_n ?? "–")}</dd>
+            <dt>window</dt><dd class="m">${esc(policy.window ?? "–")}</dd>
+            ${Object.entries(policy.params || {}).map(([k, v]) =>
+              `<dt>${esc(k)}</dt><dd class="m">${esc(JSON.stringify(v))}</dd>`).join("")}
+          </dl>
+          ${(st.gate || {}).source ? `<details class="dd"><summary>source</summary>
+            <div class="dbody"><pre class="code">${esc(st.gate.source)}</pre></div></details>` : ""}
+        </div>` : empty("no trigger in this system.yaml")}
+      </div>
     </div>
 
-    <div class="card"><h2>Trace sources</h2>
-      ${(tr.sources || []).length ? `<table><thead><tr><th>Source</th></tr></thead><tbody>`
-        + tr.sources.map(x => `<tr><td><code>${esc(typeof x === "string" ? x : (x.name || x.kind || ""))}</code></td></tr>`).join("")
-        + `</tbody></table>`
-        : '<div class="empty">No trace sources configured.</div>'}</div>`;
+    <div class="panel">
+      <div class="ph"><b>Agent runs</b><span class="note">${escs.length}</span></div>
+      ${escs.length ? `<div class="scroll">${rows("150px 1fr 84px 92px 90px 78px",
+        ["escalation", "reason", "verdict", "agent", "experiments", ">when"],
+        g => escs.slice().reverse().map(e => {
+          const v = e.verdict || {};
+          const ran = S.agentRuns.find(a => a.escalation === e.id) || {};
+          const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
+          return `<div class="r click" data-esc="${esc(e.id)}" ${g}>
+            <span class="k">${esc(e.id)}</span>
+            <span class="sans">${esc((e.event || {}).reason || "")}</span>
+            <span>${Object.keys(v).length
+              ? `<span class="tag ${v.worth_autoresearch ? "green" : ""}">${v.worth_autoresearch ? "escalate" : "stand down"}</span>`
+              : '<span class="tag">pending</span>'}</span>
+            <span>${esc(ran.agent || "")}${ran.sandbox ? ` <span class="tag blue">${esc(ran.sandbox)}</span>` : ""}</span>
+            <span class="r-a">${mine.length}</span>
+            <span class="r-a">${ago(e.mtime)}</span></div>`;
+        }).join(""))}</div>` : empty("no escalation has fired")}
+    </div>
+
+    <div class="panel">
+      <div class="ph"><b>Experiments</b><span class="note">${S.experiments.length}</span></div>
+      ${S.experiments.length ? expRows(S.experiments) : empty("no experiments in the mirror")}
+    </div>`;
 }
 
-function viewOverview() {
-  const st = S.state || {}, tr = st.traces || {}, tg = st.trigger || {};
-  const exps = S.experiments;
-  const runs = exps.reduce((a, e) => a + (e.n_runs || 0), 0);
-  const gate = tg.log || [];
-  const escs = st.escalations || [];
-  const nTraces = (tr.sources || []).reduce((a, s) => a + (s.count || 0), 0) || (tr.recent || []).length;
-  const fail = [{ name: "failure rate", points: gate.map((g, i) => ({ x: i, y: Number(g.failure_rate ?? g.rate ?? 0) })) }];
+function viewEscalation() {
+  const st = S.state || {};
+  const e = (st.escalations || []).find(x => x.id === S.escId);
+  if (!e) return `<button class="back" id="back-sys">← system</button>${empty("escalation not found")}`;
+  const v = e.verdict || {}, ev = e.event || {};
+  const t = splitTranscript(e.agent_log);
+  const ran = S.agentRuns.find(a => a.escalation === e.id) || {};
+  const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
+  const pane = (title, who, body) => `<div class="panel">
+      <div class="ph"><b>${esc(title)}</b>${who}</div>${body}</div>`;
+  const transcript = (label, text) => text ? `<details class="dd" open>
+      <summary>${esc(label)}<span class="right m" style="color:var(--t5)">${text.length} chars</span></summary>
+      <div class="dbody"><pre class="code">${esc(text.slice(-14000))}</pre></div></details>` : "";
 
-  return `<div class="page-head">
-      <div><h1>Overview</h1><p class="sub">The loop, and the work it produced.</p></div>
-      <span class="live"><span class="dot"></span>live</span></div>
-    <div class="grid g4" style="margin-bottom:16px">
-      <div class="tile"><div class="label">Traces ingested</div><div class="value">${nTraces}</div>
-        <div class="foot">${(tr.sources || []).length} source(s)</div></div>
-      <div class="tile"><div class="label">Escalations</div><div class="value">${escs.length}</div>
-        <div class="foot">${gate.length} gate evaluation(s)</div></div>
-      <div class="tile"><div class="label">Experiments</div><div class="value">${exps.length}</div>
-        <div class="foot">${runs} run(s)</div></div>
-      <div class="tile"><div class="label">Agent runs</div><div class="value">${S.agentRuns.length}</div>
-        <div class="foot">${S.agentRuns.length ? "linked to escalations" : "none stamped"}</div></div>
+  return `<button class="back" id="back-sys">← system</button>
+    <div class="panel"><div class="ph"><b>${esc(e.id)}</b>
+      <span class="note">${esc(ev.kind || "")}</span>
+      <span class="right">${Object.keys(v).length
+        ? `<span class="tag ${v.worth_autoresearch ? "green" : ""}">${v.worth_autoresearch ? "escalate" : "stand down"}</span>`
+        : '<span class="tag">pending</span>'}</span></div>
+      <div class="pb"><dl class="kv">
+        ${Object.entries(ev).filter(([k]) => k !== "trace_ids").map(([k, val]) =>
+          `<dt>${esc(k)}</dt><dd class="${typeof val === "object" ? "m" : ""}">${esc(typeof val === "object" ? JSON.stringify(val) : val)}</dd>`).join("")}
+        ${(ev.trace_ids || []).length ? `<dt>trace_ids</dt><dd class="m">${ev.trace_ids.map(id =>
+          `<a href="#" data-trace="${esc(id)}" style="color:var(--blue-dim)">${esc(id)}</a>`).join(", ")}</dd>` : ""}
+      </dl></div>
     </div>
-    ${gate.length ? chartCard("Failure rate per gate evaluation", fail,
-        { height: 176, xLabel: v => "eval " + Math.round(v) }) : ""}
-    <div class="card"><h2>Recent experiments</h2>
-      ${exps.length ? expTable(exps.slice(0, 6)) : '<div class="empty">No experiments recorded yet.</div>'}</div>`;
+
+    <div class="cols c2">
+      ${pane("Trigger agent", ran.agent === "trigger" && ran.sandbox
+          ? `<span class="tag blue">${esc(ran.sandbox)}</span>` : "",
+        Object.keys(v).length ? `<div class="pb"><dl class="kv">${
+          Object.entries(v).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(
+            typeof val === "object" ? JSON.stringify(val) : String(val))}</dd>`).join("")}</dl></div>`
+          : empty("no verdict written"))}
+      ${pane("Autoresearch agent", "", mine.length
+        ? expRows(mine, true)
+        : empty(v.worth_autoresearch ? "no experiment recorded yet" : "not triggered"))}
+    </div>
+
+    ${t.trigger || t.autoresearch || t.combined ? `<div class="panel">
+      <div class="ph"><b>Transcript</b><span class="note">${esc(ran.sandbox || "host")}</span></div>
+      <div class="pb">
+        ${transcript("trigger-agent", t.trigger)}
+        ${transcript("autoresearch", t.autoresearch)}
+        ${transcript("combined — one process ran both roles", t.combined)}
+      </div></div>` : ""}`;
 }
 
-function expTable(list) {
-  return `<table><thead><tr><th>Experiment</th><th>Status</th><th>Runs</th>
-      <th>Best score</th><th>Origin</th><th>Created</th></tr></thead><tbody>`
-    + list.map(e => `<tr class="clickable" data-exp="${esc(e.id)}">
-        <td><b>${esc(e.experiment_name || e.id)}</b>${e.hypothesis ? `<div class="muted" style="font-size:12px">${esc(e.hypothesis)}</div>` : ""}</td>
-        <td>${statusPill(e.status)}</td>
-        <td class="num">${e.n_runs ?? 0}</td>
-        <td class="num">${e.best_score == null ? "–" : num(e.best_score)}</td>
-        <td>${e.trigger ? `<code>${esc(e.trigger.escalation || "agent")}</code>` : '<span class="muted">manual</span>'}</td>
-        <td class="num muted">${ago(e._created_at)}</td></tr>`).join("")
-    + `</tbody></table>`;
+/* `compact` drops the hypothesis and the origin column — used where the panel
+   is half-width and the origin is already the thing you clicked through. */
+function expRows(list, compact) {
+  const cols = compact ? "1fr 92px 54px 78px 60px" : "1fr 92px 54px 78px 132px 60px";
+  const head = compact ? ["experiment", "status", ">runs", ">best", ">age"]
+                       : ["experiment", "status", ">runs", ">best", "origin", ">age"];
+  return `<div class="scroll" ${compact ? 'style="--rows-min:0"' : ""}>${rows(cols, head, g => list.map(e =>
+      `<div class="r click" data-exp="${esc(e.id)}" ${g}>
+        <span class="k">${esc(e.experiment_name || e.id)}${e.hypothesis && !compact
+          ? `<div class="sans" style="color:var(--t4);margin-top:3px;white-space:normal">${esc(e.hypothesis)}</div>` : ""}</span>
+        <span>${statusTag(e.status)}</span>
+        <span class="r-a">${e.n_runs ?? 0}</span>
+        <span class="r-a">${e.best_score == null ? "–" : num(e.best_score)}</span>
+        ${compact ? "" : `<span>${e.trigger ? esc(e.trigger.escalation || e.trigger.agent || "") : ""}</span>`}
+        <span class="r-a">${ago(e._created_at)}</span></div>`).join(""))}</div>`;
 }
 
 function viewExperiments() {
-  return `<div class="page-head"><div><h1>Experiments</h1>
-      <p class="sub">Everything the SDK recorded locally — metrics, evaluations, checkpoints, rollouts.</p></div></div>
-    <div class="card">${S.experiments.length ? expTable(S.experiments)
-      : '<div class="empty">No experiments in the local mirror yet.</div>'}</div>`;
+  return `<div class="panel"><div class="ph"><b>Experiments</b>
+      <span class="note">${S.experiments.length}</span></div>
+    ${S.experiments.length ? expRows(S.experiments) : empty("no experiments in the mirror")}</div>`;
 }
 
 function viewDetail() {
   const d = S.detail;
-  if (!d) return '<button class="back" id="back">← all experiments</button><div class="empty">loading…</div>';
-  const exp = d.experiment || {};
-  const runs = (d.ungrouped_runs || []).concat((d.groups || []).flatMap(g => g.runs || []));
-  if (!runs.length) return '<button class="back" id="back">← all experiments</button><div class="empty">This experiment has no runs.</div>';
+  if (!d) return `<button class="back" id="back-exp">← experiments</button>${empty("loading")}`;
+  const exp = d.experiment || {}, runs = allRuns(d);
+  if (!runs.length) return `<button class="back" id="back-exp">← experiments</button>${empty("this experiment has no runs")}`;
   if (!runs.some(r => r.id === S.runId)) S.runId = runs[0].id;
   const run = runs.find(r => r.id === S.runId);
-  const runTabs = runs.length > 1 ? `<div class="toolbar" style="margin-bottom:16px">
-      <span class="muted" style="font-size:12px">runs (training generations)</span>
-      ${runs.map(r => `<button class="chip" data-run="${esc(r.id)}" aria-pressed="${r.id === S.runId}">
-        ${esc((r.run_config && r.run_config.name) || r.id.slice(0, 8))}${r.seed != null ? " · seed " + esc(r.seed) : ""}</button>`).join("")}
-    </div>` : "";
 
   const byName = {};
   (run.metrics || []).forEach(p => (byName[p.name] = byName[p.name] || []).push(p));
-  const mk = n => n && byName[n]
-    ? [{ name: n, points: byName[n].map(p => ({ x: p.step, y: p.value })) }] : null;
-  // Metric names are algorithm-specific — RL emits reward/mean, SFT emits
-  // train_mean_nll, SDFT its own. Match on meaning, not on a hardcoded key,
-  // or the headline chart silently vanishes for half the algorithms.
   const find = re => Object.keys(byName).find(n => re.test(n));
+  const mk = n => n ? [{ name: n, points: byName[n].map(p => ({ x: p.step, y: p.value })) }] : null;
+  // Metric names are algorithm-specific (RL emits reward/mean, SFT train_mean_nll):
+  // match on meaning so the headline charts do not vanish for half the algorithms.
   const rewardKey = find(/^reward\/mean$|reward.*mean|mean.*reward/i);
   const lossKey = find(/loss|nll|perplexity/i);
-  const reward = mk(rewardKey), loss = mk(lossKey);
-  const shown = [rewardKey, lossKey].filter(Boolean);
-  const others = Object.keys(byName).filter(n => !shown.includes(n));
+  const others = Object.keys(byName).filter(n => n !== rewardKey && n !== lossKey);
   const rc = run.rollout_counts || {};
-  const total = Object.values(rc).reduce((a, b) => a + b, 0);
+  const kept = Object.values(rc).reduce((a, b) => a + b, 0);
   const stepLabel = v => "step " + Math.round(v);
+  const trig = exp.trigger || (exp.config || {}).trigger;
 
-  return `<button class="back" id="back">← all experiments</button>
-    <div class="page-head">
-      <div><h1>${esc(exp.experiment_name || "experiment")}</h1>
-        <p class="sub">${esc(exp.hypothesis || "")}</p></div>${statusPill(exp.status)}</div>
-    ${runTabs}
-    <div class="grid g4" style="margin-bottom:16px">
-      <div class="tile"><div class="label">Algorithm</div>
-        <div class="value" style="font-size:20px">${esc(run.recipe_kind || "–")}</div>
-        <div class="foot">seed ${esc(run.seed ?? "–")} · ${esc(run.status || "")}</div></div>
-      <div class="tile"><div class="label">Metric points</div><div class="value">${(run.metrics || []).length}</div>
-        <div class="foot">${Object.keys(byName).length} distinct metric(s)</div></div>
-      <div class="tile"><div class="label">Rollouts kept</div><div class="value">${total}</div>
-        <div class="foot">${Object.entries(rc).map(([k, v]) => v + " " + k).join(" · ") || "none"}</div></div>
-      <div class="tile"><div class="label">Checkpoints</div><div class="value">${(run.checkpoints || []).length}</div>
-        <div class="foot">${(run.checkpoints || []).some(c => c.is_final) ? "final saved" : "no final"}</div></div>
+  return `<button class="back" id="back-exp">← experiments</button>
+    <div class="panel"><div class="ph"><b>${esc(exp.experiment_name || exp.id || "")}</b>
+      ${statusTag(exp.status)}
+      ${trig ? `<span class="tag blue">${esc(trig.agent || "")}${trig.escalation ? " · " + esc(trig.escalation) : ""}</span>` : ""}
+      <span class="right note">${esc(exp.id || "")}</span></div>
+      ${exp.hypothesis ? `<div class="pb"><dl class="kv"><dt>hypothesis</dt>
+        <dd>${esc(exp.hypothesis)}</dd></dl></div>` : ""}
     </div>
-    ${reward ? chartCard(`${rewardKey} per step`, reward, { xLabel: stepLabel }) : ""}
-    ${loss ? chartCard(`${lossKey} per step`, loss, { xLabel: stepLabel }) : ""}
-    ${others.length ? `<div class="card"><h2>Other metrics</h2><table><thead><tr>
-        <th>Metric</th><th>First</th><th>Last</th><th>Points</th></tr></thead><tbody>`
-      + others.map(n => { const s = byName[n]; return `<tr><td><code>${esc(n)}</code></td>
-          <td class="num">${num(s[0].value)}</td><td class="num">${num(s[s.length - 1].value)}</td>
-          <td class="num muted">${s.length}</td></tr>`; }).join("") + `</tbody></table></div>` : ""}
-    ${(run.evals || []).length ? `<div class="card"><h2>Evaluations</h2><table><thead><tr><th>Step</th>`
-      + Object.keys(run.evals[0].metrics || {}).map(k => `<th>${esc(k)}</th>`).join("") + `</tr></thead><tbody>`
-      + run.evals.map(ev => `<tr><td class="num">${ev.step ?? "final"}</td>`
-        + Object.values(ev.metrics || {}).map(v => `<td class="num">${num(v)}</td>`).join("") + `</tr>`).join("")
-      + `</tbody></table></div>` : ""}
-    ${(run.checkpoints || []).length ? `<div class="card"><h2>Checkpoints</h2><table><thead><tr>
-        <th>Label</th><th>Step</th><th>Final</th><th>URI</th></tr></thead><tbody>`
-      + run.checkpoints.map(c => `<tr><td>${esc(c.label || "–")}</td><td class="num">${c.step ?? "–"}</td>
-          <td>${c.is_final ? "✓" : ""}</td><td><code>${esc((c.uri || "–").slice(0, 56))}</code></td></tr>`).join("")
-      + `</tbody></table></div>` : ""}
-    <div class="card"><h2>Data</h2>
-      <p class="agent-p">What went in, and what the transform chain turned it into.</p>
-      <div id="data"><div class="empty">loading…</div></div></div>
-    <div class="card"><div class="chart-head"><h2>Rollouts</h2>
-        <div class="toolbar">${["all", "train", "validation", "eval"].map(k =>
-          `<button class="chip" data-kind="${k}" aria-pressed="${S.rolloutKind === k}">${k}</button>`).join("")}</div></div>
-      <div id="rollouts"><div class="empty">loading…</div></div></div>`;
+
+    ${runs.length > 1 ? `<div class="panel"><div class="ph"><b>Runs</b>
+        <span class="note">training generations · ${runs.length}</span></div>
+      <div class="scroll">${rows("1fr 90px 70px 60px 90px 84px",
+        ["run", "algorithm", ">seed", ">metrics", "status", ">rollouts"], g => runs.map(r => {
+          const n = Object.values(r.rollout_counts || {}).reduce((a, b) => a + b, 0);
+          return `<div class="r click" data-run="${esc(r.id)}" ${g}
+              style="${r.id === S.runId ? "background:var(--hover)" : ""}">
+            <span class="k">${esc(runLabel(r))}</span>
+            <span>${esc(r.recipe_kind || "")}</span>
+            <span class="r-a">${esc(r.seed ?? "–")}</span>
+            <span class="r-a">${(r.metrics || []).length}</span>
+            <span>${statusTag(r.status)}</span>
+            <span class="r-a">${n}</span></div>`;
+        }).join(""))}</div></div>` : ""}
+
+    <div class="cols c5">
+      ${[["algorithm", run.recipe_kind || "–", "seed " + (run.seed ?? "–")],
+         ["metric points", (run.metrics || []).length, Object.keys(byName).length + " distinct"],
+         ["rollouts kept", kept, Object.entries(rc).map(([k, v]) => v + " " + k).join(" · ")],
+         ["checkpoints", (run.checkpoints || []).length,
+          (run.checkpoints || []).some(c => c.is_final) ? "final saved" : ""],
+         ["evaluations", (run.evals || []).length, ""]]
+        .map(([l, v, s]) => `<div class="stage on">
+          <div class="sh"><em>${esc(l)}</em></div><div class="v">${esc(v)}</div>
+          <div class="s">${esc(s || "")}</div></div>`).join("")}
+    </div>
+
+    ${rewardKey ? chartPanel(rewardKey, run.recipe_kind || "", mk(rewardKey), { xLabel: stepLabel }) : ""}
+    ${lossKey ? chartPanel(lossKey, run.recipe_kind || "", mk(lossKey), { xLabel: stepLabel }) : ""}
+
+    ${others.length ? `<div class="panel"><div class="ph"><b>Metrics</b>
+        <span class="note">${others.length}</span></div>
+      <div class="scroll">${rows("1fr 90px 90px 70px 84px", ["metric", ">first", ">last", ">points", "split"],
+        g => others.map(n => { const s = byName[n];
+          return `<div class="r click" data-metric="${esc(n)}" ${g}>
+            <span class="k">${esc(n)}</span>
+            <span class="r-a">${num(s[0].value)}</span>
+            <span class="r-a">${num(s[s.length - 1].value)}</span>
+            <span class="r-a">${s.length}</span>
+            <span>${esc(s[0].split || "")}</span></div>`; }).join(""))}</div>
+      <div id="metricchart"></div></div>` : ""}
+
+    ${(run.evals || []).length ? `<div class="panel"><div class="ph"><b>Evaluations</b>
+        <span class="note">${run.evals.length}</span></div>
+      <div class="scroll">${(() => {
+        const keys = [...new Set(run.evals.flatMap(e => Object.keys(e.metrics || {})))];
+        const cols = `70px ${keys.map(() => "1fr").join(" ")} 90px`;
+        return rows(cols, [">step", ...keys.map(k => ">" + k), ">rollouts"], g => run.evals.map(ev =>
+          `<div class="r click" data-eval="${esc(ev.id || "")}" ${g}>
+            <span class="r-a">${ev.step ?? "final"}</span>
+            ${keys.map(k => `<span class="r-a">${num((ev.metrics || {})[k])}</span>`).join("")}
+            <span class="r-a" style="color:var(--blue-dim)">view</span></div>`).join(""));
+      })()}</div></div>` : ""}
+
+    ${(run.checkpoints || []).length ? `<div class="panel"><div class="ph"><b>Checkpoints</b>
+        <span class="note">${run.checkpoints.length}</span></div>
+      <div class="scroll">${rows("140px 70px 60px 1fr", ["label", ">step", "final", "uri"],
+        g => run.checkpoints.map(c => `<div class="r" ${g}>
+          <span class="k">${esc(c.label || "–")}</span>
+          <span class="r-a">${c.step ?? "–"}</span>
+          <span>${c.is_final ? "✓" : ""}</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.uri || "")}</span>
+        </div>`).join(""))}</div></div>` : ""}
+
+    <div class="panel"><div class="ph"><b>Data</b>
+        <span class="note" id="datanote"></span></div>
+      <div id="data">${empty("loading")}</div></div>
+
+    <div class="panel"><div class="ph"><b>Rollouts</b>
+        <span class="note" id="rollnote"></span>
+        <span class="right">${["all", "train", "validation", "eval"].map(k => {
+          const n = k === "all" ? kept : (rc[k] || 0);
+          return `<button class="chip" data-kind="${k}" aria-pressed="${S.rolloutKind === k}">${k}${n ? " " + n : ""}</button>`;
+        }).join("")}</span></div>
+      <div id="rollouts">${empty("loading")}</div></div>`;
 }
 
-
-/* The two final formats look nothing alike and deserve different rendering:
-   SFT rows are a conversation, harbor RL rows are a task + a verifier. */
+/* The two final training formats look nothing alike and are rendered as what
+   they are: SFT rows are a conversation, harbor RL rows are a task + verifier. */
 function renderRow(row, fmt) {
   if (fmt === "chat_messages" && Array.isArray(row.messages)) {
     return `<div class="msgs">` + row.messages.map(m =>
       `<div class="msg"><span class="role">${esc(m.role || "")}</span>
         <div>${esc(typeof m.content === "string" ? m.content : JSON.stringify(m.content))}</div></div>`).join("")
-      + (row.target_assistant ? `<div class="msg"><span class="role target">target</span>
+      + (row.target_assistant ? `<div class="msg"><span class="role t">target</span>
           <div>${esc(row.target_assistant)}</div></div>` : "") + `</div>`;
   }
   if (fmt === "harbor_task") {
     const v = row.verifier || {};
     return `<dl class="kv">
-      <dt>task_id</dt><dd><code>${esc(row.task_id || "")}</code></dd>
+      <dt>task_id</dt><dd class="m">${esc(row.task_id || "")}</dd>
       <dt>instruction</dt><dd>${esc(row.instruction || "")}</dd>
-      <dt>verifier</dt><dd><code>${esc(v.kind || v.fn_name || "")}</code>${v.expected !== undefined ? ` → expects <code>${esc(String(v.expected))}</code>` : ""}</dd>
-      ${row.metadata && Object.keys(row.metadata).length ? `<dt>metadata</dt><dd><code>${esc(JSON.stringify(row.metadata))}</code></dd>` : ""}
+      <dt>verifier</dt><dd class="m">${esc(v.kind || v.fn_name || "")}${
+        v.expected !== undefined ? " → " + esc(String(v.expected)) : ""}</dd>
+      ${row.metadata && Object.keys(row.metadata).length
+        ? `<dt>metadata</dt><dd class="m">${esc(JSON.stringify(row.metadata))}</dd>` : ""}
     </dl>`;
   }
   if (fmt === "prompt_dataset") {
-    return `<dl class="kv"><dt>inputs</dt><dd><code>${esc(JSON.stringify(row.inputs))}</code></dd>
+    return `<dl class="kv"><dt>inputs</dt><dd class="m">${esc(JSON.stringify(row.inputs))}</dd>
       <dt>expected</dt><dd>${esc(String(row.expected))}</dd></dl>`;
   }
-  return `<pre>${esc(JSON.stringify(row, null, 2))}</pre>`;
+  return `<pre class="code">${esc(JSON.stringify(row, null, 2))}</pre>`;
 }
 
-const FMT_LABEL = { chat_messages: "SFT · chat messages", harbor_task: "RL · harbor task",
-                    prompt_dataset: "prompt dataset", unknown: "unrecognised" };
+const FMT = { chat_messages: "chat_messages · sft", harbor_task: "harbor_task · rl",
+              prompt_dataset: "prompt_dataset", unknown: "unrecognised" };
 
 function renderData() {
   const el = $("#data"); if (!el) return;
   const d = S.data;
-  if (!d) { el.innerHTML = '<div class="empty">loading…</div>'; return; }
+  if (!d) { el.innerHTML = empty("loading"); return; }
   const raw = d.stages.raw, train = d.stages.train;
-  if (!raw.n && !train.n) {
-    el.innerHTML = '<div class="empty">No data recorded for this run.</div>'; return;
-  }
-  const src = Object.entries(d.source || {}).map(([k, v]) => `${k}=${v}`).join(" · ");
-  const chain = (d.transforms || []).length
-    ? d.transforms.map(t => `<code>${esc(t.kind || t)}</code>`).join(' <span class="muted">→</span> ')
-    : '<span class="muted">no transforms — the rows are used as loaded</span>';
-  const pane = (title, st, i) => `<div class="agent">
-      <div class="agent-h"><b>${title}</b>
-        <span class="pill">${esc(FMT_LABEL[st.format] || st.format)}</span></div>
-      <p class="agent-p">${st.n ? `showing ${Math.min(st.n, 3)} of the first ${st.n} row(s)` : "not recorded"}</p>
-      ${st.rows.slice(0, 3).map((r, j) => `<details class="item" ${j === 0 ? "open" : ""}>
-          <summary><span class="mono muted">row ${j}</span></summary>
-          <div style="padding:12px 14px;border-top:1px solid var(--border)">${renderRow(r, st.format)}</div>
-        </details>`).join("")}
+  const note = $("#datanote");
+  if (!raw.n && !train.n) { el.innerHTML = empty("no data recorded for this run");
+    if (note) note.textContent = ""; return; }
+  if (note) note.textContent = Object.entries(d.source || {}).map(([k, v]) => k + "=" + v).join(" · ");
+
+  const chain = `<div class="m" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px">
+      <span class="tag">${esc(raw.format)} · ${raw.n} rows</span>
+      ${(d.transforms || []).map(t => `<span style="color:var(--t5)">→</span>
+        <span class="tag blue">${esc(t.kind || t)}</span>`).join("")}
+      <span style="color:var(--t5)">→</span>
+      <span class="tag">${esc(train.format)} · ${train.n} rows</span>
     </div>`;
-  el.innerHTML = `<div class="chain">${src ? `<span class="muted">${esc(src)}</span> <span class="muted">→</span> ` : ""}${chain}</div>
-    <div class="agent-row">${pane("Raw — as loaded", raw, 0)}${pane("Training data — after transforms", train, 1)}</div>`;
+  const params = (d.transforms || []).filter(t => t.params && Object.keys(t.params).length);
+  const pane = (title, st) => `<div class="panel"><div class="ph"><b>${esc(title)}</b>
+      <span class="note">${esc(FMT[st.format] || st.format)}</span>
+      <span class="right note">${st.n} rows</span></div>
+    <div class="pb">${st.rows.length ? st.rows.slice(0, 3).map((r, j) =>
+      `<details class="dd" ${j === 0 ? "open" : ""}><summary><span class="m" style="color:var(--t5)">row ${j}</span></summary>
+        <div class="dbody">${renderRow(r, st.format)}</div></details>`).join("")
+      : empty("not recorded")}</div></div>`;
+
+  el.innerHTML = `<div class="pb">${chain}
+    ${params.length ? `<details class="dd"><summary>transform config</summary>
+      <div class="dbody"><pre class="code">${esc(JSON.stringify(d.transforms, null, 2))}</pre></div></details>` : ""}
+    <div class="cols c2">${pane("raw", raw)}${pane("training data", train)}</div></div>`;
 }
 
 function renderRollouts() {
   const el = $("#rollouts"); if (!el) return;
-  const list = S.rollouts;
-  if (!list.length) { el.innerHTML = '<div class="empty">No rollouts captured for this run.</div>'; return; }
-  el.innerHTML = list.slice(0, 40).map(p => {
-    const r = p.reward;
-    const cls = r == null ? "" : r >= 1 ? "good" : r > 0 ? "warn" : "crit";
-    const tok = p.metadata && p.metadata.completion_tokens != null ? p.metadata.completion_tokens + " tok" : "";
-    return `<details class="item"><summary>
-        <span class="pill ${cls}">${r == null ? "–" : num(r, 2)}</span>
-        <span class="mono muted">${esc(p.kind)}</span>
-        <span class="muted">step ${p.step ?? "–"}</span>
-        <span class="muted">${esc(p.task_id || "")}</span>
-        <span style="flex:1"></span><span class="muted mono">${tok}</span></summary>
-      ${p.instruction ? `<pre>${esc(p.instruction)}</pre>` : ""}
-      <pre>${esc(p.model_output || "(no decoded output — the trajectory carried token ids only)")}</pre>
-    </details>`;
-  }).join("") + (list.length > 40 ? `<div class="empty">showing 40 of ${list.length}</div>` : "");
-}
+  const list = S.rollouts, note = $("#rollnote");
+  if (!list.length) { el.innerHTML = empty("no rollouts captured for this run");
+    if (note) note.textContent = ""; return; }
+  const rewarded = list.filter(p => p.reward != null);
+  if (note) note.textContent = rewarded.length
+    ? `mean reward ${num(rewarded.reduce((a, p) => a + p.reward, 0) / rewarded.length, 3)} over ${rewarded.length}`
+    : `${list.length} shown`;
 
-function viewAgents() {
-  const escs = (S.state || {}).escalations || [];
-  return `<div class="page-head"><div><h1>Agents</h1>
-      <p class="sub">What the trigger agent judged, and what the autoresearch agent did about it.</p></div></div>
-    ${S.agentRuns.length ? `<div class="card"><h2>Agent runs</h2><table><thead><tr>
-        <th>Escalation</th><th>Agent</th><th>Ran in</th><th>Experiments</th></tr></thead><tbody>`
-      + S.agentRuns.map(a => `<tr><td><code>${esc(a.escalation || "")}</code></td>
-          <td>${esc(a.agent || "")}</td><td>${esc(a.sandbox || "host")}</td>
-          <td class="num">${(a.experiments || []).length}</td></tr>`).join("")
-      + `</tbody></table></div>` : ""}
-    ${escs.length ? escs.map(e => {
-        const v = e.verdict || {}, has = v && Object.keys(v).length;
-        return `<div class="card"><div class="chart-head"><h2>${esc(e.id)}</h2>
-          ${has ? `<span class="pill ${v.worth_autoresearch ? "good" : ""}">${v.worth_autoresearch ? "✓ worth autoresearch" : "✕ not worth it"}</span>`
-                : '<span class="pill">awaiting verdict</span>'}</div>
-          <dl class="kv"><dt>reason</dt><dd>${esc((e.event || {}).reason || "–")}</dd>
-            ${v.hypothesis ? `<dt>hypothesis</dt><dd>${esc(v.hypothesis)}</dd>` : ""}
-            ${v.reasoning ? `<dt>reasoning</dt><dd>${esc(v.reasoning)}</dd>` : ""}</dl>
-          ${e.agent_log ? `<details class="item" style="margin-top:12px"><summary>agent transcript</summary>
-            <pre>${esc(String(e.agent_log).slice(-6000))}</pre></details>` : ""}</div>`;
-      }).join("") : '<div class="card"><div class="empty">No escalations yet — the gate has not fired.</div></div>'}`;
-}
+  // reward per step, straight off the captured rollouts (no reward → no chart)
+  let chart = "";
+  const byStep = {};
+  rewarded.forEach(p => { const s = Number(p.step ?? 0); (byStep[s] = byStep[s] || []).push(p.reward); });
+  const steps = Object.keys(byStep).map(Number).sort((a, b) => a - b);
+  if (steps.length > 1) {
+    const id = "rc" + Math.random().toString(36).slice(2, 6);
+    // Say what it is: the capture keeps the first N per kind, so this is the
+    // mean over the KEPT rollouts, not over everything the run generated.
+    chart = `<div style="padding:14px 16px 0"><div class="lbl">mean reward per step ·
+        ${rewarded.length} captured rollout(s)</div><div id="${id}"></div></div>`;
+    setTimeout(() => { const c = $("#" + id); if (c) lineChart(c,
+      [{ name: "mean reward", points: steps.map(s => ({ x: s, y: byStep[s].reduce((a, b) => a + b, 0) / byStep[s].length })) }],
+      { height: 140, xLabel: v => "step " + Math.round(v) }); }, 0);
+  }
 
-function viewTrace() {
-  const t = (((S.state || {}).traces || {}).items || []).find(x => x.trace_id === S.traceId);
-  if (!t) return '<button class="back" id="back-traces">← all traces</button><div class="empty">Trace not found.</div>';
-  const md = t.metadata || {}, fb = t.feedback || [];
-  return `<button class="back" id="back-traces">← all traces</button>
-    <div class="page-head"><div><h1 class="mono" style="font-size:16px">${esc(t.trace_id)}</h1>
-      <p class="sub">${esc(md.source || "")} · ${esc(String(md.timestamp || "").slice(0, 19))}</p></div></div>
-    ${fb.length ? `<div class="card"><h2>Feedback</h2><table><thead><tr><th>Signal</th><th>Score</th>
-        <th>Comment</th></tr></thead><tbody>` + fb.map(f => `<tr><td><code>${esc(f.key || "")}</code></td>
-        <td class="num">${f.score == null ? "–" : num(f.score, 2)}</td>
-        <td class="muted">${esc(f.comment || "")}</td></tr>`).join("") + `</tbody></table></div>` : ""}
-    <div class="card"><h2>Conversation</h2>
-      <div class="msgs">${(t.messages || []).map(m => {
-        const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2);
-        const calls = (m.tool_calls || []).map(tc =>
-          `\n→ ${(tc.function || {}).name || tc.name || "tool"}(${esc(((tc.function || {}).arguments) || "")})`).join("");
-        return `<div class="msg"><span class="role">${esc(m.role || "")}</span>
-          <div>${esc(c)}${calls ? `<span class="muted">${calls}</span>` : ""}</div></div>`;
-      }).join("")}</div></div>
-    <div class="card"><h2>Metadata</h2><dl class="kv">${Object.entries(md).map(([k, v]) =>
-      `<dt>${esc(k)}</dt><dd><code>${esc(String(v).slice(0, 140))}</code></dd>`).join("")}</dl></div>`;
+  el.innerHTML = chart + `<div class="pb">` + list.slice(0, 40).map(p => {
+    const md = p.metadata || {};
+    const tok = md.completion_tokens != null ? md.completion_tokens + " tok" : "";
+    return `<details class="dd"><summary>
+        ${rewardTag(p.reward)}
+        <span class="tag">${esc(p.kind || "")}</span>
+        <span class="m" style="color:var(--t4)">step ${p.step ?? "–"}</span>
+        <span class="m" style="color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.task_id || "")}</span>
+        <span class="right m" style="color:var(--t5)">${esc(tok)}</span></summary>
+      <div class="dbody">
+        ${p.instruction ? `<div><div class="lbl">instruction</div><pre class="code">${esc(p.instruction)}</pre></div>` : ""}
+        <div><div class="lbl">model output</div><pre class="code">${esc(p.model_output || "")}</pre></div>
+        ${p.expected != null ? `<div><div class="lbl">expected</div><pre class="code">${esc(String(p.expected))}</pre></div>` : ""}
+        ${Object.keys(md).length ? `<div><div class="lbl">metadata</div>
+          <pre class="code">${esc(JSON.stringify(md, null, 2))}</pre></div>` : ""}
+      </div></details>`;
+  }).join("") + (list.length > 40 ? `<div class="empty">40 of ${list.length} shown</div>` : "") + `</div>`;
 }
 
 function viewTraces() {
   const t = (S.state || {}).traces || {};
-  const recent = t.items || t.recent || [];
-  return `<div class="page-head"><div><h1>Traces</h1>
-      <p class="sub">${t.total ?? recent.length} trace(s) ingested into the local store.</p></div></div>
-    <div class="card">${recent.length ? `<table><thead><tr><th>Trace</th><th>Source</th>
-        <th>Messages</th><th>Feedback</th><th>When</th></tr></thead><tbody>`
-      + recent.slice(0, 60).map(x => {
-          const md = x.metadata || {}, fb = (x.feedback || [])[0];
-          return `<tr class="clickable" data-trace="${esc(x.trace_id)}">
-            <td><code>${esc(String(x.trace_id || "").slice(0, 12))}</code></td>
-            <td>${esc(md.source || "")}</td><td class="num">${(x.messages || []).length}</td>
-            <td class="num muted">${fb ? esc(fb.key) + " " + num(fb.score, 2) : "–"}</td>
-            <td class="num muted">${esc(String(md.timestamp || "").slice(0, 19))}</td></tr>`;
-        }).join("")
-      + `</tbody></table>` : '<div class="empty">No traces ingested yet.</div>'}</div>`;
+  const items = (t.items || []).slice().reverse();
+  return `<div class="panel"><div class="ph"><b>Traces</b>
+      <span class="note">${t.total ?? items.length} ingested · ${items.length} in tail</span>
+      <span class="right note">${(t.sources || []).join(", ")}</span></div>
+    ${items.length ? `<div class="scroll">${rows("150px 130px 1fr 60px 158px",
+      ["trace", "source", "first message", ">msgs", ">when"], g => items.slice(0, 80).map(x => {
+        const md = x.metadata || {};
+        const first = (x.messages || []).find(m => m.role === "user") || (x.messages || [])[0] || {};
+        const c = typeof first.content === "string" ? first.content : JSON.stringify(first.content || "");
+        return `<div class="r click" data-trace="${esc(x.trace_id)}" ${g}>
+          <span class="k">${esc(x.trace_id)}</span>
+          <span>${esc(md.source || "")}</span>
+          <span class="sans" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(c).slice(0, 160))}</span>
+          <span class="r-a">${(x.messages || []).length}</span>
+          <span class="r-a">${esc(String(md.timestamp || "").slice(0, 19))}</span></div>`;
+      }).join(""))}</div>` : empty("no traces ingested")}</div>`;
+}
+
+function viewTrace() {
+  const t = (((S.state || {}).traces || {}).items || []).find(x => x.trace_id === S.traceId);
+  if (!t) return `<button class="back" id="back-traces">← traces</button>${empty("trace not found")}`;
+  const md = t.metadata || {}, fb = t.feedback || [];
+  return `<button class="back" id="back-traces">← traces</button>
+    <div class="panel"><div class="ph"><b class="m">${esc(t.trace_id)}</b>
+      <span class="note">${esc(md.source || "")}</span>
+      <span class="right note">${esc(String(md.timestamp || "").slice(0, 19))}</span></div>
+      ${fb.length ? `<div class="scroll">${rows("160px 80px 1fr", ["signal", ">score", "comment"],
+        g => fb.map(f => `<div class="r" ${g}><span class="k">${esc(f.key || "")}</span>
+          <span class="r-a">${num(f.score, 2)}</span>
+          <span class="sans">${esc(f.comment || "")}</span></div>`).join(""))}</div>` : ""}
+    </div>
+    <div class="panel"><div class="ph"><b>Conversation</b>
+        <span class="note">${(t.messages || []).length} messages</span></div>
+      <div class="pb"><div class="msgs">${(t.messages || []).map(m => {
+        const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2);
+        const calls = (m.tool_calls || []).map(tc =>
+          `\n→ ${(tc.function || {}).name || tc.name || "tool"}(${((tc.function || {}).arguments) || ""})`).join("");
+        return `<div class="msg"><span class="role">${esc(m.role || "")}</span>
+          <div>${esc(c)}${calls ? `<span style="color:var(--t4)">${esc(calls)}</span>` : ""}</div></div>`;
+      }).join("")}</div></div></div>
+    <div class="panel"><div class="ph"><b>Metadata</b></div>
+      <div class="pb"><dl class="kv">${Object.entries(md).map(([k, v]) =>
+        `<dt>${esc(k)}</dt><dd class="m">${esc(String(v))}</dd>`).join("")}</dl></div></div>`;
 }
 
 function viewRegistry() {
   const r = S.registry || {};
-  const kinds = Object.keys(r);
-  const LABEL = {
-    algorithm: "Algorithms", verifier: "Verifiers", metric: "Metrics",
-    data_store: "Data stores", backend: "Backends", inference_client: "Inference clients",
-    transform: "Transforms", callback: "Callbacks", trace_source: "Trace sources",
-    trigger: "Detection functions", sandbox: "Sandbox providers", context_source: "Context sources",
-  };
-  return `<div class="page-head"><div><h1>Registry</h1>
-      <p class="sub">Everything this system can resolve by name from YAML — the built-ins plus
-      anything the project registered itself.</p></div></div>
-    ${kinds.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">`
-      + kinds.map(k => `<div class="card" style="margin:0">
-          <div class="chart-head"><h2>${esc(LABEL[k] || k)}</h2>
-            <span class="count">${(r[k] || []).length}</span></div>
-          ${(r[k] || []).length ? `<div class="reg">${r[k].map(n =>
-            `<code class="reg-item">${esc(n)}</code>`).join("")}</div>`
-            : '<div class="muted" style="font-size:12px">none registered</div>'}
-        </div>`).join("") + `</div>`
-      : '<div class="card"><div class="empty">Registry unavailable.</div></div>'}`;
+  const kinds = Object.keys(r).sort();
+  return `<div class="cols" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+    ${kinds.length ? kinds.map(k => `<div class="panel">
+        <div class="ph"><b class="m">${esc(k)}</b><span class="right note">${(r[k] || []).length}</span></div>
+        <div class="pb">${(r[k] || []).length
+          ? `<div style="display:flex;flex-wrap:wrap;gap:5px">${r[k].map(n =>
+              `<span class="tag">${esc(n)}</span>`).join("")}</div>`
+          : `<span class="note">none registered</span>`}</div>
+      </div>`).join("") : empty("registry unavailable")}</div>`;
 }
 
-function viewPrompt() {
+function viewArtifact() {
   const p = (S.state || {}).prompt || {};
-  return `<div class="page-head"><div><h1>Live artifact</h1>
-      <p class="sub">The prompt the deployed agent reads, and any rewrite the autoresearch agent made.</p></div>
-      ${p.rewritten ? '<span class="pill good">✓ rewritten</span>' : '<span class="pill">unchanged</span>'}</div>
-    ${p.diff ? `<div class="card"><h2>Diff vs the snapshot taken at spawn</h2>
-      <pre class="item" style="border:0;margin:0">${esc(p.diff)}</pre></div>` : ""}
-    <div class="card"><h2>Current text</h2>
-      <pre class="item" style="border:0;margin:0">${esc(p.text || "(no prompt file configured)")}</pre></div>`;
+  return `<div class="panel"><div class="ph"><b>${esc(p.path || "live artifact")}</b>
+      <span class="right"><span class="tag ${p.rewritten ? "green" : ""}">${p.rewritten ? "rewritten" : "unchanged"}</span></span></div>
+    ${p.text ? `<div class="pb"><pre class="code">${esc(p.text)}</pre></div>`
+      : empty("no artifact file configured")}</div>
+    ${p.diff ? `<div class="panel"><div class="ph"><b>Diff</b>
+      <span class="note">${esc(p.diff_base || "")}</span></div>
+      <div class="pb"><pre class="code">${esc(p.diff)}</pre></div></div>` : ""}`;
 }
 
 const VIEWS = [
-  { id: "system",      label: "System",        fn: viewSystem,
-    count: () => ((S.state || {}).escalations || []).length },
-  { id: "experiments", label: "Experiments",   fn: viewExperiments, count: () => S.experiments.length },
-  { id: "traces",      label: "Traces",        fn: viewTraces },
-  { id: "registry",    label: "Registry",      fn: viewRegistry,
-    count: () => Object.values(S.registry || {}).reduce((a, v) => a + v.length, 0) },
-  { id: "prompt",      label: "Live artifact", fn: viewPrompt },
+  { id: "system", label: "System", fn: viewSystem },
+  { id: "experiments", label: "Experiments", fn: viewExperiments },
+  { id: "traces", label: "Traces", fn: viewTraces },
+  { id: "registry", label: "Registry", fn: viewRegistry },
+  { id: "artifact", label: "Live artifact", fn: viewArtifact },
 ];
 
-function renderNav() {
-  $("#nav").innerHTML =
-    `<div class="brand"><b>evsys</b><span>${esc(((S.state || {}).project || {}).name || "")}</span></div>`
-    + `<div class="group">system</div>`
-    + VIEWS.map(v => {
-        const c = v.count ? v.count() : 0;
-        const on = S.view === v.id || (S.view === "detail" && v.id === "experiments")
-             || (S.view === "trace" && v.id === "traces");
-        return `<button data-view="${v.id}" aria-current="${on}"><span>${v.label}</span>${c ? `<span class="count">${c}</span>` : ""}</button>`;
-      }).join("")
-    + `<button class="theme" id="theme">◐ theme</button>`;
-}
-
 function render() {
-  renderNav();
+  renderChrome();
   const main = $("#main");
-  if (S.err) { main.innerHTML = `<div class="card"><div class="empty">${esc(S.err)}</div></div>`; return; }
+  if (S.err) { main.innerHTML = empty(S.err); return; }
   main.innerHTML = S.view === "detail" ? viewDetail()
     : S.view === "trace" ? viewTrace()
+    : S.view === "escalation" ? viewEscalation()
     : (VIEWS.find(v => v.id === S.view) || VIEWS[0]).fn();
   if (S.view === "detail") { renderRollouts(); renderData(); }
 }
@@ -759,39 +905,67 @@ async function loadRun() {
   renderRollouts(); renderData();
 }
 
+async function openExperiment(id) {
+  S.view = "detail"; S.detail = null; S.rollouts = []; S.data = null; S.runId = null;
+  render();
+  S.detail = await get("/api/experiments/" + id + "/detail").catch(() => null);
+  render(); loadRun();
+}
+
 document.addEventListener("click", async e => {
-  const nb = e.target.closest("nav button[data-view]");
+  const nb = e.target.closest("button[data-view]");
   if (nb) { S.view = nb.dataset.view; S.detail = null; render(); return; }
-  const row = e.target.closest("tr[data-exp]");
-  if (row) {
-    S.view = "detail"; S.detail = null; S.rollouts = []; S.data = null; render();
-    S.runId = null; S.data = null;
-    S.detail = await get("/api/experiments/" + row.dataset.exp + "/detail");
-    render(); loadRun(); return;
+  if (e.target.closest("#theme")) {
+    const cur = document.documentElement.getAttribute("data-theme");
+    const dark = cur ? cur === "dark" : !matchMedia("(prefers-color-scheme: light)").matches;
+    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+    render(); return;
   }
-  if (e.target.closest("#back")) { S.view = "experiments"; S.detail = null; render(); return; }
-  if (e.target.closest("#back-traces")) { S.view = "traces"; S.traceId = null; render(); return; }
-  const trow = e.target.closest("tr[data-trace]");
-  if (trow) { S.traceId = trow.dataset.trace; S.view = "trace"; render(); return; }
-  const chip = e.target.closest(".chip[data-kind]");
-  if (chip && S.detail) {
-    S.rolloutKind = chip.dataset.kind;
+  const kind = e.target.closest(".chip[data-kind]");
+  if (kind) {
+    S.rolloutKind = kind.dataset.kind;
     document.querySelectorAll(".chip[data-kind]").forEach(c =>
-      c.setAttribute("aria-pressed", c.dataset.kind === S.rolloutKind));
-    loadRun();
+      c.setAttribute("aria-pressed", String(c.dataset.kind === S.rolloutKind)));
+    loadRun(); return;
+  }
+  const ev = e.target.closest("[data-eval]");
+  if (ev && ev.dataset.eval) {
+    // one evaluation's own rollouts, in the same panel the run's rollouts use
+    const page = await get(`/api/evals/${ev.dataset.eval}/predictions?limit=200`).catch(() => null);
+    if (page) {
+      S.rollouts = page.predictions || [];
+      document.querySelectorAll(".chip[data-kind]").forEach(c => c.setAttribute("aria-pressed", "false"));
+      renderRollouts();
+      $("#rollouts").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     return;
   }
-  const rb = e.target.closest(".chip[data-run]");
-  if (rb && S.detail) { S.runId = rb.dataset.run; render(); loadRun(); }
+  const rr = e.target.closest("[data-run]");
+  if (rr && S.detail) { S.runId = rr.dataset.run; render(); loadRun(); return; }
+  const tr = e.target.closest("[data-trace]");
+  if (tr) { e.preventDefault(); S.traceId = tr.dataset.trace; S.view = "trace"; render(); return; }
+  const er = e.target.closest("[data-esc]");
+  if (er) { S.escId = er.dataset.esc; S.view = "escalation"; render(); return; }
+  const xr = e.target.closest("[data-exp]");
+  if (xr) { openExperiment(xr.dataset.exp); return; }
+  const mr = e.target.closest("[data-metric]");
+  if (mr && S.detail) {
+    const run = allRuns(S.detail).find(r => r.id === S.runId) || {};
+    const pts = (run.metrics || []).filter(p => p.name === mr.dataset.metric);
+    const el = $("#metricchart");
+    if (el && pts.length) {
+      el.innerHTML = `<div class="ph" style="border-top:1px solid var(--line-soft)">
+          <b class="m">${esc(mr.dataset.metric)}</b></div><div class="pb"><div id="mc"></div></div>`;
+      lineChart($("#mc"), [{ name: mr.dataset.metric, points: pts.map(p => ({ x: p.step, y: p.value })) }],
+        { height: 150, xLabel: v => "step " + Math.round(v) });
+    }
+    return;
+  }
+  if (e.target.closest("#back-exp")) { S.view = "experiments"; S.detail = null; render(); return; }
+  if (e.target.closest("#back-traces")) { S.view = "traces"; S.traceId = null; render(); return; }
+  if (e.target.closest("#back-sys")) { S.view = "system"; S.escId = null; render(); return; }
 });
-document.addEventListener("click", e => {
-  if (!e.target.closest("#theme")) return;
-  const cur = document.documentElement.getAttribute("data-theme");
-  const next = cur === "dark" ? "light" : cur === "light" ? "dark"
-    : (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
-  document.documentElement.setAttribute("data-theme", next);
-  render();
-});
+
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
 
 async function tick() {
@@ -805,7 +979,10 @@ async function tick() {
     S.state = state; S.experiments = experiments; S.agentRuns = agentRuns;
     S.registry = registry; S.err = null;
   } catch (err) { S.err = String(err); }
-  if (S.view === "detail" || S.view === "trace") renderNav(); else render();
+  // A detail/trace view is a snapshot the user is reading — refresh the chrome
+  // around it, but do not yank the panel out from under them.
+  if (S.view === "detail" || S.view === "trace" || S.view === "escalation") renderChrome();
+  else render();
 }
 tick(); setInterval(tick, 4000);
 </script>
