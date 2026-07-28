@@ -110,6 +110,27 @@ def _collect_traces(project_dir: Path, cfg: SystemConfig) -> dict:
     return {"total": total, "items": items[-TRACE_TAIL:], "sources": sources, "freshest_mtime": freshest}
 
 
+#: Bytes of an agent transcript shipped per poll. A streaming agent writes one
+#: JSON event per step, so the log runs to megabytes on a long run and the
+#: whole thing was being re-sent — and re-parsed — every four seconds.
+AGENT_LOG_TAIL = 400_000
+
+
+def _tail_log(path: Path) -> str | None:
+    """The tail of an agent transcript, keeping every stage marker.
+
+    A plain tail would cut off the ``===== remote <stage>: started =====``
+    lines that say which agent the rest belongs to, so those are carried
+    forward from the dropped head.
+    """
+    text = _read_text(path)
+    if text is None or len(text) <= AGENT_LOG_TAIL:
+        return text
+    head, tail = text[:-AGENT_LOG_TAIL], text[-AGENT_LOG_TAIL:]
+    markers = [ln for ln in head.splitlines() if ln.startswith("===== remote ")]
+    return "\n".join([*markers, f"[… {len(head)} earlier bytes not shown …]", tail])
+
+
 def _collect_escalations(root: Path) -> list[dict]:
     esc_dir = root / "escalations"
     if not esc_dir.is_dir():
@@ -122,7 +143,7 @@ def _collect_escalations(root: Path) -> list[dict]:
                 "id": stem,
                 "event": _read_json(path),
                 "verdict": _read_json(root / "verdicts" / f"{stem}.json"),
-                "agent_log": _read_text(root / "agent-runs" / f"{stem}.log"),
+                "agent_log": _tail_log(root / "agent-runs" / f"{stem}.log"),
                 "prompt_before": _read_text(root / "prompt-snapshots" / f"{stem}.txt"),
                 "mtime": _mtime(path),
             }

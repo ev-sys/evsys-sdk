@@ -194,6 +194,13 @@ details.dd > summary::before { content: "›"; color: var(--t5); }
 details.dd[open] > summary::before { content: "⌄"; }
 details.dd .dbody { padding: 12px; border-top: 1px solid var(--line-soft);
   display: flex; flex-direction: column; gap: 10px; }
+/* a live agent feed inside its own column: scrolls itself, pinned to the
+   newest step so a running agent reads like a terminal */
+.feed-h { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-top: 1px solid var(--line-soft); }
+.feed { max-height: 460px; overflow-y: auto; padding: 0 16px 14px; }
+.feed .step pre.code { max-height: 180px; }
+
 /* a streamed agent transcript: one labelled step per event */
 .steps { display: flex; flex-direction: column; gap: 8px; }
 .step { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: start; }
@@ -373,6 +380,44 @@ function splitTranscript(log) {
       log.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : log.length);
   });
   return out;
+}
+
+/* Whether each stage finished, straight off the markers the runner writes. A
+   stage that started and has no closing marker is still going — without this
+   an in-flight run is indistinguishable from one that produced nothing. */
+function stageStatus(log) {
+  const out = {};
+  if (!log) return out;
+  const re = /=====\s*remote (trigger-agent|autoresearch):\s*(started|exit (-?\d+)|FAILED: (.*?))\s*=====/g;
+  let m;
+  while ((m = re.exec(log))) {
+    const key = m[1] === "autoresearch" ? "autoresearch" : "trigger";
+    out[key] = m[2] === "started" ? { state: "running" }
+      : m[3] !== undefined ? { state: m[3] === "0" ? "done" : "failed", detail: "exit " + m[3] }
+      : { state: "failed", detail: m[4] };
+  }
+  return out;
+}
+
+const STATE_TAG = { running: "blue", done: "green", failed: "red" };
+
+const FEED_STEPS = 60;
+/** Index of the step that wrote the verdict — the trigger→autoresearch
+    hand-off inside a single process. -1 when it has not happened yet, so the
+    autoresearch column stays honestly empty rather than showing trigger work.
+    The LAST such write wins: an agent may re-read the path before rewriting. */
+function verdictStep(steps) {
+  if (!steps) return -1;
+  let at = -1;
+  steps.forEach((s, i) => {
+    if (s.kind !== "tool") return;
+    const body = String(s.body || "");
+    if (!/verdicts?\//.test(body)) return;
+    // reading the verdict is not writing it
+    if (s.label === "Read" || /^\s*(cat|less|head|tail)\b/.test(body)) return;
+    at = i;
+  });
+  return at;
 }
 
 /* A remote agent runs with `--output-format stream-json`, so its log is one
@@ -587,31 +632,41 @@ function viewSystem() {
 }
 
 function viewEscalation() {
-  const st = S.state || {};
-  const e = (st.escalations || []).find(x => x.id === S.escId);
+  const state = S.state || {};
+  const e = (state.escalations || []).find(x => x.id === S.escId);
   if (!e) return `<button class="back" id="back-sys">← system</button>${empty("escalation not found")}`;
   const v = e.verdict || {}, ev = e.event || {};
   const t = splitTranscript(e.agent_log);
+  const stages = stageStatus(e.agent_log);
   const ran = S.agentRuns.find(a => a.escalation === e.id) || {};
   const mine = S.experiments.filter(x => x.trigger && x.trigger.escalation === e.id);
-  const pane = (title, who, body) => `<div class="panel">
-      <div class="ph"><b>${esc(title)}</b>${who}</div>${body}</div>`;
-  const transcript = (label, text) => {
-    if (!text) return "";
-    const steps = parseStream(text);
-    return `<details class="dd" open>
-      <summary>${esc(label)}<span class="right m" style="color:var(--t5)">${
-        steps ? steps.length + " step(s)" : text.length + " chars"}</span></summary>
-      <div class="dbody">${steps ? renderSteps(steps)
-        : `<pre class="code">${esc(text.slice(-14000))}</pre>`}</div></details>`;
-  };
+  const tag = k => stages[k] ? `<span class="tag ${STATE_TAG[stages[k].state]}">${
+    esc(stages[k].detail || stages[k].state)}</span>` : "";
+
+  // One process may play BOTH roles (the project's own prompt template asks it
+  // to). Then there is no second stage to read, and the split has to come from
+  // the transcript itself: writing the verdict is the hand-off, so everything
+  // after it is the autoresearch half. Steps, not guesses.
+  const own = t.autoresearch ? parseStream(t.autoresearch) : null;
+  const first = parseStream(t.trigger || t.combined);
+  const cut = own ? -1 : verdictStep(first);
+  const triggerSteps = own || cut < 0 ? first : first.slice(0, cut + 1);
+  const researchSteps = own || (cut >= 0 ? first.slice(cut + 1) : null);
+  const liveKey = own ? "autoresearch" : "trigger";
+
+  const feed = (steps, key, note) => steps && steps.length
+    ? `<div class="feed-h"><span class="lbl">transcript</span>${tag(key)}
+         <span class="right m" style="color:var(--t5)">${steps.length} step(s)${note ? " · " + esc(note) : ""}</span></div>
+       <div class="feed">${renderSteps(steps.slice(-FEED_STEPS))}</div>`
+    : "";
 
   return `<button class="back" id="back-sys">← system</button>
     <div class="panel"><div class="ph"><b>${esc(e.id)}</b>
       <span class="note">${esc(ev.kind || "")}</span>
       <span class="right">${Object.keys(v).length
         ? `<span class="tag ${v.worth_autoresearch ? "green" : ""}">${v.worth_autoresearch ? "escalate" : "stand down"}</span>`
-        : '<span class="tag">pending</span>'}</span></div>
+        : '<span class="tag">pending</span>'}
+        ${ran.sandbox ? `<span class="tag blue">${esc(ran.sandbox)}</span>` : ""}</span></div>
       <div class="pb"><dl class="kv">
         ${Object.entries(ev).filter(([k]) => k !== "trace_ids").map(([k, val]) =>
           `<dt>${esc(k)}</dt><dd class="${typeof val === "object" ? "m" : ""}">${esc(typeof val === "object" ? JSON.stringify(val) : val)}</dd>`).join("")}
@@ -621,24 +676,27 @@ function viewEscalation() {
     </div>
 
     <div class="cols c2">
-      ${pane("Trigger agent", ran.agent === "trigger" && ran.sandbox
-          ? `<span class="tag blue">${esc(ran.sandbox)}</span>` : "",
-        Object.keys(v).length ? `<div class="pb"><dl class="kv">${
+      <div class="panel"><div class="ph"><b>Trigger agent</b>${own || cut >= 0 ? tag("trigger") : ""}</div>
+        ${Object.keys(v).length ? `<div class="pb"><dl class="kv">${
           Object.entries(v).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(
             typeof val === "object" ? JSON.stringify(val) : String(val))}</dd>`).join("")}</dl></div>`
-          : empty("no verdict written"))}
-      ${pane("Autoresearch agent", "", mine.length
-        ? expRows(mine, true)
-        : empty(v.worth_autoresearch ? "no experiment recorded yet" : "not triggered"))}
+          : empty("no verdict written")}
+        ${feed(triggerSteps, own ? "trigger" : null, cut >= 0 ? "up to the verdict" : "")}
+      </div>
+
+      <div class="panel"><div class="ph"><b>Autoresearch agent</b>${tag(liveKey === "autoresearch" ? "autoresearch" : "")}</div>
+        ${mine.length ? expRows(mine, true) : ""}
+        ${researchSteps && researchSteps.length
+          ? feed(researchSteps, liveKey, own ? "" : "same process, after the verdict")
+          : mine.length ? "" : empty(!v.worth_autoresearch ? "not triggered" : "not started yet")}
+      </div>
     </div>
 
-    ${t.trigger || t.autoresearch || t.combined ? `<div class="panel">
-      <div class="ph"><b>Transcript</b><span class="note">${esc(ran.sandbox || "host")}</span></div>
-      <div class="pb">
-        ${transcript("trigger-agent", t.trigger)}
-        ${transcript("autoresearch", t.autoresearch)}
-        ${transcript("combined — one process ran both roles", t.combined)}
-      </div></div>` : ""}`;
+    ${t.combined && cut < 0 ? `<div class="panel">
+      <div class="ph"><b>Transcript</b><span class="note">one process, no stage split</span></div>
+      <div class="pb"><div class="feed">${renderSteps(first ? first.slice(-FEED_STEPS)
+        : [{ kind: "system", label: "log", body: t.combined.slice(-14000) }])}</div></div>
+    </div>` : ""}`;
 }
 
 /* `compact` drops the hypothesis and the origin column — used where the panel
@@ -968,6 +1026,8 @@ function render() {
     : S.view === "escalation" ? viewEscalation()
     : (VIEWS.find(v => v.id === S.view) || VIEWS[0]).fn();
   if (S.view === "detail") { renderRollouts(); renderData(); }
+  // a live feed is only useful pinned to its newest step
+  document.querySelectorAll(".feed").forEach(f => { f.scrollTop = f.scrollHeight; });
 }
 
 async function loadRun() {
@@ -1056,8 +1116,9 @@ async function tick() {
     S.registry = registry; S.err = null;
   } catch (err) { S.err = String(err); }
   // A detail/trace view is a snapshot the user is reading — refresh the chrome
-  // around it, but do not yank the panel out from under them.
-  if (S.view === "detail" || S.view === "trace" || S.view === "escalation") renderChrome();
+  // around it, but do not yank the panel out from under them. An escalation is
+  // the opposite: its agents are working right now, so it re-renders.
+  if (S.view === "detail" || S.view === "trace") renderChrome();
   else render();
 }
 tick(); setInterval(tick, 4000);

@@ -174,11 +174,43 @@ def _streaming(argv: list[str]) -> list[str]:
     return [*argv, *STREAMING_ARGS]
 
 
+SYNC_EVERY_S = 30.0
+"""How often results are pulled out of a sandbox WHILE the agent is working."""
+
+
+def _live_sync(sbx: Any, cwd: Path, baseline: dict[str, str],
+               stop: threading.Event) -> None:
+    """Bring an agent's output home continuously, instead of only at the end.
+
+    A one-shot sync at teardown means a 40-minute run shows nothing at all
+    until it finishes — the verdict it wrote in minute six, the experiment it
+    launched in minute ten, all invisible while you wait. This walks the same
+    result dirs on a timer, so `evsys ui` fills in as the work happens.
+
+    Everything it lands is folded into ``baseline`` so the next pass only
+    carries what changed, and any failure is logged rather than raised: a
+    sync problem must never take down the agent it is watching.
+    """
+    while not stop.wait(SYNC_EVERY_S):
+        try:
+            landed = _collect_experiments(sbx, cwd, baseline) + _collect_new_files(sbx, cwd, baseline)
+        except Exception as e:
+            log.warning("[remote] live sync pass failed: %s", e)
+            continue
+        for rel in landed:
+            try:
+                baseline[rel] = (cwd / rel).read_text()
+            except OSError:
+                pass
+
+
 def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str],
-                   remote_cfg: Any, log_file: Path, stage: str) -> tuple[int, str]:
+                   remote_cfg: Any, log_file: Path, stage: str,
+                   cwd: Path | None = None) -> tuple[int, str]:
     """Stage the snapshot, provision, then run one agent — provider-agnostic:
     ``stage`` / ``setup`` come from :class:`BaseSandbox`, and only ``exec`` is
-    the provider's own."""
+    the provider's own. With ``cwd``, results are also synced home on a timer
+    while the agent runs."""
     sbx.stage(manifest)
     try:
         sbx.setup(remote_cfg.setup_cmd, required=True, label="setup_cmd")
@@ -201,6 +233,12 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
                   on_line=_on_line, label="sdk_install")
         # `< /dev/null`: a headless claude waits ~3s for stdin it will never
         # get in a sandbox, then warns. Close it explicitly.
+        stop = threading.Event()
+        syncer = None
+        if cwd is not None:
+            syncer = threading.Thread(target=_live_sync, name="evsys-live-sync",
+                                      args=(sbx, cwd, dict(manifest), stop), daemon=True)
+            syncer.start()
         try:
             code, out = sbx.exec(shlex.join(_streaming(prompt_argv)) + " < /dev/null",
                                  timeout_s=remote_cfg.timeout_s,
@@ -211,6 +249,10 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
             # and there is nothing anywhere that says why.
             f.write(f"===== remote {stage}: FAILED: {type(e).__name__}: {e} =====\n")
             raise
+        finally:
+            stop.set()
+            if syncer is not None:
+                syncer.join(timeout=SYNC_EVERY_S)
         f.write(f"===== remote {stage}: exit {code} =====\n")
     return code, out
 
@@ -336,7 +378,8 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
             verdict_path=f"{sbx_root}/verdicts/{escalation_path.stem}.json",
         )
         code, _ = _stage_and_run(sbx, manifest=manifest, prompt_argv=argv,
-                                 remote_cfg=remote_cfg, log_file=log_file, stage="trigger-agent")
+                                 remote_cfg=remote_cfg, log_file=log_file,
+                                 stage="trigger-agent", cwd=cwd)
         result["stage1_exit"] = code
         pair_map: dict[str, Path] = {
             f".evsys/triggers/verdicts/{escalation_path.stem}.json": verdict_path,
@@ -383,7 +426,7 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
         try:
             code2, _ = _stage_and_run(sbx2, manifest=manifest2, prompt_argv=argv2,
                                       remote_cfg=remote_cfg, log_file=log_file,
-                                      stage="autoresearch")
+                                      stage="autoresearch", cwd=cwd)
             result["stage2_exit"] = code2
             art_pairs = [(rel, cwd / rel) for rel in manifest2
                          if not rel.startswith(".evsys/") and not rel.startswith("skills/")]
