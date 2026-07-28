@@ -86,6 +86,7 @@ _trace_sources = Registry("trace_source")
 _triggers = Registry("trigger")
 _sandboxes = Registry("sandbox")
 _context_sources = Registry("context_source")
+_computes = Registry("compute")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -140,6 +141,11 @@ def register_sandbox(name: str | None = None):
     return _sandboxes.register(name)
 def register_context_source(name: str | None = None):
     return _context_sources.register(name)
+
+
+def register_compute(name: str | None = None):
+    """A place to run a training service — SkyPilot, or your own launcher."""
+    return _computes.register(name)
 
 
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -198,6 +204,8 @@ def get_sandbox(name: str) -> type:
     return _sandboxes.get(name)
 def get_context_source(name: str) -> type:
     return _context_sources.get(name)
+def get_compute(name: str) -> type:
+    return _computes.get(name)
 
 
 def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
@@ -250,6 +258,8 @@ def list_sandboxes() -> list[str]:
     return _sandboxes.list()
 def list_context_sources() -> list[str]:
     return _context_sources.list()
+def list_computes() -> list[str]:
+    return _computes.list()
 
 
 # Internal helpers used by yaml_loader / runner
@@ -267,6 +277,7 @@ def _all_registries() -> dict[str, Registry]:
         "trigger": _triggers,
         "sandbox": _sandboxes,
         "context_source": _context_sources,
+        "compute": _computes,
     }
 
 

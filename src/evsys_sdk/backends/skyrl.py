@@ -52,7 +52,12 @@ class SkyRLBackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_url: str = "http://localhost:8000"
-    """Where the SkyRL Tinker server is listening."""
+    """Where the SkyRL Tinker server is listening. Ignored when ``compute`` is
+    set — that brings a server up and reports its own URL."""
+    compute: dict[str, Any] | None = None
+    """``{kind, params}`` for a compute target that provisions the server, e.g.
+    ``{kind: skypilot, params: {infra: aws, accelerators: "L4:1"}}``. Omit it
+    and you are pointing at a server you started yourself."""
     api_key_env: str = "TINKER_API_KEY"
     """Env var read for the key. SkyRL ignores its value."""
     api_key_default: str = "tml-dummy"
@@ -73,11 +78,14 @@ class SkyRLBackend:
     Config: ClassVar[type] = SkyRLBackendConfig
 
     def __init__(self, *, base_url: str = "http://localhost:8000",
+                 compute: dict[str, Any] | None = None,
                  api_key_env: str = "TINKER_API_KEY",
                  api_key_default: str = "tml-dummy",
                  health_check: bool = True,
                  health_timeout_s: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/")
+        self.compute_spec = compute
+        self._compute: Any = None
         self.api_key_env = api_key_env
         self.api_key_default = api_key_default
         self.health_check = health_check
@@ -98,6 +106,18 @@ class SkyRLBackend:
             ) from e
 
     def prepare(self, *, model: dict[str, Any], run_dir: str) -> dict[str, Any]:
+        # A compute target provisions the server and tells us where it landed;
+        # without one we are pointing at a server the user already runs.
+        if self.compute_spec:
+            from ..compute import build_compute
+
+            spec = dict(self.compute_spec)
+            params = dict(spec.get("params") or {})
+            params.setdefault("model", model["name"])   # one source of truth
+            spec["params"] = params
+            self._compute = build_compute(spec)
+            self.base_url = self._compute.up().rstrip("/")
+
         # The client reads TINKER_BASE_URL whenever it is constructed without
         # arguments, which is how every client in this SDK (and in harbor) is
         # built. Setting it here redirects the whole run in one place.
@@ -120,7 +140,10 @@ class SkyRLBackend:
         }
 
     def teardown(self, handles: dict[str, Any]) -> None:
-        return None
+        # Release provisioned compute — a leaked GPU cluster bills by the hour.
+        if self._compute is not None:
+            self._compute.down()
+            self._compute = None
 
 
 __all__ = ["SkyRLBackend", "SkyRLBackendConfig"]
