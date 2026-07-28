@@ -227,9 +227,12 @@ class TinkerBackend:
     ) -> TinkerSamplingClient:
         label = name or self._next_snapshot_label()
         sampler_path = await self.save_for_sampler(label)
-        raw = self._service.create_sampling_client(
-            base_model=self._model_name, model_path=sampler_path,
-        )
+        # Exactly one of base_model / model_path. The hosted service tolerates
+        # both, but the protocol says one — SkyRL rejects the pair with a 400,
+        # which would fail every RL run against your own hardware.
+        raw = (self._service.create_sampling_client(model_path=sampler_path)
+               if sampler_path
+               else self._service.create_sampling_client(base_model=self._model_name))
         client = TinkerSamplingClient(raw, name=label)
         client.model_path = sampler_path  # harbor-backed evaluators re-sample from this
         return client

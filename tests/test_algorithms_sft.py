@@ -145,7 +145,7 @@ def test_train_rejects_non_tinker_backend(ctx):
         name = "mock"
     ctx.backend = _MockBackend()
     algo = SFT(max_steps=2, batch_size=4)
-    with pytest.raises(RuntimeError, match="backend=tinker"):
+    with pytest.raises(RuntimeError, match="tinker.*protocol"):
         algo.train(ctx)
 
 

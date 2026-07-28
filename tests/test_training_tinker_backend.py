@@ -242,8 +242,11 @@ def test_snapshot_sampling_client_builds_wrapped_client(patched_tinker):
     assert sc.name == "eval_50"
     # the underlying create_sampling_client should be called with the URI
     # we just minted via save_weights_for_sampler.
+    # EXACTLY ONE of base_model / model_path. The hosted service tolerates the
+    # pair; the protocol does not, and SkyRL rejects it with a 400 — which would
+    # fail every RL run against your own hardware.
     assert patched_tinker.sampling_calls == [{
-        "base_model": "Qwen/Qwen3-4B",
+        "base_model": None,
         "model_path": "tinker://sampler/eval_50",
     }]
 
