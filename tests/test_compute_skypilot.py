@@ -31,14 +31,25 @@ class _FakeSky:
         self._calls = 0
         self._endpoint_after = endpoint_after
         self.Resources = lambda **kw: ("resources", kw)
+        self.jobs = _FakeSky._Jobs()
         self.Task = _FakeTask
 
     def launch(self, task, **kw):
         self.launched.append({"task": task, **kw})
         return "req-launch"
 
+    class _Jobs:
+        def __init__(self): self.launched = []
+        def launch(self, task, **kw):
+            self.launched.append({"task": task, **kw})
+            return "req-job"
+
     def stream_and_get(self, rid):
         return rid
+
+    def reset_endpoint(self):
+        """Simulate the instance vanishing: the port stops answering."""
+        self._calls = 0
 
     def endpoints(self, cluster, port=None):
         return ("endpoints", cluster, port)
@@ -123,7 +134,8 @@ class TestUp:
         sky = _FakeSky()
         c = _compute(monkeypatch, sky)
         c.up()
-        _, kw = sky.launched[0]["task"].resources
+        # Resources is now an ordered candidate LIST, even for a single ask.
+        (_, kw), = sky.launched[0]["task"].resources
         assert kw["ports"] == [SERVER_PORT]
 
     def test_the_extra_follows_the_backend_not_the_gpu(self, monkeypatch):
@@ -317,7 +329,7 @@ class TestAgainstTheRealSkyPilotApi:
         src = inspect_source(mod.SkyPilotCompute.up)
         passed = set(re.findall(r"^\s*(\w+)=", src, re.M))
         assert passed <= {"cluster_name", "idle_minutes_to_autostop", "down", "fast",
-                          "retry_until_up"}
+                          "retry_until_up", "name"}
 
 
 def inspect_source(fn):
@@ -458,3 +470,182 @@ class TestRetryUntilUp:
         c = _compute(monkeypatch, sky, retry_until_up=True)
         c.up()
         assert sky.launched[0]["retry_until_up"] is True
+
+
+class TestSurvivingPreemption:
+    """A spot A100 was reclaimed mid-benchmark with no notice, taking its
+    local checkpoints and SQLite metadata with it. These pin the parts that
+    would have made that survivable — and the warning that would have said so
+    beforehand."""
+
+    def test_durable_paths_reach_the_server(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky,
+                     checkpoints_path="s3://bucket/ckpt",
+                     database_url="postgresql://h/db")
+        run = c._task(sky).run
+        assert "--checkpoints-base s3://bucket/ckpt" in run
+        assert "--database-url postgresql://h/db" in run
+
+    def test_nothing_is_passed_when_unset(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        run = _compute(monkeypatch, sky)._task(sky).run
+        assert "--checkpoints-base" not in run and "--database-url" not in run
+
+    @staticmethod
+    def _warnings(monkeypatch):
+        """Watch the module logger directly — the SDK logger stops propagating
+        to root once configured, so caplog silently sees nothing."""
+        seen: list[str] = []
+        monkeypatch.setattr(
+            "evsys_sdk.compute.skypilot.log.warning",
+            lambda msg, *a, **k: seen.append(str(msg) % a if a else str(msg)))
+        return seen
+
+    def test_spot_without_durable_state_warns(self, monkeypatch):
+        seen = self._warnings(monkeypatch)
+        c = _compute(monkeypatch, _FakeSky(endpoint_after=1), use_spot=True,
+                     price_check=False)
+        c.up()
+        assert any("loses the entire run" in m for m in seen), seen
+
+    def test_no_warning_when_state_is_durable(self, monkeypatch):
+        seen = self._warnings(monkeypatch)
+        c = _compute(monkeypatch, _FakeSky(endpoint_after=1), use_spot=True,
+                     price_check=False, checkpoints_path="s3://b/c",
+                     database_url="postgresql://h/db")
+        c.up()
+        assert not any("loses the entire run" in m for m in seen), seen
+
+    def test_on_demand_is_not_nagged(self, monkeypatch):
+        seen = self._warnings(monkeypatch)
+        c = _compute(monkeypatch, _FakeSky(endpoint_after=1), use_spot=False,
+                     price_check=False)
+        c.up()
+        assert not any("loses the entire run" in m for m in seen), seen
+
+    def test_healthy_is_false_once_the_instance_is_gone(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky)
+        c.up()
+        assert c.healthy() is True
+        monkeypatch.setattr(SkyPilotCompute, "_answers", staticmethod(lambda u, timeout=10: False))
+        assert c.healthy() is False
+
+    def test_recover_relaunches(self, monkeypatch):
+        """sky.launch builds an UNMANAGED cluster — SkyPilot does not bring it
+        back by itself, so recovery has to relaunch."""
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky)
+        c.up()
+        assert len(sky.launched) == 1
+        sky.reset_endpoint()
+        assert c.recover()
+        assert len(sky.launched) == 2
+
+
+class TestFallbackAcrossGpusAndProviders:
+    """One provider and one GPU is a single point of failure. The spot SKU we
+    benchmarked on stopped existing mid-run — not "got expensive", ceased to
+    be offered. Anything that fits the model will do."""
+
+    @staticmethod
+    def _priced(monkeypatch, prices, out_of_stock=()):
+        """Stub live pricing: {(infra, accel): $/hr}; anything in
+        `out_of_stock` is reported by the provider as unavailable; the rest
+        is 'could not ask'."""
+        def fake(self, i, a):
+            if (i, a) in prices:
+                return SkyPilotCompute._IN_STOCK, prices[(i, a)]
+            if (i, a) in out_of_stock:
+                return SkyPilotCompute._OUT_OF_STOCK, None
+            return SkyPilotCompute._UNKNOWN, None
+        monkeypatch.setattr(SkyPilotCompute, "_live_price", fake)
+
+    def test_a_single_ask_still_produces_one_candidate(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), infra="aws", accelerators="H100:1")
+        assert c._ordered_candidates() == [("aws", "H100:1")]
+
+    def test_candidates_are_the_cross_product(self, monkeypatch):
+        self._priced(monkeypatch, {})
+        c = _compute(monkeypatch, _FakeSky(), infra=["a", "b"],
+                     accelerators=["H100:1", "H200:1"])
+        assert set(c._ordered_candidates()) == {
+            ("a", "H100:1"), ("a", "H200:1"), ("b", "H100:1"), ("b", "H200:1")}
+
+    def test_cheapest_live_price_wins_not_catalog_order(self, monkeypatch):
+        """Declared order is H100 then H200; live prices invert it."""
+        self._priced(monkeypatch, {("p", "H100:1"): 3.25, ("p", "H200:1"): 0.94})
+        c = _compute(monkeypatch, _FakeSky(), infra="p",
+                     accelerators=["H100:1", "H200:1"])
+        assert c._ordered_candidates() == [("p", "H200:1"), ("p", "H100:1")]
+
+    def test_unpriced_candidates_go_after_priced_in_declared_order(self, monkeypatch):
+        """Unknown is not unavailable — we would rather try than refuse."""
+        self._priced(monkeypatch, {("p", "H200:1"): 4.0})
+        c = _compute(monkeypatch, _FakeSky(), infra="p",
+                     accelerators=["A:1", "H200:1", "B:1"])
+        assert c._ordered_candidates() == [("p", "H200:1"), ("p", "A:1"), ("p", "B:1")]
+
+    def test_known_out_of_stock_ranks_below_merely_unknown(self, monkeypatch):
+        """"The provider says there is none" is worse news than "we could not
+        ask" — today it was the difference between a wasted launch and a real
+        one, and SkyPilot reports both as ResourcesUnavailableError."""
+        self._priced(monkeypatch, {("p", "C:1"): 1.0},
+                     out_of_stock={("p", "A:1")})
+        c = _compute(monkeypatch, _FakeSky(), infra="p",
+                     accelerators=["A:1", "B:1", "C:1"])
+        assert c._ordered_candidates() == [("p", "C:1"), ("p", "B:1"), ("p", "A:1")]
+
+    def test_resources_is_a_list_so_skypilot_treats_it_as_ordered(self, monkeypatch):
+        """A list is `ordered`; a set is `any_of` and lets the optimizer
+        re-sort by catalog price — the price we know to be wrong."""
+        self._priced(monkeypatch, {})
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, infra="p", accelerators=["H100:1", "H200:1"])
+        c.up()
+        res = sky.launched[0]["task"].resources
+        assert isinstance(res, list)
+        assert [kw["accelerators"] for _, kw in res] == ["H100:1", "H200:1"]
+
+    def test_price_ceiling_reaches_every_candidate(self, monkeypatch):
+        """Without it a fallback chain can quietly escalate to a costly box."""
+        self._priced(monkeypatch, {})
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, infra="p", accelerators=["H100:1", "H200:1"],
+                     max_hourly_cost=2.5)
+        c.up()
+        assert all(kw["max_hourly_cost"] == 2.5
+                   for _, kw in sky.launched[0]["task"].resources)
+
+
+class TestManagedJobs:
+    def test_managed_uses_the_jobs_api(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, managed=True, price_check=False)
+        c.up()
+        assert sky.jobs.launched and not sky.launched
+
+    def test_unmanaged_uses_plain_launch(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, managed=False, price_check=False)
+        c.up()
+        assert sky.launched and not sky.jobs.launched
+
+    def test_recovery_strategy_reaches_resources(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, managed=True, price_check=False,
+                     job_recovery="EAGER_NEXT_REGION")
+        c.up()
+        (_, kw), = sky.jobs.launched[0]["task"].resources
+        assert kw["job_recovery"] == "EAGER_NEXT_REGION"
+
+    def test_recovery_strategy_is_not_sent_to_unmanaged_clusters(self, monkeypatch):
+        """job_recovery is a managed-job concept; an unmanaged cluster has no
+        controller to act on it."""
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, managed=False, price_check=False,
+                     job_recovery="FAILOVER")
+        c.up()
+        (_, kw), = sky.launched[0]["task"].resources
+        assert "job_recovery" not in kw

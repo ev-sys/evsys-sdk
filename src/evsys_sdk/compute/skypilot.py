@@ -52,6 +52,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..logger import get_logger
 from ..registry import register_compute
 from .base import BaseCompute, ComputeError
+from .pricing import PricingUnavailable, cheapest_available, live_offers
 
 log = get_logger(__name__)
 
@@ -73,7 +74,7 @@ export PATH="$HOME/.local/bin:$PATH"
 cd ~/skyrl
 uv run --extra tinker --extra {extra} python -m skyrl.tinker.api \\
     --host 0.0.0.0 --port {port} \\
-    --base-model {model} --backend {server_backend}{backend_config}
+    --base-model {model} --backend {server_backend}{backend_config}{durable}
 """
 
 #: SkyRL's uv extra per execution backend. `megatron` is the only backend that
@@ -86,12 +87,33 @@ class SkyPilotComputeConfig(BaseModel):
 
     model: str
     """Base model the SkyRL server loads. Must match the run's model."""
-    infra: str | None = None
+    infra: str | list[str] | None = None
     """Where to provision: ``aws``, ``gcp``, ``k8s``, ``runpod``, … None lets
-    SkyPilot pick the cheapest option you have credentials for."""
-    accelerators: str | None = "L4:1"
+    SkyPilot pick the cheapest option you have credentials for.
+
+    **A list is a fallback chain.** Spot capacity is not a price, it is a
+    queue — the SKU we benchmarked on simply ceased to exist mid-run. One
+    provider is a single point of failure; several are a supply."""
+    accelerators: str | list[str] | None = "L4:1"
     """GPU request, SkyPilot syntax (``"A100:1"``). None for a CPU cluster —
-    which works, with the JAX backend, for small models and smoke tests."""
+    which works, with the JAX backend, for small models and smoke tests.
+
+    **A list is a fallback chain**, e.g. ``["H100:1", "H200:1", "A100-80GB:1"]``.
+    Anything that fits the model will do when the cheap one is gone; refusing
+    to substitute just means not running."""
+    max_hourly_cost: float | None = Field(default=None, gt=0)
+    """Hard ceiling on $/hr. SkyPilot rejects any candidate above it, so a
+    fallback chain cannot quietly escalate to an expensive machine."""
+    managed: bool = False
+    """Launch as a **managed job**, which SkyPilot relaunches on preemption.
+
+    A plain ``sky.launch`` cluster is never resurrected — that is why
+    ``recover()`` exists. Managed jobs restart the command *from scratch*,
+    so this only preserves progress if state is durable (see
+    ``checkpoints_path`` and ``database_url``)."""
+    job_recovery: str | None = None
+    """Managed-job recovery strategy: ``EAGER_NEXT_REGION`` (default; move on
+    immediately) or ``FAILOVER`` (keep retrying the same region first)."""
     cpus: str | None = None
     memory: str | None = None
     use_spot: bool = False
@@ -120,6 +142,25 @@ class SkyPilotComputeConfig(BaseModel):
     remote_identity: str = "NO_UPLOAD"
     """Whether SkyPilot uploads your cloud credentials to the VM. Do not relax
     this without knowing that agent-authored code runs there."""
+    checkpoints_path: str | None = None
+    """Where the server writes checkpoints. **Point this off the machine**
+    (``s3://…``, ``gs://…``) for anything running on spot.
+
+    The default is a local directory, which is fine until the instance goes
+    away — and a spot instance goes away by definition. Preemption then costs
+    the whole run, not the last few minutes."""
+    database_url: str | None = None
+    """Server metadata store. Defaults to SQLite *on the instance*.
+
+    Durable checkpoints alone do not survive preemption: this database maps
+    model ids to those checkpoints, so losing it turns them into unreadable
+    orphans. Resume needs both off the box — e.g. ``postgresql://…``."""
+    price_check: bool = True
+    """Ask the provider for real prices and stock before provisioning.
+
+    SkyPilot plans from a pre-generated catalog, which is stale on both price
+    and existence. Off only if the provider has no probe and the log noise
+    bothers you — it never blocks a launch on its own."""
     retry_until_up: bool = False
     """Keep retrying provisioning instead of failing when capacity is gone.
 
@@ -178,21 +219,39 @@ class SkyPilotCompute(BaseCompute):
         if self.cfg.backend_config:
             cfg_arg = " \\\n    --backend-config " + shlex.quote(
                 json.dumps(self.cfg.backend_config))
+        durable = ""
+        if self.cfg.checkpoints_path:
+            durable += " \\\n    --checkpoints-base " + shlex.quote(self.cfg.checkpoints_path)
+        if self.cfg.database_url:
+            durable += " \\\n    --database-url " + shlex.quote(self.cfg.database_url)
         task = sky.Task(
             name=self.cfg.cluster_name,
             setup=SETUP.format(repo=SKYRL_REPO, extra=extra),
             run=RUN.format(extra=extra, model=self.cfg.model,
                            server_backend=self.cfg.server_backend,
-                           port=SERVER_PORT, backend_config=cfg_arg),
+                           port=SERVER_PORT, backend_config=cfg_arg,
+                           durable=durable),
         )
-        task.set_resources(sky.Resources(
-            infra=self.cfg.infra,
-            accelerators=self.cfg.accelerators,
-            cpus=self.cfg.cpus,
-            memory=self.cfg.memory,
-            use_spot=self.cfg.use_spot,
-            ports=[SERVER_PORT],
-        ))
+        # A LIST is `ordered` (try in sequence); a set would be `any_of` and
+        # let the optimizer reorder by catalog price — which is the price we
+        # already know to be wrong. We order it ourselves, from live data.
+        extras: dict[str, Any] = {}
+        if self.cfg.max_hourly_cost:
+            extras["max_hourly_cost"] = self.cfg.max_hourly_cost
+        if self.cfg.managed and self.cfg.job_recovery:
+            extras["job_recovery"] = self.cfg.job_recovery
+        task.set_resources([
+            sky.Resources(
+                infra=infra,
+                accelerators=accel,
+                cpus=self.cfg.cpus,
+                memory=self.cfg.memory,
+                use_spot=self.cfg.use_spot,
+                ports=[SERVER_PORT],
+                **extras,
+            )
+            for infra, accel in self._ordered_candidates()
+        ])
         return task
 
     #: Clouds whose credential upload `remote_identity` controls. SkyPilot
@@ -255,6 +314,144 @@ class SkyPilotCompute(BaseCompute):
             else "MISSING (max_lifetime_s=None)")
         return {"idle_minutes_to_autostop": None, "down": False}
 
+    def _warn_if_preemption_would_lose_everything(self) -> None:
+        """Spot without durable state is a run you will lose, not a discount.
+
+        Worth saying out loud at launch: preemption gives no notice, and the
+        loss is silent — the instance is simply gone, along with every
+        checkpoint and the database that indexed them.
+        """
+        if not self.cfg.use_spot:
+            return
+        missing = [n for n, v in (("checkpoints_path", self.cfg.checkpoints_path),
+                                  ("database_url", self.cfg.database_url)) if not v]
+        if missing:
+            log.warning(
+                "[skypilot] spot instance with no durable %s — a preemption "
+                "loses the entire run, with no warning and nothing to resume "
+                "from. Point these at storage that outlives the machine "
+                "(s3://…, postgresql://…) before running anything long.",
+                " or ".join(missing))
+
+    def recover(self) -> str:
+        """Bring the service back after the instance went away.
+
+        Spot capacity is reclaimed without notice — that is the deal — so a
+        long run needs an answer for "the box vanished". ``sky.launch`` builds
+        an *unmanaged* cluster, which SkyPilot does not resurrect on its own,
+        so recovery is ours to drive: forget the dead endpoint and launch
+        again. Whether anything is actually resumed depends on the state
+        having been durable; this restores the *service*, not your progress.
+        """
+        log.warning("[skypilot] recovering %s — relaunching after the instance "
+                    "went away", self.cfg.cluster_name)
+        self._url = None
+        return self.up()
+
+    def healthy(self) -> bool:
+        """Is the service still answering? False after a preemption."""
+        return bool(self._url) and self._answers(self._url, timeout=10.0)
+
+    @staticmethod
+    def _parse_accel(accel: str | None) -> tuple[str, int] | None:
+        """``"A100-80GB:1"`` → ``("A100-80GB", 1)``. None for a CPU cluster."""
+        if not accel:
+            return None
+        name, _, count = str(accel).partition(":")
+        try:
+            return name, int(count or 1)
+        except ValueError:
+            return name, 1
+
+    @staticmethod
+    def _as_list(v: Any) -> list:
+        return list(v) if isinstance(v, list) else [v]
+
+    def _gpu_request(self) -> tuple[str, int] | None:
+        return self._parse_accel(self._as_list(self.cfg.accelerators)[0])
+
+    #: Ranking of what the provider told us. Lower tries first.
+    _IN_STOCK, _UNKNOWN, _OUT_OF_STOCK = 0, 1, 2
+
+    def _live_price(self, infra: str | None,
+                    accel: str | None) -> tuple[int, float | None]:
+        """``(status, $/hr)`` for one combination, right now.
+
+        Three outcomes, and conflating them is how today went wrong: a real
+        price, "we could not ask", and "the provider says there is none". The
+        last is the one SkyPilot reports identically to an unpayable wallet
+        and an unsupported feature.
+        """
+        req = self._parse_accel(accel)
+        if not (infra and req):
+            return self._UNKNOWN, None
+        try:
+            best = cheapest_available(infra, req[0], req[1], spot=self.cfg.use_spot)
+        except PricingUnavailable:
+            return self._UNKNOWN, None
+        return (self._IN_STOCK, best.usd_hr) if best else (self._OUT_OF_STOCK, None)
+
+    def _ordered_candidates(self) -> list[tuple[str | None, str | None]]:
+        """Every (infra, accelerator) pair, cheapest **live** price first.
+
+        Ordering by the catalog would be ordering by fiction — it had our H100
+        at $1.97 when it cost $3.25. Combinations the provider says are out of
+        stock, or that we cannot price, keep their declared order and go last:
+        unknown is not the same as unavailable, and we would rather try than
+        refuse.
+        """
+        combos = [(i, a) for i in self._as_list(self.cfg.infra)
+                  for a in self._as_list(self.cfg.accelerators)]
+        if len(combos) == 1:
+            return combos
+        ranked = []
+        for n, (infra, accel) in enumerate(combos):
+            status, price = self._live_price(infra, accel)
+            # Ties keep declared order; price only separates in-stock offers.
+            ranked.append((status, price if price is not None else 0.0, n,
+                           infra, accel))
+        ranked.sort(key=lambda t: (t[0], t[1], t[2]))
+        note = {self._IN_STOCK: "in stock", self._UNKNOWN: "no live price, trying anyway",
+                self._OUT_OF_STOCK: "provider reports NONE in stock — trying last"}
+        for status, price, _, infra, accel in ranked:
+            log.info("[skypilot] candidate %s on %s — %s%s", accel, infra,
+                     f"${price:.4f}/hr " if status == self._IN_STOCK else "",
+                     note[status])
+        return [(i, a) for _, _, _, i, a in ranked]
+
+    def _price_check(self) -> None:
+        """Log what this will really cost, and say so plainly if it cannot run.
+
+        Advisory by design. A probe that cannot answer, or a provider with no
+        probe, must not stop a launch — but when the provider does answer
+        "nothing in stock", saying that beats letting SkyPilot report it as the
+        same ResourcesUnavailableError it uses for an unpayable wallet.
+        """
+        req = self._gpu_request()
+        infra = self._as_list(self.cfg.infra)[0]
+        if not (self.cfg.price_check and infra and req):
+            return
+        gpu, count = req
+        try:
+            offers = live_offers(infra, gpu, count, spot=self.cfg.use_spot)
+        except PricingUnavailable as e:
+            log.info("[skypilot] live pricing unavailable (%s) — using the catalog", e)
+            return
+        if not offers:
+            return
+        region = infra.partition("/")[2]
+        here = [o for o in offers if not region or o.region.startswith(region)]
+        stocked = [o for o in (here or offers) if o.available]
+        if not stocked:
+            log.warning("[skypilot] the provider reports NO %s x%d in stock%s. "
+                        "Nearest offers: %s", gpu, count,
+                        f" in {region}" if region else "",
+                        "; ".join(o.describe() for o in offers[:3]) or "none at all")
+            return
+        best = stocked[0]
+        log.info("[skypilot] live price: %s (catalog prices are pre-generated "
+                 "and routinely stale)", best.describe())
+
     def _endpoint(self, sky: Any) -> str | None:
         try:
             got = sky.get(sky.endpoints(self.cfg.cluster_name, SERVER_PORT))
@@ -292,18 +489,29 @@ class SkyPilotCompute(BaseCompute):
             self._url = url
             return url
 
+        self._price_check()
+        self._warn_if_preemption_would_lose_everything()
         log.info("[skypilot] launching %s (infra=%s accel=%s model=%s creds=%s)",
                  self.cfg.cluster_name, self.cfg.infra or "auto",
                  self.cfg.accelerators or "cpu", self.cfg.model,
                  self.cfg.remote_identity)
         with self._config_overrides(sky):
-            request_id = sky.launch(
-                self._task(sky),
-                cluster_name=self.cfg.cluster_name,
-                fast=True,           # skip provisioning when it is already up
-                retry_until_up=self.cfg.retry_until_up,
-                **self._reclaim_kwargs(),
-            )
+            if self.cfg.managed:
+                # Managed jobs own their own cluster lifecycle: a controller
+                # watches the job (polling every ~15s — SkyPilot consumes no
+                # provider interruption notice) and relaunches elsewhere when
+                # the instance disappears. The autostop/down knobs belong to
+                # unmanaged clusters and are not accepted here.
+                request_id = sky.jobs.launch(self._task(sky),
+                                             name=self.cfg.cluster_name)
+            else:
+                request_id = sky.launch(
+                    self._task(sky),
+                    cluster_name=self.cfg.cluster_name,
+                    fast=True,       # skip provisioning when it is already up
+                    retry_until_up=self.cfg.retry_until_up,
+                    **self._reclaim_kwargs(),
+                )
         # The launch request resolves at job SUBMISSION, returning
         # (job_id, handle) — it does not wait for the run command, which is the
         # server and never exits. `get` rather than `stream_and_get` so we do
