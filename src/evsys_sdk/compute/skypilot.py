@@ -40,6 +40,8 @@ actually selects this target.
 
 from __future__ import annotations
 
+import json
+import shlex
 import time
 import urllib.error
 import urllib.request
@@ -70,8 +72,13 @@ RUN = """\
 export PATH="$HOME/.local/bin:$PATH"
 cd ~/skyrl
 uv run --extra tinker --extra {extra} python -m skyrl.tinker.api \\
-    --base-model {model} --backend {server_backend} --port {port}
+    --host 0.0.0.0 --port {port} \\
+    --base-model {model} --backend {server_backend}{backend_config}
 """
+
+#: SkyRL's uv extra per execution backend. `megatron` is the only backend that
+#: supports multiple LoRA tenants on one server; `jax` runs on CPU.
+BACKEND_EXTRA = {"megatron": "megatron", "fsdp": "fsdp", "jax": "jax"}
 
 
 class SkyPilotComputeConfig(BaseModel):
@@ -91,7 +98,19 @@ class SkyPilotComputeConfig(BaseModel):
     """Spot instances are far cheaper and can be preempted mid-run."""
     server_backend: str = "jax"
     """SkyRL execution backend: ``jax`` (single process, CPU or GPU), ``fsdp``
-    or ``megatron``. ``fsdp`` needs a second GPU for RL sampling."""
+    or ``megatron``. ``fsdp`` needs a second GPU for RL sampling.
+
+    **Multi-tenant LoRA exists only on ``megatron``** — several adapters share
+    one resident base model, which is the whole reason to host a server rather
+    than train one adapter per GPU."""
+    backend_config: dict[str, Any] | None = None
+    """Passed through to the server as ``--backend-config <json>``.
+
+    Multi-tenant LoRA needs, at minimum, ``merge_lora: false`` (so vLLM serves
+    each adapter by name instead of a merged base), plus ``max_loras`` and
+    ``max_cpu_loras`` sized to the PEAK number of concurrent tenants — there is
+    no on-demand reload, and an evicted adapter makes the next ``sample()``
+    404."""
     cluster_name: str = "evsys-skyrl"
     """Reused across runs: an existing cluster is detected and not relaunched."""
     idle_minutes_to_autostop: int = Field(default=30, ge=1)
@@ -106,6 +125,14 @@ class SkyPilotComputeConfig(BaseModel):
     teardown: bool = True
     """``down()`` terminates the cluster. False leaves it up for reuse (it
     still autostops), which is what you want while iterating."""
+    max_lifetime_s: float | None = Field(default=6 * 3600, gt=0)
+    """Hard deadline after which the cluster is torn down no matter what.
+
+    Not the same as ``idle_minutes_to_autostop``: several providers (notably
+    PrimeIntellect) support **no** autostop, autodown or stop at all, so a
+    cluster there bills until something explicitly terminates it. A crashed or
+    hung host would otherwise leak a GPU indefinitely. Set None only on a
+    provider whose own autostop you have verified."""
 
 
 @register_compute("skypilot")
@@ -118,6 +145,8 @@ class SkyPilotCompute(BaseCompute):
     def __init__(self, **params: Any) -> None:
         super().__init__(**params)
         self._url: str | None = None
+        self._timer: Any = None
+        self._armed = False
 
     # -- provider plumbing --------------------------------------------------
 
@@ -132,12 +161,24 @@ class SkyPilotCompute(BaseCompute):
         return sky
 
     def _task(self, sky: Any) -> Any:
-        extra = "gpu" if self.cfg.accelerators else "jax"
+        # The extra follows the BACKEND, not the presence of a GPU: multi-tenant
+        # LoRA only exists on megatron, and asking for `gpu` there installs the
+        # wrong stack.
+        extra = BACKEND_EXTRA.get(self.cfg.server_backend,
+                                  "gpu" if self.cfg.accelerators else "jax")
+        # `backend_config` was declared but never reached the command line, so
+        # every multi-tenant knob (merge_lora, max_loras, max_cpu_loras) was
+        # silently dropped and the server came up single-tenant.
+        cfg_arg = ""
+        if self.cfg.backend_config:
+            cfg_arg = " \\\n    --backend-config " + shlex.quote(
+                json.dumps(self.cfg.backend_config))
         task = sky.Task(
             name=self.cfg.cluster_name,
             setup=SETUP.format(repo=SKYRL_REPO, extra=extra),
             run=RUN.format(extra=extra, model=self.cfg.model,
-                           server_backend=self.cfg.server_backend, port=SERVER_PORT),
+                           server_backend=self.cfg.server_backend,
+                           port=SERVER_PORT, backend_config=cfg_arg),
         )
         task.set_resources(sky.Resources(
             infra=self.cfg.infra,
@@ -171,6 +212,43 @@ class SkyPilotCompute(BaseCompute):
         overrides = {c: {"remote_identity": self.cfg.remote_identity}
                      for c in self._IDENTITY_CLOUDS}
         return skypilot_config.override_skypilot_config(overrides)
+
+    def _autostop_supported(self) -> bool:
+        """Does the target cloud implement autostop/autodown at all?
+
+        Not every cloud does. PrimeIntellect reports AUTOSTOP, AUTODOWN *and*
+        STOP unsupported, so passing ``idle_minutes_to_autostop`` there does
+        not merely get ignored — the optimizer rejects every candidate and the
+        launch dies with ``ResourcesUnavailableError``. Unknown or unset infra
+        is assumed to support it; a wrong guess surfaces as that same loud
+        error rather than a silent leak.
+        """
+        if not self.cfg.infra:
+            return True
+        try:
+            from sky.clouds.cloud import CloudImplementationFeatures as feat
+            from sky.utils import registry
+
+            cloud = registry.CLOUD_REGISTRY.from_str(self.cfg.infra.split("/")[0])
+            unsupported = getattr(type(cloud), "_CLOUD_UNSUPPORTED_FEATURES", {})
+            return feat.AUTODOWN not in unsupported
+        except Exception as e:
+            log.debug("[skypilot] could not read autostop support for %s: %s",
+                      self.cfg.infra, e)
+            return True
+
+    def _reclaim_kwargs(self) -> dict[str, Any]:
+        """Launch kwargs for cluster reclamation, per the cloud's capabilities."""
+        if self._autostop_supported():
+            return {"idle_minutes_to_autostop": self.cfg.idle_minutes_to_autostop,
+                    "down": self.cfg.down}
+        log.warning(
+            "[skypilot] %s has no autostop — this cluster bills until it is "
+            "explicitly torn down. The %s lifetime cap is the only backstop.",
+            self.cfg.infra,
+            f"{self.cfg.max_lifetime_s / 3600:.1f} h" if self.cfg.max_lifetime_s
+            else "MISSING (max_lifetime_s=None)")
+        return {"idle_minutes_to_autostop": None, "down": False}
 
     def _endpoint(self, sky: Any) -> str | None:
         try:
@@ -217,9 +295,8 @@ class SkyPilotCompute(BaseCompute):
             request_id = sky.launch(
                 self._task(sky),
                 cluster_name=self.cfg.cluster_name,
-                idle_minutes_to_autostop=self.cfg.idle_minutes_to_autostop,
-                down=self.cfg.down,
                 fast=True,           # skip provisioning when it is already up
+                **self._reclaim_kwargs(),
             )
         # The launch request resolves at job SUBMISSION, returning
         # (job_id, handle) — it does not wait for the run command, which is the
@@ -233,6 +310,7 @@ class SkyPilotCompute(BaseCompute):
             if url and self._answers(url):
                 log.info("[skypilot] %s serving at %s", self.cfg.cluster_name, url)
                 self._url = url
+                self._arm_deadline()
                 return url
             time.sleep(10)
 
@@ -243,11 +321,53 @@ class SkyPilotCompute(BaseCompute):
             f"{self.cfg.idle_minutes_to_autostop} idle minutes."
         )
 
-    def down(self) -> None:
+    def _arm_deadline(self) -> None:
+        """Belt and braces against a leaked, billing GPU.
+
+        ``down()`` in ``teardown()`` covers the normal path and the context
+        manager covers exceptions, but neither survives the host being killed.
+        An atexit hook catches interpreter shutdown; a daemon timer catches a
+        hang. Both call the same idempotent ``down()``.
+        """
+        import atexit
+        import threading
+
+        if self._armed:
+            return
+        self._armed = True
+        atexit.register(self._down_quietly)
+        if self.cfg.max_lifetime_s:
+            t = threading.Timer(self.cfg.max_lifetime_s, self._deadline_reached)
+            t.daemon = True
+            t.start()
+            self._timer = t
+            log.info("[skypilot] %s will be torn down after %.1f h at the latest",
+                     self.cfg.cluster_name, self.cfg.max_lifetime_s / 3600)
+
+    def _deadline_reached(self) -> None:
+        log.warning("[skypilot] %s hit its %.1f h lifetime cap — tearing down",
+                    self.cfg.cluster_name, (self.cfg.max_lifetime_s or 0) / 3600)
+        # force: the deadline overrides teardown=False. `teardown=False` means
+        # "leave it up for the next run", not "leave it up forever" — and on a
+        # cloud with no autostop, forever is exactly what it would mean.
+        self._down_quietly(force=True)
+
+    def _down_quietly(self, force: bool = False) -> None:
+        try:
+            self.down(force=force)
+        except Exception:  # atexit must never raise
+            pass
+
+    def down(self, force: bool = False) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         self._url = None
-        if not self.cfg.teardown:
-            log.info("[skypilot] leaving %s up (autostops in %d min)",
-                     self.cfg.cluster_name, self.cfg.idle_minutes_to_autostop)
+        if not self.cfg.teardown and not force:
+            reclaim = ("it autostops in %d min" % self.cfg.idle_minutes_to_autostop
+                       if self._autostop_supported()
+                       else "THIS CLOUD HAS NO AUTOSTOP — it bills until torn down")
+            log.info("[skypilot] leaving %s up (%s)", self.cfg.cluster_name, reclaim)
             return
         try:
             sky = self._sky()
@@ -255,9 +375,10 @@ class SkyPilotCompute(BaseCompute):
             log.info("[skypilot] %s terminated", self.cfg.cluster_name)
         except Exception as e:
             # Never raise from teardown, but be loud: this one costs money.
-            log.warning("[skypilot] could not tear down %s: %s — it will autostop "
-                        "after %d idle minutes", self.cfg.cluster_name, e,
-                        self.cfg.idle_minutes_to_autostop)
+            log.error("[skypilot] COULD NOT TEAR DOWN %s: %s — it may still be "
+                      "billing. Run `sky down %s` by hand; some providers have "
+                      "no autostop to fall back on.",
+                      self.cfg.cluster_name, e, self.cfg.cluster_name)
 
 
 __all__ = ["SkyPilotCompute", "SkyPilotComputeConfig"]

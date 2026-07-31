@@ -126,12 +126,28 @@ class TestUp:
         _, kw = sky.launched[0]["task"].resources
         assert kw["ports"] == [SERVER_PORT]
 
-    def test_gpu_request_selects_the_gpu_extra(self, monkeypatch):
+    def test_the_extra_follows_the_backend_not_the_gpu(self, monkeypatch):
+        """Multi-tenant LoRA only exists on megatron; picking the extra from
+        "is there a GPU?" installed the wrong stack and silently gave you a
+        single-tenant server."""
         sky = _FakeSky()
-        c = _compute(monkeypatch, sky, accelerators="A100:1")
+        c = _compute(monkeypatch, sky, accelerators="H200:1", server_backend="megatron")
         c.up()
         task = sky.launched[0]["task"]
-        assert "--extra gpu" in task.setup and "--extra gpu" in task.run
+        assert "--extra megatron" in task.setup and "--extra megatron" in task.run
+
+    def test_multi_tenant_knobs_reach_the_command_line(self, monkeypatch):
+        """backend_config was absent from the Config entirely, so merge_lora /
+        max_loras / max_cpu_loras could not be set at all."""
+        sky = _FakeSky()
+        c = _compute(monkeypatch, sky, accelerators="H200:1", server_backend="megatron",
+                     backend_config={"trainer.policy.model.lora.max_loras": 4,
+                                     "trainer.policy.megatron_config.lora_config.merge_lora": False})
+        c.up()
+        run = sky.launched[0]["task"].run
+        assert "--backend-config" in run
+        assert '"trainer.policy.model.lora.max_loras": 4' in run
+        assert '"trainer.policy.megatron_config.lora_config.merge_lora": false' in run
 
     def test_cpu_only_falls_back_to_the_jax_extra(self, monkeypatch):
         """No accelerator is a legitimate config — the JAX backend runs on CPU,
@@ -338,3 +354,90 @@ class TestCredentialUpload:
         schema = schemas.get_config_schema()
         aws = schema["properties"]["aws"]["properties"]
         assert "remote_identity" in aws
+
+
+class TestLifetimeDeadline:
+    """PrimeIntellect supports no autostop, no autodown and no stop, so a
+    cluster there bills until something explicitly terminates it. `down()` in
+    teardown covers the happy path; these cover the host dying."""
+
+    def test_a_deadline_is_armed_after_up(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, max_lifetime_s=3600)
+        c.up()
+        assert c._timer is not None and c._armed
+
+    def test_the_deadline_tears_the_cluster_down(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, max_lifetime_s=0.05)
+        c.up()
+        # `_compute` stubs time.sleep on the real time module, so spin on the
+        # clock instead of sleeping — a no-op sleep would race the timer.
+        import time
+        end = time.monotonic() + 5
+        while not sky.downed and time.monotonic() < end:
+            pass
+        assert sky.downed == ["evsys-skyrl"]
+
+    def test_down_cancels_the_timer_so_it_cannot_fire_later(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, max_lifetime_s=3600)
+        c.up()
+        c.down()
+        assert c._timer is None
+        assert sky.downed == ["evsys-skyrl"]
+
+    def test_default_lifetime_is_bounded(self):
+        """A None default would reintroduce the leak on no-autostop clouds."""
+        assert SkyPilotCompute(model="m").cfg.max_lifetime_s == 6 * 3600
+
+
+class TestReclaimKwargs:
+    """PrimeIntellect reports AUTOSTOP/AUTODOWN/STOP unsupported. Passing the
+    autostop kwargs there does not get ignored — every candidate resource is
+    rejected and the launch dies with ResourcesUnavailableError."""
+
+    def test_autostop_is_dropped_on_a_cloud_without_it(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), infra="primeintellect")
+        assert c._autostop_supported() is False
+        assert c._reclaim_kwargs() == {"idle_minutes_to_autostop": None, "down": False}
+
+    def test_autostop_is_kept_where_it_works(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), infra="aws", idle_minutes_to_autostop=15)
+        assert c._autostop_supported() is True
+        assert c._reclaim_kwargs() == {"idle_minutes_to_autostop": 15, "down": True}
+
+    def test_unknown_infra_keeps_the_safe_default(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), infra="not-a-cloud")
+        assert c._autostop_supported() is True
+
+    def test_launch_uses_the_capability_aware_kwargs(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, infra="primeintellect")
+        c.up()
+        assert sky.launched[0]["idle_minutes_to_autostop"] is None
+        assert sky.launched[0]["down"] is False
+
+
+class TestDeadlineOverridesTeardownFalse:
+    """`teardown=False` means "leave it up for the next run". On a cloud with
+    no autostop that would otherwise mean "leave it up forever" — the exact
+    config the benchmark run uses."""
+
+    def test_deadline_terminates_even_with_teardown_false(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, teardown=False, infra="primeintellect",
+                     max_lifetime_s=0.05)
+        c.up()
+        import time
+        end = time.monotonic() + 5
+        while not sky.downed and time.monotonic() < end:
+            pass
+        assert sky.downed == ["evsys-skyrl"]
+
+    def test_ordinary_down_still_respects_teardown_false(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, teardown=False, max_lifetime_s=3600)
+        c.up()
+        c.down()
+        assert sky.downed == []
