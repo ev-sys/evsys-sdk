@@ -316,7 +316,8 @@ class TestAgainstTheRealSkyPilotApi:
 
         src = inspect_source(mod.SkyPilotCompute.up)
         passed = set(re.findall(r"^\s*(\w+)=", src, re.M))
-        assert passed <= {"cluster_name", "idle_minutes_to_autostop", "down", "fast"}
+        assert passed <= {"cluster_name", "idle_minutes_to_autostop", "down", "fast",
+                          "retry_until_up"}
 
 
 def inspect_source(fn):
@@ -441,3 +442,19 @@ class TestDeadlineOverridesTeardownFalse:
         c.up()
         c.down()
         assert sky.downed == []
+
+
+class TestRetryUntilUp:
+    """Spot capacity comes and goes — one failed attempt says little."""
+
+    def test_off_by_default(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky)
+        c.up()
+        assert sky.launched[0]["retry_until_up"] is False
+
+    def test_passed_through_when_asked(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, retry_until_up=True)
+        c.up()
+        assert sky.launched[0]["retry_until_up"] is True

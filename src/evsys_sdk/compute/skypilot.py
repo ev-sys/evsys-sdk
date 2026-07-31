@@ -120,6 +120,11 @@ class SkyPilotComputeConfig(BaseModel):
     remote_identity: str = "NO_UPLOAD"
     """Whether SkyPilot uploads your cloud credentials to the VM. Do not relax
     this without knowing that agent-authored code runs there."""
+    retry_until_up: bool = False
+    """Keep retrying provisioning instead of failing when capacity is gone.
+
+    Spot capacity comes and goes, so the first attempt failing says little.
+    Bounded by ``startup_timeout_s`` rather than left to run forever."""
     startup_timeout_s: float = Field(default=2400.0, gt=0)
     """Provisioning + model download + engine warmup. Genuinely slow."""
     teardown: bool = True
@@ -296,6 +301,7 @@ class SkyPilotCompute(BaseCompute):
                 self._task(sky),
                 cluster_name=self.cfg.cluster_name,
                 fast=True,           # skip provisioning when it is already up
+                retry_until_up=self.cfg.retry_until_up,
                 **self._reclaim_kwargs(),
             )
         # The launch request resolves at job SUBMISSION, returning
