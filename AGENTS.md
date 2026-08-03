@@ -52,3 +52,62 @@ wrong by 65% on price and wrong about stock existing at all.
 (PrimeIntellect, Verda) implement no autostop at all, so `max_lifetime_s` on
 the SkyPilot target is the only backstop. Tear down explicitly when finished
 and verify with a follow-up API call that the instance list is actually empty.
+
+## Track reliability, per provider AND per GPU
+
+Where to rent turns on two facts no provider publishes: whether a launch
+succeeds, and how long the machine survives. Both vary by provider, by GPU
+type, and by region, and both are knowable only by keeping score. Record every
+outcome — `evsys_sdk.compute.reliability`:
+
+```python
+from evsys_sdk.compute import reliability as rel
+
+rel.record(rel.LAUNCH_OK,    provider="verda", gpu="H200", count=1,
+           region="FIN-03", usd_hr=1.40, wait_s=110)
+rel.record(rel.LAUNCH_FAIL,  provider="verda", gpu="H100", reason="no_capacity")
+rel.record(rel.PREEMPTED,    provider="verda", gpu="A100", uptime_s=2400)
+rel.record(rel.TORN_DOWN,    provider="verda", gpu="A100", uptime_s=9000)
+
+print(rel.report())                                  # the table
+rel.suggested_snapshot_interval_s("verda", "H200")   # cadence from real MTBF
+```
+
+Append-only JSONL at `~/.evsys/reliability.jsonl`. Never rewritten, so
+concurrent writers are safe and a half-written line costs one observation
+rather than the history.
+
+**Why this is not busywork.** The snapshot cadence is `T* = sqrt(2*C*MTBF)`,
+which takes mean-time-between-preemptions as a direct input. Without measured
+MTBF that formula is a guess wearing a formula's clothes. Every preemption you
+record makes the next run's cadence better.
+
+Three distinctions the ledger keeps and a naive counter would lose:
+
+  * **`no_capacity` vs `no_funds`.** SkyPilot and most providers report both as
+    "resources unavailable". They are opposite signals: one says something
+    about the provider, the other says nothing at all. Conflating them cost
+    hours before this was written down.
+  * **`preempted` vs `torn_down`.** Only preemptions inform MTBF. Counting a
+    deliberate teardown as uptime inflates the estimate and slackens the
+    cadence; ignoring it hides how censored the evidence is. Both are stored.
+  * **GPU count.** `1xA100` and `2xA100` are different products at different
+    prices with different availability. They get separate rows.
+
+Absent data reads as `-`, never as zero — a zero MTBF would mean "preempted
+instantly" rather than "never observed".
+
+**Observed so far** (2026-07-31 to 2026-08-03, small samples — treat as
+directional):
+
+| provider | gpu | launches | MTBF | notes |
+|---|---|---|---|---|
+| primeintellect | A100-80GB x1 | 1/4 | 0.7h (n=1) | 3 refusals were an empty wallet, not capacity |
+| primeintellect | H100 x1 | 0/1 | - | catalog routed to a region with no stock |
+| verda | A100 x2 | 1/1 | censored | ran 2.5h, torn down deliberately |
+| verda | H100 x1 | 0/1 | - | 503 ~30s after availability listed it |
+| verda | H200 x1 | 1/1 | - | no preemption observed yet |
+
+The single most useful number here is that one observed spot preemption at
+**~40 minutes**. If that holds, snapshot roughly every 3-5 minutes; one sample
+is far too few to trust, which is exactly why the ledger exists.
