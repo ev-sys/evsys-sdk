@@ -1,26 +1,20 @@
-"""Pick the cheapest hardware and layout for a training job.
+"""What GPUs can I rent right now, and what do they cost?
 
-Every number here was measured on spot capacity in August 2026 against
-Qwen3-4B-Instruct-2507 with LoRA rank 32, packed sequences, and
-``fused_lm_head_logprob`` enabled. The point of writing them down is that the
-answers are not guessable from spec sheets:
+A thin poller over the provider probes in :mod:`evsys_sdk.compute.pricing`.
+It answers one question — which accelerators are actually purchasable at this
+moment, and at what price per GPU-hour — across every provider we hold
+credentials for, cheapest first.
 
-  * **The cheapest adequate card wins, and by more as context grows.** An RTX
-    PRO 6000 runs at 69% of an H200's throughput at 8K but 90% at 128K, for 47%
-    of the price. Buying the faster card costs you money at every length where
-    the cheap one fits.
-  * **Capacity, not speed, sets the cliff.** 256K needs ~108 GiB, so a 96 GiB
-    card simply cannot, and the only cards that can are three times the price
-    per token.
-  * **Concurrency is an amortisation tool, not a throughput one.** Extra
-    adapters bought +13% at 8K and +3% at 64K, while prompt count buys the same
-    generation throughput inside a single experiment. What concurrency really
-    saves is the ~7 minute setup, which dominates any experiment shorter than
-    about half an hour.
+Deliberately no throughput or cost-per-token modelling. Tokens/sec depends on
+the model, sequence length, batch size, LoRA rank, whether the job is training
+or RL, and a handful of server flags; a table baked in here is wrong the moment
+any of them changes. Benchmark numbers belong with the benchmark. This returns
+prices and availability: facts with a short shelf life and no caveats.
 
-Prices move, so :func:`route` takes live offers when you have them and falls
-back to the measured table when you do not. Throughput does not move, and is
-what makes the recommendation.
+    from evsys_sdk.compute import router
+
+    print(router.report(gpu="H200"))
+    best = router.cheapest(min_memory_gib=96)
 """
 
 from __future__ import annotations
@@ -28,156 +22,109 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..logger import get_logger
+from .credentials import PROVIDERS
+from .pricing import Offer, PricingUnavailable, live_offers
 
 log = get_logger(__name__)
 
-#: Tinker's published training rate, and the context it is quoted at. Comparing
-#: our 8K throughput against it flatters us; comparing 256K is not a comparison
-#: at all, because Tinker does not sell that context.
-TINKER_USD_PER_M_TRAIN = 0.737
-TINKER_CONTEXT = 65536
-
-#: Measured training throughput, tokens/sec, by (card, sequence length).
-#: None means it did not fit. Absent lengths are interpolated, never guessed
-#: beyond the measured envelope.
-SFT_TOK_S: dict[str, dict[int, float | None]] = {
-    "RTXPRO6000": {8192: 5262.0, 65536: 2485.0, 131072: 1528.0, 262144: None},
-    "H200":       {8192: 7597.0, 16384: 6922.0, 32768: 4528.0,
-                   65536: 2915.0, 131072: 1700.0, 262144: 899.0},
+#: Device memory per GPU, GiB. Used only to filter on "will my model fit",
+#: which is a property of the hardware rather than of any benchmark.
+GPU_MEMORY_GIB = {
+    "A100": 40.0, "A100-80GB": 80.0, "H100": 80.0, "H200": 141.0,
+    "B200": 180.0, "B300": 268.0, "RTXPRO6000": 96.0, "L40S": 48.0,
+    "A6000": 48.0, "A40": 48.0, "V100": 16.0, "RTX6000Ada": 48.0,
 }
 
-#: Usable device memory, GiB. The 256K working set was 107.9 GiB, which is why
-#: a 96 GiB card cannot reach it however fast it is.
-CARD_MEM_GIB = {"RTXPRO6000": 96.0, "H200": 141.0, "H100": 80.0, "A100": 80.0}
-
-#: Spot $/hr per GPU, observed. Overridden by live pricing when available.
-CARD_USD_HR = {"A100": 0.626, "RTXPRO6000": 0.6615, "H100": 1.137,
-               "H200": 1.400, "B200": 2.139, "B300": 2.625}
-
-#: Setup before any work: install, server warmup, model pull.
-SETUP_S = 420.0
-
-#: Aggregate throughput multiplier vs one adapter, by context and tenant count.
-#: Flat at long context because one tenant already saturates the pipeline.
-ADAPTER_SCALING = {
-    8192:  {1: 1.00, 2: 1.08, 4: 1.13, 8: 1.08, 12: 1.04, 16: 1.04, 24: 0.94},
-    65536: {1: 1.00, 2: 1.01, 4: 1.03, 8: 1.03},
-}
+DEFAULT_GPUS = ("H200", "H100", "A100-80GB", "RTXPRO6000", "B200")
 
 
 @dataclass(frozen=True)
-class Plan:
-    card: str
-    gpus: int
-    colocate: bool
-    adapters: int
+class Quote:
+    """One purchasable option, priced per GPU so sizes compare honestly."""
+
+    provider: str
+    gpu: str
+    count: int
+    region: str
     usd_hr: float
-    tok_s: float
-    usd_per_M: float
-    vs_tinker: float | None
-    why: str
+    usd_per_gpu_hr: float
+    spot: bool
+    available: bool
+    memory_gib: float | None
 
     def describe(self) -> str:
-        v = f", {self.vs_tinker:.1f}x under Tinker" if self.vs_tinker else ""
-        return (f"{self.gpus}x{self.card} @ ${self.usd_hr:.3f}/hr, "
-                f"{'colocated' if self.colocate else 'disaggregated'}, "
-                f"{self.adapters} adapter(s): {self.tok_s:,.0f} tok/s = "
-                f"${self.usd_per_M:.4f}/M{v} — {self.why}")
+        mem = f", {self.memory_gib:.0f} GiB/gpu" if self.memory_gib else ""
+        return (f"${self.usd_per_gpu_hr:.4f}/gpu-hr  {self.gpu}x{self.count} "
+                f"({'spot' if self.spot else 'on-demand'}) "
+                f"{self.provider}/{self.region} "
+                f"[${self.usd_hr:.3f}/hr total{mem}]"
+                f"{'' if self.available else '  OUT OF STOCK'}")
 
 
-def _interp(card: str, seq_len: int) -> float | None:
-    """Throughput at ``seq_len``, interpolated within the measured envelope.
+def _quote(o: Offer) -> Quote:
+    return Quote(provider=o.provider, gpu=o.gpu, count=o.count, region=o.region,
+                 usd_hr=o.usd_hr, usd_per_gpu_hr=o.usd_hr / max(o.count, 1),
+                 spot=o.spot, available=o.available,
+                 memory_gib=GPU_MEMORY_GIB.get(o.gpu))
 
-    Returns None outside it rather than extrapolating: throughput falls
-    super-linearly with context (attention is quadratic), so a straight-line
-    guess past the last measurement is optimistic in the direction that costs
-    money.
 
-    The same convexity means interpolation *between* widely spaced points also
-    reads high — the true curve sags below the chord. Treat an interpolated
-    figure as an upper bound and measure the point if the decision is close.
+def offers(*, gpu: str | None = None, gpus: tuple[str, ...] = DEFAULT_GPUS,
+           counts: tuple[int, ...] = (1, 2, 4, 8),
+           spot: bool | None = None, providers: list[str] | None = None,
+           available_only: bool = True,
+           min_memory_gib: float | None = None) -> list[Quote]:
+    """Live quotes across authenticated providers, cheapest per GPU first.
+
+    Priced per GPU because that is the only way an 8-GPU box compares fairly
+    with a single card. A provider that cannot be reached is skipped with a log
+    line rather than failing the call: a partial answer beats none when you are
+    hunting for capacity.
     """
-    table = SFT_TOK_S.get(card) or {}
-    fitted = {k: v for k, v in table.items() if v is not None}
-    if not fitted:
-        return None
-    if seq_len in fitted:
-        return fitted[seq_len]
-    below = [k for k in fitted if k < seq_len]
-    above = [k for k in fitted if k > seq_len]
-    if not below or not above:
-        return None
-    lo, hi = max(below), min(above)
-    f = (seq_len - lo) / (hi - lo)
-    return fitted[lo] + f * (fitted[hi] - fitted[lo])
+    want = (gpu,) if gpu else gpus
+    names = providers or [p.name for p in PROVIDERS.values() if p.authenticated()]
+    if not names:
+        log.warning("[router] no authenticated providers — see "
+                    "evsys_sdk.compute.credentials.report()")
+        return []
+
+    out: list[Quote] = []
+    for prov in names:
+        for g in want:
+            for n in counts:
+                try:
+                    got = live_offers(prov, g, n, spot=spot)
+                except PricingUnavailable as e:
+                    log.debug("[router] %s/%s x%d: %s", prov, g, n, e)
+                    continue
+                except Exception as e:  # noqa: BLE001
+                    log.info("[router] %s unreachable: %s", prov, e)
+                    break
+                out.extend(_quote(o) for o in got)
+
+    if available_only:
+        out = [q for q in out if q.available]
+    if min_memory_gib is not None:
+        # Unknown memory is kept rather than filtered out: dropping it would
+        # hide real capacity just because the lookup table is incomplete.
+        out = [q for q in out
+               if q.memory_gib is None or q.memory_gib >= min_memory_gib]
+    return sorted(out, key=lambda q: q.usd_per_gpu_hr)
 
 
-def _fits(card: str, seq_len: int) -> bool:
-    table = SFT_TOK_S.get(card) or {}
-    if table.get(seq_len, "?") is None:      # measured and it did not fit
-        return False
-    return True
+def cheapest(**kw) -> Quote | None:
+    """Cheapest available option per GPU-hour, or None if nothing is free."""
+    got = offers(**kw)
+    if not got:
+        log.info("[router] nothing available matching %s", kw or "the defaults")
+    return got[0] if got else None
 
 
-def route(seq_len: int, *, mode: str = "sft", experiments: int = 1,
-          live_usd_hr: dict[str, float] | None = None,
-          available: list[str] | None = None) -> Plan | None:
-    """Cheapest plan for this job, or None if nothing measured can run it.
-
-    ``experiments`` is how many independent runs you have to do, not a
-    parallelism knob: concurrency is worth using when it amortises setup across
-    real work, and worth ignoring otherwise.
-    """
-    prices = {**CARD_USD_HR, **(live_usd_hr or {})}
-    cards = available or [c for c in SFT_TOK_S if c in prices]
-
-    best: Plan | None = None
-    for card in cards:
-        if not _fits(card, seq_len):
-            continue
-        tok_s = _interp(card, seq_len)
-        if not tok_s:
-            continue
-        hr = prices.get(card)
-        if hr is None:
-            continue
-
-        # RL costs a second GPU only when experiments must run concurrently:
-        # colocated single-GPU RL works, and its weight sync is 6.1s warm.
-        colocate = (mode != "rl") or experiments == 1
-        gpus = 1 if colocate else 2
-
-        # Concurrency only helps where it was measured to help, and only if
-        # there is real work to share.
-        scale_at = min(ADAPTER_SCALING, key=lambda k: abs(k - seq_len))
-        adapters = 1
-        if experiments > 1:
-            options = [n for n in ADAPTER_SCALING[scale_at] if n <= experiments]
-            adapters = max(options, key=lambda n: ADAPTER_SCALING[scale_at][n])
-        eff = tok_s * ADAPTER_SCALING[scale_at].get(adapters, 1.0)
-
-        usd_hr = hr * gpus
-        usd_per_M = usd_hr / (eff * 3600 / 1e6)
-        why = []
-        if adapters > 1:
-            why.append(f"{adapters} adapters amortise the {SETUP_S/60:.0f} min setup")
-        if not colocate:
-            why.append("disaggregated: concurrent RL needs policy and vLLM on separate cards")
-        if seq_len > 131072:
-            why.append("only cards with >128 GiB reach this context")
-        plan = Plan(card=card, gpus=gpus, colocate=colocate, adapters=adapters,
-                    usd_hr=usd_hr, tok_s=eff, usd_per_M=usd_per_M,
-                    vs_tinker=(TINKER_USD_PER_M_TRAIN / usd_per_M
-                               if seq_len <= TINKER_CONTEXT else None),
-                    why="; ".join(why) or "cheapest card that fits")
-        if best is None or plan.usd_per_M < best.usd_per_M:
-            best = plan
-
-    if best is None:
-        log.info("[router] nothing measured runs seq_len=%d — the largest "
-                 "measured working set was 107.9 GiB at 256K", seq_len)
-    return best
+def report(**kw) -> str:
+    got = offers(**kw)
+    if not got:
+        return "no capacity available matching that request"
+    return "\n".join(q.describe() for q in got)
 
 
-__all__ = ["CARD_MEM_GIB", "CARD_USD_HR", "Plan", "SFT_TOK_S",
-           "TINKER_CONTEXT", "TINKER_USD_PER_M_TRAIN", "route"]
+__all__ = ["DEFAULT_GPUS", "GPU_MEMORY_GIB", "Quote", "cheapest", "offers",
+           "report"]
