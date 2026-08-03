@@ -53,6 +53,31 @@ wrong by 65% on price and wrong about stock existing at all.
 the SkyPilot target is the only backstop. Tear down explicitly when finished
 and verify with a follow-up API call that the instance list is actually empty.
 
+**Terminating the instance does not release its disk.** On Verda the OS volume
+outlives the instance and keeps billing at **$0.082/hr per 300 GB volume** —
+a quarter of a cheap GPU's hourly rate, for nothing. Every preemption leaves
+one behind, so they accumulate silently: we found two orphans worth $120/month
+before anyone looked. Teardown must delete the volume too, and a periodic
+sweep for `status: detached` volumes is worth running.
+
+Two ways that delete silently fails:
+
+  * A volume in `cloning` state **accepts the delete request and ignores it**.
+    Poll until `detached`, then delete.
+  * Deleted volumes land in `/v1/volumes/trash` and keep their price fields.
+    They do not appear to bill (purging four did not move the balance), but
+    purge them anyway with `action: delete, is_permanent: true` rather than
+    trusting that.
+
+**Verda storage, in full** (from `GET /v1/openapi.json`, which the published
+docs do not cover): there is **no snapshot API and no object storage**. The
+only image-like primitive is `PUT /v1/volumes` with `action: clone`, which does
+work **across regions** via `location_code` — that is what makes a pre-baked
+volume usable when capacity moves. The HDD tier advertised at $0.05/GB in
+`/v1/volume-types` is **decommissioned** and rejects clones; NVMe at $0.20/GB
+is the real price. Consequently Verda can hold a pre-baked *environment* but
+cannot be the checkpoint store — that has to be external object storage.
+
 ## Track reliability, per provider AND per GPU
 
 Where to rent turns on two facts no provider publishes: whether a launch
