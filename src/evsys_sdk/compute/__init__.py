@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..registry import get_compute
-from . import credentials, liveness, pricing, snapshot
+from . import credentials, liveness, pricing, router, snapshot
 from .base import BaseCompute, ComputeError
 
 # Side-effect import: register the built-in provider.
