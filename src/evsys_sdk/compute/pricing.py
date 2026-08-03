@@ -129,10 +129,98 @@ def _prime_offers(gpu: str, count: int) -> list[Offer]:
     return sorted(offers, key=lambda o: o.usd_hr)
 
 
+# -- Verda (formerly DataCrunch) --------------------------------------------
+
+VERDA_API = "https://api.verda.com/v1"
+VERDA_CREDENTIALS = "~/.verda/config.json"
+
+#: Verda names a GPU inside a free-text instance description, so match on the
+#: model field instead of parsing strings.
+VERDA_GPU_MODELS = {
+    "A100": "A100", "A100-80GB": "A100", "H100": "H100", "H200": "H200",
+    "L40S": "L40S", "A6000": "A6000", "V100": "V100", "B200": "B200",
+    "RTX6000Ada": "RTX6000ADA",
+}
+
+#: GPU memory in GB implied by a SkyPilot name, where the name carries it.
+#: Verda lists an 80 GB and a 40 GB A100 as separate types under one model.
+VERDA_GPU_MEMORY = {"A100-80GB": 80, "A100": 40}
+
+
+def _verda_token() -> str:
+    """OAuth2 client-credentials exchange. Verda issues short-lived tokens
+    (~10 min), so this is done per call rather than cached."""
+    path = pathlib.Path(VERDA_CREDENTIALS).expanduser()
+    try:
+        cfg = json.loads(path.read_text())
+        body = json.dumps({"grant_type": "client_credentials",
+                           "client_id": cfg["client_id"],
+                           "client_secret": cfg["client_secret"]}).encode()
+    except Exception as e:
+        raise PricingUnavailable(
+            f"could not read Verda credentials from {VERDA_CREDENTIALS}: {e}") from e
+    req = urllib.request.Request(f"{VERDA_API}/oauth2/token", data=body,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
+            return json.load(r)["access_token"]
+    except Exception as e:
+        raise PricingUnavailable(f"Verda token exchange failed: {e}") from e
+
+
+def _verda_get(path: str, token: str):
+    req = urllib.request.Request(f"{VERDA_API}/{path}",
+                                 headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
+            return json.load(r)
+    except Exception as e:
+        raise PricingUnavailable(f"Verda {path} query failed: {e}") from e
+
+
+def _verda_offers(gpu: str, count: int) -> list[Offer]:
+    model = VERDA_GPU_MODELS.get(gpu)
+    if model is None:
+        raise PricingUnavailable(f"no Verda model known for GPU {gpu!r}")
+    token = _verda_token()
+    types = _verda_get("instance-types", token)
+    # Availability is per location and lists instance-type ids, so stock has to
+    # be joined on rather than read off the type.
+    stock: dict[str, list[str]] = {}
+    for loc in _verda_get("instance-availability", token):
+        for it in loc.get("availabilities") or []:
+            stock.setdefault(it, []).append(loc["location_code"])
+
+    want_mem = VERDA_GPU_MEMORY.get(gpu)
+    offers: list[Offer] = []
+    for t in types:
+        g = t.get("gpu") or {}
+        if t.get("model") != model or g.get("number_of_gpus") != count:
+            continue
+        if want_mem is not None:
+            per_gpu = (t.get("gpu_memory") or {}).get("size_in_gigabytes")
+            if per_gpu and count and round(per_gpu / count) != want_mem:
+                continue
+        it = t["instance_type"]
+        regions = stock.get(it) or ["-"]
+        for kind, price in (("spot", t.get("spot_price")),
+                            ("ondemand", t.get("price_per_hour"))):
+            if not price or float(price) <= 0:
+                continue
+            for region in regions:
+                offers.append(Offer(
+                    provider="verda", region=region, gpu=gpu, count=count,
+                    usd_hr=float(price), spot=(kind == "spot"),
+                    available=it in stock,
+                ))
+    return sorted(offers, key=lambda o: o.usd_hr)
+
+
 #: Keyed by SkyPilot's cloud name. Add a probe here and every compute target
 #: that consults live pricing picks it up.
 PROBES: dict[str, Callable[[str, int], list[Offer]]] = {
     "primeintellect": _prime_offers,
+    "verda": _verda_offers,
 }
 
 

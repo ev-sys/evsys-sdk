@@ -118,6 +118,28 @@ class SkyPilotComputeConfig(BaseModel):
     memory: str | None = None
     use_spot: bool = False
     """Spot instances are far cheaper and can be preempted mid-run."""
+    multi_lora: bool = True
+    """Serve several LoRA adapters from one resident base model.
+
+    On by default because it is the reason to host a server at all: measured on
+    an H200, a second adapter costs no additional GPU memory (the slots live in
+    CPU memory) and aggregate throughput *rises* with tenant count, since more
+    in-flight requests keep the pipeline fed. One adapter per GPU is the
+    expensive way to run the same experiments.
+
+    Sets the four knobs SkyRL requires together — ``colocate_all: false``,
+    ``merge_lora: false``, ``max_loras`` and ``max_cpu_loras``. Explicit values
+    in ``backend_config`` always win, so this is a default, not a policy.
+
+    Requires ``server_backend='megatron'``: multi-tenant LoRA exists on no other
+    backend, so this is ignored elsewhere rather than silently misconfiguring."""
+    max_adapters: int = Field(default=8, ge=1)
+    """Peak concurrent adapters to size the LoRA slots for.
+
+    Size for the PEAK, not the average: ``max_cpu_loras`` is vLLM's LRU
+    capacity and there is no on-demand reload, so an evicted adapter makes the
+    next ``sample()`` 404. Costs CPU memory only (~hundreds of MB per slot for
+    a 4B model at rank 32)."""
     server_backend: str = "jax"
     """SkyRL execution backend: ``jax`` (single process, CPU or GPU), ``fsdp``
     or ``megatron``. ``fsdp`` needs a second GPU for RL sampling.
@@ -216,9 +238,9 @@ class SkyPilotCompute(BaseCompute):
         # every multi-tenant knob (merge_lora, max_loras, max_cpu_loras) was
         # silently dropped and the server came up single-tenant.
         cfg_arg = ""
-        if self.cfg.backend_config:
-            cfg_arg = " \\\n    --backend-config " + shlex.quote(
-                json.dumps(self.cfg.backend_config))
+        merged = self._server_config()
+        if merged:
+            cfg_arg = " \\\n    --backend-config " + shlex.quote(json.dumps(merged))
         durable = ""
         if self.cfg.checkpoints_path:
             durable += " \\\n    --checkpoints-base " + shlex.quote(self.cfg.checkpoints_path)
@@ -253,6 +275,32 @@ class SkyPilotCompute(BaseCompute):
             for infra, accel in self._ordered_candidates()
         ])
         return task
+
+    #: The four knobs multi-tenant LoRA needs, all of them load-bearing.
+    #: `merge_lora: true` would have vLLM serve the merged base, so
+    #: `sample(model=<adapter>)` silently returns the wrong tenant's weights.
+    def _multi_lora_defaults(self) -> dict[str, Any]:
+        n = self.cfg.max_adapters
+        return {
+            "strategy": "megatron",
+            "trainer.placement.colocate_all": False,
+            "trainer.policy.megatron_config.lora_config.merge_lora": False,
+            "trainer.policy.model.lora.max_loras": n,
+            "trainer.policy.model.lora.max_cpu_loras": n,
+        }
+
+    def _server_config(self) -> dict[str, Any]:
+        """Backend config actually sent, defaults under explicit settings."""
+        cfg: dict[str, Any] = {}
+        if self.cfg.multi_lora and self.cfg.server_backend == "megatron":
+            cfg.update(self._multi_lora_defaults())
+        elif self.cfg.multi_lora:
+            log.info("[skypilot] multi_lora ignored on backend=%s — multi-tenant "
+                     "LoRA exists only on megatron", self.cfg.server_backend)
+        # The caller's own keys win: a default that overrode an explicit
+        # setting would be a trap, not a convenience.
+        cfg.update(self.cfg.backend_config or {})
+        return cfg
 
     #: Clouds whose credential upload `remote_identity` controls. SkyPilot
     #: reads it per-cloud, so the setting has to be written for each one.

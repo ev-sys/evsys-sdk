@@ -649,3 +649,57 @@ class TestManagedJobs:
         c.up()
         (_, kw), = sky.launched[0]["task"].resources
         assert "job_recovery" not in kw
+
+
+class TestMultiLoraByDefault:
+    """Hosting a server is only worth it if several adapters share it.
+    Measured on an H200: a second adapter added no GPU memory and aggregate
+    throughput *rose* with tenant count."""
+
+    def test_on_by_default_for_megatron(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, server_backend="megatron")
+        cfg = c._server_config()
+        assert cfg["trainer.policy.megatron_config.lora_config.merge_lora"] is False
+        assert cfg["trainer.placement.colocate_all"] is False
+        assert cfg["trainer.policy.model.lora.max_loras"] == 8
+        assert cfg["trainer.policy.model.lora.max_cpu_loras"] == 8
+
+    def test_reaches_the_command_line(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        run = _compute(monkeypatch, sky, server_backend="megatron")._task(sky).run
+        assert "--backend-config" in run and "max_cpu_loras" in run
+
+    def test_max_adapters_sizes_both_slots(self, monkeypatch):
+        """max_cpu_loras is vLLM's LRU capacity with no on-demand reload —
+        undersize it and an evicted adapter 404s on its next sample()."""
+        c = _compute(monkeypatch, _FakeSky(), server_backend="megatron", max_adapters=16)
+        cfg = c._server_config()
+        assert cfg["trainer.policy.model.lora.max_loras"] == 16
+        assert cfg["trainer.policy.model.lora.max_cpu_loras"] == 16
+
+    def test_explicit_backend_config_wins(self, monkeypatch):
+        """A default that overrode an explicit setting would be a trap."""
+        c = _compute(monkeypatch, _FakeSky(), server_backend="megatron",
+                     backend_config={"trainer.policy.model.lora.max_loras": 3,
+                                     "trainer.logprobs_chunk_size": 2048})
+        cfg = c._server_config()
+        assert cfg["trainer.policy.model.lora.max_loras"] == 3
+        assert cfg["trainer.logprobs_chunk_size"] == 2048
+        # untouched defaults still present
+        assert cfg["trainer.policy.megatron_config.lora_config.merge_lora"] is False
+
+    def test_off_when_asked(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), server_backend="megatron", multi_lora=False)
+        assert c._server_config() == {}
+
+    def test_ignored_on_backends_without_multi_tenancy(self, monkeypatch):
+        """Multi-tenant LoRA exists only on megatron; silently writing these
+        knobs elsewhere would misconfigure rather than help."""
+        c = _compute(monkeypatch, _FakeSky(), server_backend="fsdp")
+        assert c._server_config() == {}
+
+    def test_no_config_flag_when_nothing_to_send(self, monkeypatch):
+        sky = _FakeSky(endpoint_after=1)
+        c = _compute(monkeypatch, sky, server_backend="jax")
+        assert "--backend-config" not in c._task(sky).run
