@@ -524,6 +524,56 @@ class TestSurvivingPreemption:
         c.up()
         assert not any("loses the entire run" in m for m in seen), seen
 
+
+class TestSnapshotPolicy:
+    def test_the_target_owns_the_cadence_numbers(self, monkeypatch):
+        """The training loop is the only thing that can *call* save_weights —
+        SkyPilot snapshots nothing and a managed job restarts the command from
+        scratch. But the compute target is what knows the machine was bought on
+        spot and on what terms, so it owns the arithmetic rather than every
+        caller re-deriving it."""
+        c = _compute(monkeypatch, _FakeSky(), use_spot=True,
+                     snapshot_max_loss_s=300, snapshot_cost_s=20,
+                     preemption_mtbf_s=7200, restart_s=900)
+        p = c.snapshot_policy()
+        assert p.interval_s == 300
+        assert p.expected_loss_s() == 150
+
+    def test_defaults_bound_the_loss_to_minutes(self):
+        c = SkyPilotCompute(model="m")
+        assert c.cfg.snapshot_max_loss_s <= 600
+
+    def test_durable_spot_gets_told_what_survival_costs(self, monkeypatch):
+        """Once the state is durable the question stops being 'will we lose
+        everything' and becomes 'what does spot really cost per useful hour' —
+        which is the number that decides whether it was worth it."""
+        seen = []
+        monkeypatch.setattr("evsys_sdk.compute.skypilot.log.info",
+                            lambda msg, *a, **k: seen.append(str(msg) % a if a else str(msg)))
+        c = _compute(monkeypatch, _FakeSky(endpoint_after=1), use_spot=True,
+                     price_check=False, checkpoints_path="s3://b/c",
+                     database_url="postgresql://h/db")
+        c.up()
+        assert any("preemption budget" in m for m in seen), seen
+
+    def test_on_demand_is_not_given_a_preemption_budget(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr("evsys_sdk.compute.skypilot.log.info",
+                            lambda msg, *a, **k: seen.append(str(msg) % a if a else str(msg)))
+        c = _compute(monkeypatch, _FakeSky(endpoint_after=1), use_spot=False,
+                     price_check=False, checkpoints_path="s3://b/c",
+                     database_url="postgresql://h/db")
+        c.up()
+        assert not any("preemption budget" in m for m in seen), seen
+
+    def test_a_nonsense_cadence_is_refused_at_config_time(self):
+        with pytest.raises(Exception):
+            SkyPilotCompute(model="m", snapshot_max_loss_s=0)
+        with pytest.raises(Exception):
+            SkyPilotCompute(model="m", preemption_mtbf_s=-1)
+
+
+class TestRecovery:
     def test_healthy_is_false_once_the_instance_is_gone(self, monkeypatch):
         sky = _FakeSky(endpoint_after=1)
         c = _compute(monkeypatch, sky)

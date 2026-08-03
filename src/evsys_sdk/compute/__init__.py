@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..registry import get_compute
-from . import credentials, pricing
+from . import credentials, pricing, snapshot
 from .base import BaseCompute, ComputeError
 
 # Side-effect import: register the built-in provider.
@@ -31,4 +31,5 @@ def build_compute(spec: Any) -> BaseCompute:
     return cls(**dict(params or {}))
 
 
-__all__ = ["BaseCompute", "ComputeError", "build_compute", "credentials", "pricing"]
+__all__ = ["BaseCompute", "ComputeError", "build_compute", "credentials",
+           "pricing", "snapshot"]

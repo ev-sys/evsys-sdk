@@ -53,6 +53,7 @@ from ..logger import get_logger
 from ..registry import register_compute
 from .base import BaseCompute, ComputeError
 from .pricing import PricingUnavailable, cheapest_available, live_offers
+from .snapshot import SnapshotPolicy
 
 log = get_logger(__name__)
 
@@ -177,6 +178,33 @@ class SkyPilotComputeConfig(BaseModel):
     Durable checkpoints alone do not survive preemption: this database maps
     model ids to those checkpoints, so losing it turns them into unreadable
     orphans. Resume needs both off the box — e.g. ``postgresql://…``."""
+    snapshot_max_loss_s: float = Field(default=300.0, gt=0)
+    """Most work you are willing to redo after a preemption, in seconds.
+
+    A requirement, not an optimisation: it clamps the snapshot interval no
+    matter what the cost/MTBF optimum says. The default of five minutes costs
+    only about a point of extra overhead over the true optimum at a 2 h MTBF,
+    and buys a bounded worst case."""
+    snapshot_cost_s: float = Field(default=20.0, gt=0)
+    """Starting estimate for what one snapshot costs the training loop.
+
+    Only a seed — :class:`~evsys_sdk.compute.snapshot.SnapshotScheduler`
+    replaces it with measured values once the run is going. It matters
+    because the first interval is derived from it, and a guess that is too
+    low means the run's opening minutes are mostly checkpointing."""
+    preemption_mtbf_s: float = Field(default=2 * 3600, gt=0)
+    """Expected seconds between preemptions on the pool you are buying from.
+
+    Nobody knows this precisely and it does not need to be precise: the
+    optimum moves with its square root, and overhead near the optimum is
+    flat. The default assumes spot capacity that turns over every couple of
+    hours, which is what we saw."""
+    restart_s: float = Field(default=900.0, gt=0)
+    """Time from preemption to a replacement actually serving.
+
+    Reported, not optimised — it does not change the cadence, but at a 2 h
+    MTBF a 15-minute respawn wastes more than the cadence ever will. If this
+    number is large, the fix is a pre-baked image, not more snapshots."""
     price_check: bool = True
     """Ask the provider for real prices and stock before provisioning.
 
@@ -362,6 +390,21 @@ class SkyPilotCompute(BaseCompute):
             else "MISSING (max_lifetime_s=None)")
         return {"idle_minutes_to_autostop": None, "down": False}
 
+    def snapshot_policy(self) -> SnapshotPolicy:
+        """The cadence a workload on this cluster should snapshot at.
+
+        The compute target cannot *enforce* a cadence — SkyPilot snapshots
+        nothing and a managed job restarts the command from scratch, so only
+        the training loop can decide to call ``save_weights``. What the
+        target can do is own the numbers, since it is the thing that knows
+        what was bought and on what terms. The loop asks it, rather than
+        every caller re-deriving the arithmetic from its own guesses.
+        """
+        return SnapshotPolicy(snapshot_cost_s=self.cfg.snapshot_cost_s,
+                              mtbf_s=self.cfg.preemption_mtbf_s,
+                              max_loss_s=self.cfg.snapshot_max_loss_s,
+                              restart_s=self.cfg.restart_s)
+
     def _warn_if_preemption_would_lose_everything(self) -> None:
         """Spot without durable state is a run you will lose, not a discount.
 
@@ -380,6 +423,12 @@ class SkyPilotCompute(BaseCompute):
                 "from. Point these at storage that outlives the machine "
                 "(s3://…, postgresql://…) before running anything long.",
                 " or ".join(missing))
+            return
+        # State is durable, so the interesting question is no longer "will we
+        # lose everything" but "what does surviving cost" — which is the one
+        # number that decides whether spot was worth it.
+        policy = self.snapshot_policy()
+        log.info("[skypilot] preemption budget: %s", policy.describe())
 
     def recover(self) -> str:
         """Bring the service back after the instance went away.
