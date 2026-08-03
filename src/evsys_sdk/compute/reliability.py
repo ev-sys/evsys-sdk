@@ -53,6 +53,15 @@ something about the provider, an empty wallet says nothing at all."""
 PREEMPTED = "preempted"
 """The machine went away without being asked. Record ``uptime_s`` — this is the
 only source of MTBF."""
+DOA = "doa"
+"""The instance provisioned and accepted SSH, but the hardware was unusable.
+
+Distinct from both `launch_ok` and `launch_fail`, and the distinction is not
+pedantic: it is billed like a success and useless like a failure. Observed on
+a 2xA100 where `nvidia-smi` listed both GPUs with NVLink intact while
+`nvidia-fabricmanager` had aborted on an NVSwitch fault, leaving
+`torch.cuda.is_available()` false. Twenty minutes of rent before anyone
+noticed. Record `reason` and check for this before starting real work."""
 TORN_DOWN = "torn_down"
 """We ended it deliberately. Record ``uptime_s`` so it can censor the MTBF
 estimate correctly rather than being mistaken for a survival."""
@@ -117,7 +126,7 @@ def summary(events: Iterable[dict] | None = None) -> dict[tuple, dict]:
         r = rows.setdefault(k, {
             "provider": k[0], "gpu": k[1], "count": k[2],
             "launch_ok": 0, "launch_fail": 0, "fail_reasons": {},
-            "preempted": 0, "torn_down": 0,
+            "preempted": 0, "torn_down": 0, "doa": 0,
             "preempted_uptime_s": [], "censored_uptime_s": [],
             "wait_s": [], "usd_hr": [], "regions": set(),
         })
@@ -128,6 +137,10 @@ def summary(events: Iterable[dict] | None = None) -> dict[tuple, dict]:
             r["launch_ok"] += 1
             if isinstance(e.get("wait_s"), (int, float)):
                 r["wait_s"].append(e["wait_s"])
+            if isinstance(e.get("usd_hr"), (int, float)):
+                r["usd_hr"].append(e["usd_hr"])
+        elif ev == DOA:
+            r["doa"] += 1
             if isinstance(e.get("usd_hr"), (int, float)):
                 r["usd_hr"].append(e["usd_hr"])
         elif ev == LAUNCH_FAIL:
@@ -144,7 +157,9 @@ def summary(events: Iterable[dict] | None = None) -> dict[tuple, dict]:
                 r["censored_uptime_s"].append(e["uptime_s"])
 
     for r in rows.values():
-        attempts = r["launch_ok"] + r["launch_fail"]
+        attempts = r["launch_ok"] + r["launch_fail"] + r["doa"]
+        # DOA counts against the rate: it billed like a success and delivered
+        # nothing, which is what the caller actually needs to plan around.
         r["launch_rate"] = (r["launch_ok"] / attempts) if attempts else None
         up = r["preempted_uptime_s"]
         r["mtbf_s"] = (sum(up) / len(up)) if up else None
@@ -165,7 +180,9 @@ def report(events: Iterable[dict] | None = None) -> str:
     for k in sorted(rows):
         r = rows[k]
         lr = f"{r['launch_rate']*100:.0f}%" if r["launch_rate"] is not None else "-"
-        lr += f" ({r['launch_ok']}/{r['launch_ok']+r['launch_fail']})"
+        lr += f" ({r['launch_ok']}/{r['launch_ok']+r['launch_fail']+r['doa']})"
+        if r["doa"]:
+            lr += f"!{r['doa']}doa"
         mt = (f"{r['mtbf_s']/3600:.1f}h/{r['mtbf_samples']}" if r["mtbf_s"]
               else (f"0/{r['torn_down']}cens" if r["torn_down"] else "-"))
         w = f"{r['mean_wait_s']:.0f}s" if r["mean_wait_s"] is not None else "-"
@@ -197,5 +214,5 @@ def suggested_snapshot_interval_s(provider: str, gpu: str, count: int = 1,
     return (2.0 * snapshot_cost_s * mtbf) ** 0.5
 
 
-__all__ = ["LAUNCH_FAIL", "LAUNCH_OK", "PREEMPTED", "TORN_DOWN", "ledger_path",
+__all__ = ["DOA", "LAUNCH_FAIL", "LAUNCH_OK", "PREEMPTED", "TORN_DOWN", "ledger_path",
            "read", "record", "report", "suggested_snapshot_interval_s", "summary"]

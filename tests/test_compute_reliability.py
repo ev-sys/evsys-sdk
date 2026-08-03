@@ -111,3 +111,32 @@ class TestCadenceFromMeasurement:
         got = rel.suggested_snapshot_interval_s("v", "H200", snapshot_cost_s=5,
                                                 default_mtbf_s=3600)
         assert got == pytest.approx((2 * 5 * 3600) ** 0.5)
+
+
+class TestDeadOnArrival:
+    """A machine that provisions, accepts SSH, and cannot run CUDA is billed
+    like a success and useless like a failure. Observed on a 2xA100 whose
+    nvidia-fabricmanager had aborted on an NVSwitch fault while nvidia-smi
+    still listed both GPUs — 20 minutes of rent before it was noticed."""
+
+    def test_doa_counts_against_the_usable_launch_rate(self, ledger):
+        rel.record(rel.LAUNCH_OK, provider="v", gpu="A100", count=2)
+        rel.record(rel.DOA, provider="v", gpu="A100", count=2, reason="fabricmanager")
+        r = rel.summary()[("v", "A100", 2)]
+        assert r["doa"] == 1
+        assert r["launch_rate"] == pytest.approx(0.5)
+
+    def test_doa_is_not_a_capacity_failure(self, ledger):
+        """Capacity shortage says the provider is busy; a broken host says the
+        provider shipped faulty hardware. Different remedies."""
+        rel.record(rel.DOA, provider="v", gpu="A100", count=2, reason="fabricmanager")
+        r = rel.summary()[("v", "A100", 2)]
+        assert r["launch_fail"] == 0 and r["fail_reasons"] == {}
+
+    def test_doa_price_is_recorded_because_it_billed(self, ledger):
+        rel.record(rel.DOA, provider="v", gpu="A100", count=2, usd_hr=1.253)
+        assert rel.summary()[("v", "A100", 2)]["mean_usd_hr"] == pytest.approx(1.253)
+
+    def test_report_flags_doa_visibly(self, ledger):
+        rel.record(rel.DOA, provider="v", gpu="A100", count=2)
+        assert "doa" in rel.report()
