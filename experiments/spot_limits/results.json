@@ -1,21 +1,44 @@
 {
   "benchmark": "context-length limit sweep (synthetic tokens, LoRA r16, HF+SDPA, device_map=auto)",
-  "provider": "verda-spot",
-  "note": "Measures memory/throughput envelope + OOM ceiling per card. NOT the SkyRL/Megatron pipeline, so $/M is not directly comparable to earlier experiments/results.",
-  "cards": {
-    "1xA100": {
-      "gpu": "A100-SXM4-80GB",
-      "n": 1,
-      "vram_gb": 80,
-      "spot_usd_hr": 0.6265
-    },
-    "2xH100": {
-      "gpu": "H100 80GB HBM3",
-      "n": 2,
-      "vram_gb": 160,
-      "spot_usd_hr": 2.275
-    }
+  "provider": "verda",
+  "pricing": {
+    "1xA100": "spot $0.6265/hr",
+    "2xH100": "spot $2.275/hr",
+    "1xH200": "on-demand $4.00/hr"
   },
+  "note": "Memory/throughput envelope + OOM ceiling per card. NOT the SkyRL/Megatron pipeline; usd_per_M not comparable to earlier experiments/results.",
+  "oom_ceilings": [
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 16384
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 16384
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    }
+  ],
   "rows": [
     {
       "card": "1xA100",
@@ -27,6 +50,28 @@
       "peak_mem_mib": 36929,
       "usd_per_M": 0.0424,
       "loss": 12.107
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 2048,
+      "tok_s": 9337.8,
+      "peak_mem_gb": 36.7,
+      "peak_util": 100.0,
+      "peak_mem_mib": 37169,
+      "usd_per_M": 0.119,
+      "loss": 12.088
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 8192,
+      "tok_s": 8444.5,
+      "peak_mem_gb": 97.0,
+      "peak_util": 100.0,
+      "peak_mem_mib": 112081,
+      "usd_per_M": 0.1316,
+      "loss": 11.977
     },
     {
       "card": "2xH100",
@@ -60,6 +105,28 @@
       "peak_mem_mib": 56637,
       "usd_per_M": 0.2094,
       "loss": 12.903
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "tok_s": 1518.8,
+      "peak_mem_gb": 56.4,
+      "peak_util": 86.0,
+      "peak_mem_mib": 56877,
+      "usd_per_M": 0.7316,
+      "loss": 12.907
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 4096,
+      "tok_s": 1455.0,
+      "peak_mem_gb": 94.7,
+      "peak_util": 100.0,
+      "peak_mem_mib": 100299,
+      "usd_per_M": 0.7637,
+      "loss": 12.604
     },
     {
       "card": "2xH100",

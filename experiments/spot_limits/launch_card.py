@@ -6,6 +6,7 @@ import base64, json, os, sys, time, urllib.request, urllib.error
 SD = os.path.dirname(os.path.abspath(__file__))
 API = "https://api.verda.com/v1"
 sku, region, card, price, r8, r9 = sys.argv[1:7]
+SPOT = (len(sys.argv) < 8) or (sys.argv[7].lower() != "ondemand")
 TOPIC = open(f"{SD}/ntfy_topic.txt").read().strip()
 KID = open(f"{SD}/key_id.txt").read().strip()
 
@@ -55,15 +56,16 @@ echo STARTUP_RETURNED
 for k, v in {"__TOPIC__": TOPIC, "__CARD__": card, "__PRICE__": price, "__R8__": r8, "__R9__": r9, "__B64__": b64}.items():
     startup = startup.replace(k, v)
 sid = call("scripts", {"name": f"evsys-{card}", "script": startup}, "POST").strip().strip('"')
-av = call(f"instance-availability/{sku}?is_spot=true&location_code={region}").strip()
-print(f"{card} {sku}/{region} spot avail:", av)
+av = call(f"instance-availability/{sku}?is_spot={'true' if SPOT else 'false'}&location_code={region}").strip()
+print(f"{card} {sku}/{region} {'spot' if SPOT else 'on-demand'} avail:", av)
 if av != "true":
     print("NOT AVAILABLE"); sys.exit(2)
 vol = f"evsys-{card}-{int(time.time())}"
 body = {"instance_type": sku, "image": "aaaaaaaa-3dd9-4d09-9512-52d8032fff6e",
         "ssh_key_ids": [KID], "startup_script_id": sid, "hostname": f"evsys-{card}".lower(),
-        "description": f"evsys {card} autorun", "location_code": region, "is_spot": True,
-        "contract": "SPOT", "os_volume": {"name": vol, "size": 300}}
+        "description": f"evsys {card} autorun", "location_code": region,
+        "is_spot": SPOT, "contract": "SPOT" if SPOT else "PAY_AS_YOU_GO",
+        "os_volume": {"name": vol, "size": 300}}
 iid = call("instances", body).strip().strip('"')
 print("LAUNCHED:", iid, vol)
 existing = json.load(open(f"{SD}/live_instances.json")) if os.path.exists(f"{SD}/live_instances.json") else []

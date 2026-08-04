@@ -13,10 +13,14 @@ comparable to the earlier `experiments/results/*.json` ($/M) figures.
 
 ## Measured ceilings (context before OOM)
 
-| Model | 1×A100 80GB | 2×H100 160GB | 2×H200 282GB |
+| Model | 1×A100 80GB (spot) | 2×H100 160GB (spot) | 1×H200 141GB (on-demand) |
 |---|---|---|---|
-| Qwen3-8B  | ~2k (OOM @ 8k)  | ~8k (OOM @ 16k)  | pending spot |
-| Qwen3.5-9B | ~2k (OOM @ 8k) | ~4k (OOM @ 8k)   | pending spot |
+| Qwen3-8B  | ~2k (OOM @ 8k)  | ~8k (OOM @ 16k)  | ~8k (OOM @ 16k) |
+| Qwen3.5-9B | ~2k (OOM @ 8k) | ~4k (OOM @ 8k)   | ~4k (OOM @ 8k) |
+
+(2×H200 spot was intermittently out of stock during the run; the H200 point is
+a single 141 GB card on-demand — same ceiling as 2×H100, reached faster since a
+single card has no cross-GPU pipeline overhead.)
 
 ## Notes
 - **Memory-bound, not compute-bound on H100:** 8B on 2×H100 sits at ~56% GPU
