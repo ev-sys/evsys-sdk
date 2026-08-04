@@ -1,17 +1,28 @@
 {
   "benchmark": "Qwen3.5-9B multi-axis sweep with SkyRL-style OOM prevention",
-  "technique": "chunked cross-entropy (no full [B,T,vocab] logits tensor; equivalent to SkyRL fused_lm_head_logprob + logprobs_chunk_size 1024) + gradient checkpointing; LoRA r16, SDPA, device_map=auto",
-  "steps": "1 warmup + up to 6 measured; 75s/cell budget (long-context cells report fewer steps)",
-  "before_fix": "naive full-logits path OOM'd 9B at 8k (needed ~97GB). This fix runs 9B to 32k on one 80GB H100.",
+  "technique": "chunked cross-entropy (no full [B,T,vocab] logits; == SkyRL fused_lm_head_logprob + logprobs_chunk_size 1024) + gradient checkpointing; LoRA, SDPA, device_map=auto",
+  "steps": "1 warmup + up to 6 measured; 75s/cell budget",
+  "key_findings": [
+    "Naive full-logits path OOM'd 9B at 8k (needed ~97GB); chunked-CE runs it to 32k on one 80GB H100 (62GB).",
+    "Context ceiling ~32k on BOTH 1xH100 and 2xH100 -- device_map='auto' shards parameters, not per-layer activations, so naive pipeline does NOT raise the ceiling. 64k needs Megatron tensor/sequence parallelism (the SkyRL stack).",
+    "Batching is the throughput/cost lever: 2xH100 2k b8 = 2021 tok/s @ $0.89/M vs b1 = 901 tok/s @ $2.00/M.",
+    "1xA100 spot preempted mid-sweep (Verda ~1 preemption/launch)."
+  ],
+  "pricing_note": "1xA100 spot $0.6265; 1xH100 on-demand $3.25; 1xH200 on-demand $4.00; 2xH100 on-demand $6.50. Synthetic tokens.",
   "chunked_run_oom": [
     {
       "card": "1xH100",
-      "seq": 65536,
-      "batch": 1,
-      "rank": 16
+      "seq": 65536
+    },
+    {
+      "card": "2xH100",
+      "seq": 65536
+    },
+    {
+      "card": "2xH100",
+      "seq": 131072
     }
   ],
-  "pricing_note": "1xH100/1xH200 = on-demand ($3.25/$4.00/hr); 1xA100 = spot ($0.6265/hr, preempted mid-sweep). Synthetic tokens.",
   "rows": [
     {
       "card": "1xA100",
@@ -142,6 +153,110 @@
       "usd_per_M": 1.4147,
       "steps": 8,
       "loss": 12.693
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "batch": 1,
+      "rank": 16,
+      "tok_s": 901.0,
+      "peak_mem_gb": 24.2,
+      "peak_util": 41.0,
+      "usd_per_M": 2.004,
+      "steps": 6,
+      "loss": 13.317
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 8192,
+      "batch": 1,
+      "rank": 16,
+      "tok_s": 692.8,
+      "peak_mem_gb": 36.3,
+      "peak_util": 50.0,
+      "usd_per_M": 2.6062,
+      "steps": 6,
+      "loss": 12.878
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 16384,
+      "batch": 1,
+      "rank": 16,
+      "tok_s": 449.7,
+      "peak_mem_gb": 52.6,
+      "peak_util": 50.0,
+      "usd_per_M": 4.015,
+      "steps": 3,
+      "loss": 12.738
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 32768,
+      "batch": 1,
+      "rank": 16,
+      "tok_s": 263.6,
+      "peak_mem_gb": 85.0,
+      "peak_util": 50.5,
+      "usd_per_M": 6.8504,
+      "steps": 1,
+      "loss": 12.688
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "batch": 2,
+      "rank": 16,
+      "tok_s": 1526.3,
+      "peak_mem_gb": 28.2,
+      "peak_util": 55.5,
+      "usd_per_M": 1.183,
+      "steps": 6,
+      "loss": 12.629
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 8192,
+      "batch": 2,
+      "rank": 16,
+      "tok_s": 829.5,
+      "peak_mem_gb": 52.6,
+      "peak_util": 54.0,
+      "usd_per_M": 2.1766,
+      "steps": 4,
+      "loss": 12.587
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "batch": 4,
+      "rank": 16,
+      "tok_s": 1869.1,
+      "peak_mem_gb": 36.3,
+      "peak_util": 50.0,
+      "usd_per_M": 0.966,
+      "steps": 6,
+      "loss": 12.617
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "batch": 8,
+      "rank": 16,
+      "tok_s": 2021.1,
+      "peak_mem_gb": 52.6,
+      "peak_util": 84.0,
+      "usd_per_M": 0.8933,
+      "steps": 6,
+      "loss": 12.605
     }
   ]
 }

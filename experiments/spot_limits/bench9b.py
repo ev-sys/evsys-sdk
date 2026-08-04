@@ -20,8 +20,8 @@ STEPS = int(os.environ.get("STEPS", "6"))        # measured steps — "small dec
 CELL_BUDGET = float(os.environ.get("CELL_BUDGET", "75"))  # s: stop a cell early, report steps done
 # (seq_len, batch, lora_rank) cells. Primary: seq ladder at b=1; then batch at 2k/8k; then rank.
 CELLS = json.loads(os.environ.get("CELLS", json.dumps(
-    [[2048, 1, 16], [8192, 1, 16], [16384, 1, 16], [32768, 1, 16], [65536, 1, 16],
-     [2048, 2, 16], [2048, 4, 16], [2048, 8, 16], [8192, 2, 16], [8192, 4, 16], [2048, 1, 64]])))
+    [[2048, 1, 16], [8192, 1, 16], [16384, 1, 16], [32768, 1, 16], [65536, 1, 16], [131072, 1, 16],
+     [2048, 2, 16], [2048, 4, 16], [2048, 8, 16], [8192, 2, 16], [8192, 4, 16], [2048, 1, 64], [8192, 1, 64]])))
 
 
 def say(title, msg):
@@ -59,7 +59,10 @@ def chunked_ce(hidden, weight, targets, chunk):
     """
     import torch, torch.nn.functional as F
     B, T, H = hidden.shape
-    h = hidden.reshape(B * T, H); tgt = targets.reshape(B * T)
+    # device_map="auto" can leave hidden/lm_head on a later GPU than the inputs;
+    # align weight+targets to the hidden-states device so CE stays on one device.
+    weight = weight.to(hidden.device)
+    h = hidden.reshape(B * T, H); tgt = targets.reshape(B * T).to(hidden.device)
     total = h.new_zeros(())
     n = 0
     for i in range(0, B * T, chunk):
