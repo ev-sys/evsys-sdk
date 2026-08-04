@@ -87,6 +87,7 @@ _triggers = Registry("trigger")
 _sandboxes = Registry("sandbox")
 _context_sources = Registry("context_source")
 _computes = Registry("compute")
+_availabilities = Registry("availability")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -148,6 +149,16 @@ def register_compute(name: str | None = None):
     return _computes.register(name)
 
 
+def register_availability(name: str | None = None):
+    """A vendor that can answer whether GPUs are free to rent right now.
+
+    Separate from `compute` (which runs the work) and pricing (which says what
+    it costs) because capacity is the question nobody else answers: SkyPilot's
+    catalog holds prices only, so it learns about capacity by failing a launch.
+    """
+    return _availabilities.register(name)
+
+
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register the default ``(run_result, run_cfg) -> InferenceClient`` for
     a backend kind. Called by each inference module's import side-effect
@@ -206,6 +217,14 @@ def get_context_source(name: str) -> type:
     return _context_sources.get(name)
 def get_compute(name: str) -> type:
     return _computes.get(name)
+
+
+def get_availability(name: str) -> type:
+    return _availabilities.get(name)
+
+
+def list_availabilities() -> list[str]:
+    return _availabilities.list()
 
 
 def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
@@ -278,6 +297,7 @@ def _all_registries() -> dict[str, Registry]:
         "sandbox": _sandboxes,
         "context_source": _context_sources,
         "compute": _computes,
+        "availability": _availabilities,
     }
 
 
