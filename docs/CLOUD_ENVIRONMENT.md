@@ -15,8 +15,14 @@ directory that does not exist: 170 passed.
 
 `.claude/settings.json` runs `scripts/claude-session-start.sh` at SessionStart.
 It no-ops locally (`CLAUDE_CODE_REMOTE` is only `true` in the cloud) and in a
-cloud session installs the `dev` and `skypilot` extras, then prints whether each
-GPU vendor is reachable.
+cloud session installs dependencies, then prints whether each GPU vendor is
+reachable.
+
+`skypilot` is installed on its own rather than as a sync extra, because
+`uv sync --extra skypilot` is **unresolvable**: skypilot 0.13 pins
+`uvicorn<0.36` while harbor requires `>=0.38`. Installing it after the sync
+downgrades uvicorn and works, which is how a working dev venv is actually
+built. Without it the provisioning code does not import at all.
 
 ## What you have to configure, and why
 
@@ -52,22 +58,42 @@ setup script means each session starts with `.venv` already on disk.
 
 ### Credentials
 
-There is **no secrets store**. Environment variables in a cloud environment are
-readable by anyone who can use that environment, and the dialog says so.
+The SDK reads vendor credentials from **files**, but a cloud environment only
+offers **variables**. `scripts/cloud-setup.sh` bridges the two: it writes
+`~/.verda/config.json`, `~/.vast/config.json` and `~/.prime/config.json` at
+0600 from the variables below, so the SDK finds them where it expects.
 
-That is a real constraint here rather than a nuisance: this SDK provisions
-machines that bill by the hour, and a leaked Verda key is someone else's GPU
-fleet on your balance. So:
+Add these to the environment's **Environment variables** field:
 
-* **Prefer not to.** Almost every task on this repo — writing providers, fixing
-  the queue, extending the availability layer — needs no credentials at all.
-* **Vast.ai search needs none.** Pricing and availability work unauthenticated;
-  only renting needs a key. Use Vast for live capacity questions in the cloud.
-* If a session genuinely must rent, put `VAST_API_KEY` in the environment
-  variables, scope it as narrowly as the vendor allows, and rotate it after.
-  Verda uses OAuth client credentials from `~/.verda/config.json`, which a
-  setup script would have to write from an environment variable — same
-  visibility caveat, so do it only when the task requires it.
+```
+VERDA_CLIENT_ID=...
+VERDA_CLIENT_SECRET=...
+VAST_API_KEY=...
+PRIME_API_KEY=...
+```
+
+To generate that block from the credentials already on your machine, without
+reading them out anywhere they could be captured:
+
+```bash
+./scripts/print-cloud-env.sh
+```
+
+Copy its output straight into the browser field.
+
+Know what you are accepting. A cloud environment has **no secrets store** — the
+dialog says as much — and its variables are readable by anyone who can use the
+environment. These particular keys rent GPUs that bill by the hour, so a leak is
+someone else's fleet on your balance. Scope each key as narrowly as the vendor
+allows and rotate them when the work is done.
+
+Two ways to need fewer of them:
+
+* Most work on this repo — providers, the queue, the availability layer — needs
+  no credentials at all, because the tests are hermetic.
+* **Vast.ai search needs no key.** Pricing and availability work
+  unauthenticated; only renting requires one. For live capacity questions from
+  a cloud session, Vast answers without a credential in the environment.
 
 ## Limits that matter for this repo
 
