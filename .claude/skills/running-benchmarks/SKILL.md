@@ -146,19 +146,49 @@ Target: Tinker's **$0.737/M at 64K context**. A model×card claim needs:
 - Availability listings lag reality; the per-SKU endpoint is the authority,
   and stock churns minute-to-minute — retry, or take the equivalent card.
 
-## Qwen3.5-9B: the recipe (and the traps)
+## Qwen3.5-9B: the debug tree (walk it in this order)
 
-- Megatron **TP=1 fails at `MegatronPolicyWorkerBase.init_model()`** — this
-  looked like "9B doesn't run" but is a sharding floor, not an arch wall.
-  Upstream runs 9B DAPO with **TP=4 on 8×H100** (full FT + Adam); LoRA-only
-  serving wants TP=2 minimum. TP>1 auto-enables sequence parallelism.
-- vLLM 0.23 serves 9B with `engine_init_kwargs={"gdn_prefill_backend":
-  "triton"}` and `enforce_eager=true`.
-- `trainer.remove_microbatch_padding=false` — **sample packing is not
-  supported for GDN layers in Megatron** (Megatron-LM #2644), so the packing
-  gains documented above do not apply to 9B.
-- GDN TileLang kernels fail to JIT on Ampere and Blackwell; Hopper is the
-  only lane.
+**Backend choice first.** The tinker server's default backend is **`jax`**
+(the `skyrl/tx` engine): native Qwen3.5 implementation, native batched
+multiLoRA (`max_lora_adapters`), no megatron-bridge, no TileLang. Launch with
+`--extra tinker --extra jax --extra gpu` (the `gpu` extra is what brings
+`jax[cuda12]`). This is the first lane to try for 9B. Qwen3.6-27B has **no tx
+support** (tx covers qwen3, qwen3_5, llama3, deepseekv3) — 27B is
+megatron-only.
+
+**jax/tx lane, measured on 1×H100 80GB:** server boots in seconds, model
+loads, GPU computes at 100% util — but training **OOMs at 4096×4** even with
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` (77.7 GiB arena),
+`gradient_checkpointing: true` and `max_lora_adapters: 8`. A single 80 GB
+card cannot train tx-9B; set `"tensor_parallel_size": 2` on a 2-GPU box.
+XLA traps: nvidia-smi shows the *preallocated arena*, not real usage; the
+default 0.75 fraction OOMs the step, 0.92 starves the GEMM **autotuner**
+("Failed to get configs for N instructions") — the autotuner needs in-arena
+scratch, so fraction tuning alone cannot fix an over-budget model.
+
+**megatron lane:** TP=1 fails at `init_model()` (sharding floor). TP=2 with
+`fused_lm_head_logprob: true` fails: megatron-bridge routes 9B through its
+Qwen3-VL model whose `forward()` rejects the tinker fused path's
+`output_processor` kwarg — set `fused_lm_head_logprob: false`. Then the GDN
+**TileLang JIT** needs a full CUDA toolkit: Verda's image has CUDA 12.8 at
+`/usr/local/cuda` but **not on PATH**, and the apt nvcc is 11.5 (no
+`<cuda/atomic>` → "fatal error: cuda/atomic: No such file or directory").
+Export `CUDA_HOME=/usr/local/cuda` and prepend `/usr/local/cuda/bin` in the
+server script (workers inherit). After that fix the first cell ran >48 min
+without output (TileLang JIT is slow; unresolved) — prefer the jax lane.
+Upstream reference: 9B DAPO runs megatron **TP=4 on 8×H100** (full FT).
+
+- vLLM 0.23 serves 9B rollouts with `engine_init_kwargs=
+  {"gdn_prefill_backend": "triton"}` and `enforce_eager=true`.
+- `trainer.remove_microbatch_padding=false` — sample packing unsupported for
+  GDN in Megatron (Megatron-LM #2644); packing gains don't apply to 9B.
+- GDN TileLang JIT fails on Ampere/Blackwell by design; on Hopper it needs
+  the toolkit fix above. `FLA_TILELANG=0` forces the triton GDN backend, but
+  triton GDN *backward* is broken on Hopper (fla #640) — leave unset there.
+
+**Observability rule:** every blind box runs a heartbeat sidecar —
+`nvidia-smi` util/mem + run-log tail + server-log tail streamed every 120 s.
+A silent 48-minute cell taught this: never launch without it.
 
 ## Known limits (agent knowledge — update after every campaign)
 
