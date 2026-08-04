@@ -1,0 +1,268 @@
+{
+  "benchmark": "REAL SkyRL stack (tinker server + Megatron backend), run blind via cloud-init + HTTPS streaming",
+  "hardware": "2xH200 spot, $1.40/GPU-hr; single-GPU policy server (server_gapBs config: fused_lm_head_logprob + logprobs_chunk_size 1024)",
+  "validation": "4B numbers land within the branch's original H200 range ($0.045-0.050/M) -- blind pipeline reproduces the SSH-era campaign",
+  "qwen35_9b_verdict": "FAILS on Hopper too: MegatronPolicyWorkerBase.init_model() 400s on both cells (ok_tenants=0). Combined with the branch's Ampere/Blackwell JIT failures, 9B does not run on the real stack on ANY tested card. The HF/SDPA chunked-CE path (results_9b_chunked.json) remains the only measured way to train it.",
+  "val4b": {
+    "price_hr": 1.4,
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "rank": 32,
+    "gpu": "2x NVIDIA H200 140GB",
+    "tinker_usd_per_M_train": 0.737,
+    "context": [
+      {
+        "seq_len": 512,
+        "batch": 128,
+        "tenants": 1,
+        "tokens_per_step": 65536,
+        "gpu": {
+          "mean_util": 11.521472392638037,
+          "busy_util": 26.338028169014084,
+          "peak_mem_gib": 16.2421875,
+          "baseline_mem_gib": 0.0,
+          "delta_mem_gib": 16.2421875,
+          "mean_watts": 148.00791411042945
+        },
+        "ok_tenants": 1,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 1740.1206246125996,
+        "usd_per_M": 0.22348386852518723
+      },
+      {
+        "seq_len": 2048,
+        "batch": 32,
+        "tenants": 1,
+        "tokens_per_step": 65536,
+        "gpu": {
+          "mean_util": 54.391304347826086,
+          "busy_util": 69.5,
+          "peak_mem_gib": 17.59765625,
+          "baseline_mem_gib": 11.53515625,
+          "delta_mem_gib": 6.0625,
+          "mean_watts": 398.44000000000005
+        },
+        "ok_tenants": 1,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 6209.587909550008,
+        "usd_per_M": 0.06262716536966953
+      },
+      {
+        "seq_len": 8192,
+        "batch": 8,
+        "tenants": 1,
+        "tokens_per_step": 65536,
+        "gpu": {
+          "mean_util": 74.77777777777777,
+          "busy_util": 84.125,
+          "peak_mem_gib": 19.708984375,
+          "baseline_mem_gib": 11.541015625,
+          "delta_mem_gib": 8.16796875,
+          "mean_watts": 579.6688888888889
+        },
+        "ok_tenants": 1,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7735.361306139061,
+        "usd_per_M": 0.050274172530280214
+      }
+    ],
+    "adapters": [
+      {
+        "seq_len": 8192,
+        "batch": 8,
+        "tenants": 1,
+        "tokens_per_step": 65536,
+        "gpu": {
+          "mean_util": 75.33333333333333,
+          "busy_util": 84.75,
+          "peak_mem_gib": 19.712890625,
+          "baseline_mem_gib": 11.54296875,
+          "delta_mem_gib": 8.169921875,
+          "mean_watts": 580.99
+        },
+        "ok_tenants": 1,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7603.945766031468,
+        "usd_per_M": 0.05114303821394187
+      },
+      {
+        "seq_len": 8192,
+        "batch": 8,
+        "tenants": 2,
+        "tokens_per_step": 131072,
+        "gpu": {
+          "mean_util": 67.375,
+          "busy_util": 89.83333333333333,
+          "peak_mem_gib": 19.716796875,
+          "baseline_mem_gib": 11.546875,
+          "delta_mem_gib": 8.169921875,
+          "mean_watts": 527.481
+        },
+        "ok_tenants": 2,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7798.141677891849,
+        "usd_per_M": 0.04986943107117556
+      },
+      {
+        "seq_len": 8192,
+        "batch": 8,
+        "tenants": 4,
+        "tokens_per_step": 262144,
+        "gpu": {
+          "mean_util": 75.08333333333333,
+          "busy_util": 91.57627118644068,
+          "peak_mem_gib": 19.728515625,
+          "baseline_mem_gib": 11.55078125,
+          "delta_mem_gib": 8.177734375,
+          "mean_watts": 571.7768055555556
+        },
+        "ok_tenants": 4,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 8203.35841428164,
+        "usd_per_M": 0.04740605850060782
+      },
+      {
+        "seq_len": 8192,
+        "batch": 4,
+        "tenants": 8,
+        "tokens_per_step": 262144,
+        "gpu": {
+          "mean_util": 73.37179487179488,
+          "busy_util": 92.29032258064517,
+          "peak_mem_gib": 19.75,
+          "baseline_mem_gib": 11.5625,
+          "delta_mem_gib": 8.1875,
+          "mean_watts": 534.7173076923076
+        },
+        "ok_tenants": 8,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 8050.980407176265,
+        "usd_per_M": 0.04830329589949711
+      },
+      {
+        "seq_len": 8192,
+        "batch": 2,
+        "tenants": 12,
+        "tokens_per_step": 196608,
+        "gpu": {
+          "mean_util": 65.98529411764706,
+          "busy_util": 89.72,
+          "peak_mem_gib": 19.783203125,
+          "baseline_mem_gib": 11.583984375,
+          "delta_mem_gib": 8.19921875,
+          "mean_watts": 475.91764705882355
+        },
+        "ok_tenants": 12,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7708.405193558024,
+        "usd_per_M": 0.050449980135175876
+      },
+      {
+        "seq_len": 8192,
+        "batch": 2,
+        "tenants": 16,
+        "tokens_per_step": 262144,
+        "gpu": {
+          "mean_util": 68.44186046511628,
+          "busy_util": 89.16666666666667,
+          "peak_mem_gib": 19.826171875,
+          "baseline_mem_gib": 11.6171875,
+          "delta_mem_gib": 8.208984375,
+          "mean_watts": 492.6420930232558
+        },
+        "ok_tenants": 16,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7751.97569175051,
+        "usd_per_M": 0.05016642264535688
+      },
+      {
+        "seq_len": 8192,
+        "batch": 1,
+        "tenants": 24,
+        "tokens_per_step": 196608,
+        "gpu": {
+          "mean_util": 58.0253164556962,
+          "busy_util": 84.85185185185185,
+          "peak_mem_gib": 19.8515625,
+          "baseline_mem_gib": 11.66015625,
+          "delta_mem_gib": 8.19140625,
+          "mean_watts": 426.263670886076
+        },
+        "ok_tenants": 24,
+        "errors": [],
+        "data_source": "emozilla/pg19",
+        "tok_s": 7131.150797525509,
+        "usd_per_M": 0.054533819285357464
+      }
+    ],
+    "best_throughput_cfg": {
+      "seq_len": 8192,
+      "batch": 8
+    },
+    "longest_that_fit": 8192
+  },
+  "val9b": {
+    "price_hr": 1.4,
+    "model": "Qwen/Qwen3.5-9B",
+    "rank": 32,
+    "gpu": "2x NVIDIA H200 140GB",
+    "tinker_usd_per_M_train": 0.737,
+    "context": [
+      {
+        "seq_len": 512,
+        "batch": 16,
+        "tenants": 1,
+        "tokens_per_step": 8192,
+        "gpu": {
+          "mean_util": 0.4457831325301205,
+          "busy_util": 6.0,
+          "peak_mem_gib": 32.42578125,
+          "baseline_mem_gib": 0.0,
+          "delta_mem_gib": 32.42578125,
+          "mean_watts": 104.01120481927711
+        },
+        "ok_tenants": 0,
+        "errors": [
+          "ValueError: Error retrieving result: Error code: 400 - {'detail': '\\x1b[36mray::MegatronPolicyWorkerBase.init_model()\\x1b[39m (pid=18065, ip=86.38.182.74, actor_id=7f8e998d21a822765251698301000000, repr=<skyrl.backends.skyrl_train.workers.megatron.megatron_wor"
+        ],
+        "data_source": null,
+        "oom": false
+      }
+    ],
+    "adapters": [
+      {
+        "seq_len": 8192,
+        "batch": 8,
+        "tenants": 1,
+        "tokens_per_step": 65536,
+        "gpu": {
+          "mean_util": 1.45,
+          "busy_util": 7.0,
+          "peak_mem_gib": 32.42578125,
+          "baseline_mem_gib": 32.42578125,
+          "delta_mem_gib": 0.0,
+          "mean_watts": 119.047
+        },
+        "ok_tenants": 0,
+        "errors": [
+          "ValueError: Error retrieving result: Error code: 400 - {'detail': '\\x1b[36mray::MegatronPolicyWorkerBase.init_model()\\x1b[39m (pid=18629, ip=86.38.182.74, actor_id=1af0090c1f466a5507ae8f5a01000000, repr=<skyrl.backends.skyrl_train.workers.megatron.megatron_wor"
+        ],
+        "data_source": null,
+        "oom": false
+      }
+    ],
+    "best_throughput_cfg": {
+      "seq_len": 8192,
+      "batch": 8
+    },
+    "longest_that_fit": 8192
+  }
+}
