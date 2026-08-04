@@ -216,6 +216,19 @@ class SkyPilotComputeConfig(BaseModel):
 
     Spot capacity comes and goes, so the first attempt failing says little.
     Bounded by ``startup_timeout_s`` rather than left to run forever."""
+    wait_for_capacity_s: float | None = None
+    """Poll the provider for free GPUs before asking SkyPilot to provision.
+
+    SkyPilot has no notion of availability — its catalog holds prices, and it
+    discovers capacity by attempting a launch and failing over. That is fine
+    when something is free somewhere, and useless overnight when nothing is:
+    it burns a provisioning round-trip per guess and reports the same
+    ``ResourcesUnavailableError`` whether the vendor is out of stock or out of
+    reach. :mod:`.availability` asks the vendors directly, so the launch is
+    attempted when it can plausibly succeed.
+
+    None (default) launches immediately, preserving SkyPilot's own behaviour.
+    A number waits up to that many seconds. 0 checks once and reports."""
     startup_timeout_s: float = Field(default=2400.0, gt=0)
     """Provisioning + model download + engine warmup. Genuinely slow."""
     teardown: bool = True
@@ -516,6 +529,65 @@ class SkyPilotCompute(BaseCompute):
                      note[status])
         return [(i, a) for _, _, _, i, a in ranked]
 
+    def _await_capacity(self) -> None:
+        """Block until some vendor has the accelerator free, if asked to.
+
+        Deliberately advisory: it never cancels a launch. Capacity answers go
+        stale in about half a minute — every SKU that probed free was refused
+        seconds later at some point today — so treating a probe as a veto would
+        block launches that would have succeeded. What it buys is knowing
+        *when* to try, and being able to wait for hours without hammering the
+        provisioning API.
+        """
+        wait = self.cfg.wait_for_capacity_s
+        if wait is None or not self.cfg.accelerators:
+            return
+        accel = self._as_list(self.cfg.accelerators)[0]
+        gpu, _, n = str(accel).partition(":")
+        try:
+            count = int(n) if n else 1
+        except ValueError:
+            count = 1
+        try:
+            from . import availability as av
+            found = av.wait_for(gpu, count, timeout_s=wait, poll_s=60)
+        except Exception as e:  # noqa: BLE001
+            log.debug("[skypilot] capacity check skipped: %s", e)
+            return
+        ready = [c for c in found if c.ok]
+        if ready:
+            log.info("[skypilot] %d vendor(s) have %s x%d free; cheapest %s",
+                     len(ready), gpu, count, ready[0].describe())
+        else:
+            # Launching anyway: a probe saying no is weaker evidence than the
+            # launch call itself, and SkyPilot may reach clouds we cannot probe.
+            log.warning("[skypilot] no vendor reports %s x%d free after %.0fs "
+                        "— launching anyway", gpu, count, wait)
+
+    def _refresh_catalog(self) -> None:
+        """Update SkyPilot's own price catalog before it plans.
+
+        SkyPilot decides everything — which candidate is cheapest, what order
+        to fail over in — from a CSV it downloaded some time ago. Rewriting
+        that file with live prices means its optimizer keeps working exactly as
+        designed, on numbers that are true. Better than patching SkyPilot, and
+        better than routing around it.
+
+        Best-effort: a provider we cannot price leaves the catalog alone, since
+        stale prices beat no catalog at all.
+        """
+        if not (self.cfg.price_check and self.cfg.infra):
+            return
+        try:
+            from . import catalog
+            cloud = self._as_list(self.cfg.infra)[0].split("/")[0].lower()
+            got = catalog.refresh_if_stale(cloud)
+            if got and got.get("updated"):
+                log.info("[skypilot] refreshed %d catalog prices for %s before "
+                         "planning", got["updated"], cloud)
+        except Exception as e:  # noqa: BLE001
+            log.debug("[skypilot] catalog refresh skipped: %s", e)
+
     def _price_check(self) -> None:
         """Log what this will really cost, and say so plainly if it cannot run.
 
@@ -586,6 +658,8 @@ class SkyPilotCompute(BaseCompute):
             self._url = url
             return url
 
+        self._refresh_catalog()
+        self._await_capacity()
         self._price_check()
         self._warn_if_preemption_would_lose_everything()
         log.info("[skypilot] launching %s (infra=%s accel=%s model=%s creds=%s)",
