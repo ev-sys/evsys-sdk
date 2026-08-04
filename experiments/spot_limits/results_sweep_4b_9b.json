@@ -1,0 +1,192 @@
+{
+  "benchmark": "4B + 9B multi-axis sweep: seq x batch x rank x multiLoRA-count (chunked-CE + grad-checkpoint)",
+  "axes": "seq_len, batch, lora_rank, adapters (concurrent LoRA / multiLoRA)",
+  "technique": "chunked cross-entropy (SkyRL fused_lm_head_logprob equivalent) + gradient checkpointing; SDPA; device_map=auto",
+  "key_findings": [
+    "multiLoRA is nearly free on memory: 4B a1/a4/a8 = 11.5/11.7/11.9GB (adapters are tiny); aggregate throughput ~flat, so per-adapter throughput ~1/N (no batched multiLoRA kernel in HF path -- vLLM/punica needed for that).",
+    "batch is the throughput/cost lever: 4B 2k b1->b8 tok/s 8226->9784, $/M 0.110->0.092.",
+    "4B context ceiling ~64k on one 80GB H100 (62.8GB, OOM 128k); 9B ceiling ~32k.",
+    "9B on 2xH100 spot ($2.275): $0.70/M at 2k vs on-demand runs -- spot roughly halves $/M."
+  ],
+  "pricing": {
+    "1xH100-4b": "on-demand $3.25",
+    "2xH100-9b": "spot $2.275"
+  },
+  "oom": [
+    {
+      "card": "1xH100-4b",
+      "model": null,
+      "seq": 131072
+    }
+  ],
+  "rows": [
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 2048,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 8226.2,
+      "peak_mem_gb": 11.5,
+      "peak_util": 100.0,
+      "usd_per_M": 0.1097,
+      "steps": 6,
+      "loss": 12.455
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 8192,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 7522.1,
+      "peak_mem_gb": 16.4,
+      "peak_util": 100.0,
+      "usd_per_M": 0.12,
+      "steps": 6,
+      "loss": 12.137
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 32768,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 4426.9,
+      "peak_mem_gb": 36.3,
+      "peak_util": 100.0,
+      "usd_per_M": 0.2039,
+      "steps": 6,
+      "loss": 12.031
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 65536,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 2761.1,
+      "peak_mem_gb": 62.8,
+      "peak_util": 100.0,
+      "usd_per_M": 0.327,
+      "steps": 4,
+      "loss": 11.995
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 2048,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 4,
+      "tok_s": 7527.1,
+      "peak_mem_gb": 11.7,
+      "peak_util": 100.0,
+      "usd_per_M": 0.1199,
+      "steps": 6,
+      "loss": 12.853
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 2048,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 8,
+      "tok_s": 7524.3,
+      "peak_mem_gb": 11.9,
+      "peak_util": 100.0,
+      "usd_per_M": 0.12,
+      "steps": 6,
+      "loss": 12.939
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 2048,
+      "batch": 4,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 9529.0,
+      "peak_mem_gb": 16.4,
+      "peak_util": 100.0,
+      "usd_per_M": 0.0947,
+      "steps": 6,
+      "loss": 11.984
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 8192,
+      "batch": 4,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 7915.4,
+      "peak_mem_gb": 36.3,
+      "peak_util": 100.0,
+      "usd_per_M": 0.1141,
+      "steps": 6,
+      "loss": 11.964
+    },
+    {
+      "card": "1xH100-4b",
+      "model": "Qwen/Qwen3-4B-Instruct-2507",
+      "seq": 2048,
+      "batch": 8,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 9783.6,
+      "peak_mem_gb": 23.1,
+      "peak_util": 100.0,
+      "usd_per_M": 0.0923,
+      "steps": 6,
+      "loss": 11.979
+    },
+    {
+      "card": "2xH100-9b",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 903.8,
+      "peak_mem_gb": 24.4,
+      "peak_util": 39.5,
+      "usd_per_M": 0.6992,
+      "steps": 6,
+      "loss": 13.275
+    },
+    {
+      "card": "2xH100-9b",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 8192,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 688.2,
+      "peak_mem_gb": 36.5,
+      "peak_util": 67.0,
+      "usd_per_M": 0.9183,
+      "steps": 6,
+      "loss": 12.883
+    },
+    {
+      "card": "2xH100-9b",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 16384,
+      "batch": 1,
+      "rank": 16,
+      "adapters": 1,
+      "tok_s": 448.8,
+      "peak_mem_gb": 52.7,
+      "peak_util": 51.5,
+      "usd_per_M": 1.408,
+      "steps": 3,
+      "loss": 12.743
+    }
+  ]
+}
