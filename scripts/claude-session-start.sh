@@ -15,12 +15,31 @@ fi
 echo "[claude-session-start] bootstrapping trajectory-labs SDK at $PROJECT_DIR"
 
 if command -v uv >/dev/null 2>&1; then
-  uv sync || echo "[claude-session-start] WARNING: uv sync failed" >&2
+  # The `skypilot` extra is what makes the compute layer testable: without it
+  # every import of the provisioning stack is skipped rather than run, and
+  # breakage stays hidden until a real launch. `dev` brings pytest.
+  uv sync --extra dev --extra skypilot \
+    || uv sync \
+    || echo "[claude-session-start] WARNING: uv sync failed" >&2
   if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -d "$PROJECT_DIR/.venv/bin" ]; then
     printf 'export PATH="%s/.venv/bin:${PATH}"\n' "$PROJECT_DIR" >> "$CLAUDE_ENV_FILE"
   fi
 else
   echo "[claude-session-start] WARNING: uv not found; install it in the cloud setup script" >&2
 fi
+
+# Preflight the GPU vendors. None of these hosts is on the cloud environment's
+# default Trusted allowlist, so a session that has not been given Custom network
+# access can run the whole test suite (it is hermetic) but cannot price, check
+# availability, or launch anything. Saying so here turns a confusing timeout
+# later into one clear line now.
+for host in api.verda.com console.vast.ai api.primeintellect.ai; do
+  if curl -sS -o /dev/null -m 6 "https://$host" 2>/dev/null; then
+    echo "[claude-session-start] vendor reachable: $host"
+  else
+    echo "[claude-session-start] vendor UNREACHABLE: $host — add it to the" \
+         "environment's Custom allowed domains if this session needs live capacity" >&2
+  fi
+done
 
 echo "[claude-session-start] trajectory-labs SDK ready"
