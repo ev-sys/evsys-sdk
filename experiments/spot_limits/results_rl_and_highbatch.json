@@ -1,0 +1,164 @@
+{
+  "rl_benchmark": {
+    "note": "minimal GRPO-style loop, HF generate (no vLLM). Rollout-bound: generation ~10x the training time; batching rollout amortizes it.",
+    "tinker_sft_ref": 0.737,
+    "rows": [
+      {
+        "card": "2xH200-rl",
+        "model": "Qwen/Qwen3.5-9B",
+        "kind": "rl",
+        "nprompt": 4,
+        "group": 4,
+        "plen": 256,
+        "glen": 128,
+        "rollout_s": 56.2,
+        "train_s": 5.7,
+        "rollout_tok_s": 109.4,
+        "e2e_tok_s": 397.2,
+        "peak_mem_gb": 32.2,
+        "peak_util": 58.5,
+        "usd_per_M": 7.8328
+      },
+      {
+        "card": "2xH200-rl",
+        "model": "Qwen/Qwen3.5-9B",
+        "kind": "rl",
+        "nprompt": 8,
+        "group": 4,
+        "plen": 256,
+        "glen": 128,
+        "rollout_s": 56.3,
+        "train_s": 10.6,
+        "rollout_tok_s": 218.2,
+        "e2e_tok_s": 734.7,
+        "peak_mem_gb": 44.3,
+        "peak_util": 78.5,
+        "usd_per_M": 4.2348
+      },
+      {
+        "card": "2xH200-rl",
+        "model": "Qwen/Qwen3.5-9B",
+        "kind": "rl",
+        "nprompt": 8,
+        "group": 8,
+        "plen": 256,
+        "glen": 128,
+        "rollout_s": 57.8,
+        "train_s": 20.2,
+        "rollout_tok_s": 425.2,
+        "e2e_tok_s": 1260.2,
+        "peak_mem_gb": 68.5,
+        "peak_util": 59.0,
+        "usd_per_M": 2.4687
+      }
+    ]
+  },
+  "multiLoRA_util": {
+    "note": "more adapters raise util on underutilized multi-GPU (39.5%->70%) but throughput flat (HF has no batched multiLoRA kernel; needs vLLM/punica).",
+    "rows": [
+      {
+        "card": "1xH100-4b",
+        "model": "Qwen/Qwen3-4B-Instruct-2507",
+        "seq": 2048,
+        "batch": 1,
+        "rank": 16,
+        "adapters": 4,
+        "tok_s": 7527.1,
+        "peak_mem_gb": 11.7,
+        "peak_util": 100.0,
+        "usd_per_M": 0.1199,
+        "steps": 6,
+        "loss": 12.853
+      },
+      {
+        "card": "1xH100-4b",
+        "model": "Qwen/Qwen3-4B-Instruct-2507",
+        "seq": 2048,
+        "batch": 1,
+        "rank": 16,
+        "adapters": 8,
+        "tok_s": 7524.3,
+        "peak_mem_gb": 11.9,
+        "peak_util": 100.0,
+        "usd_per_M": 0.12,
+        "steps": 6,
+        "loss": 12.939
+      },
+      {
+        "card": "2xH100-9b",
+        "model": "Qwen/Qwen3.5-9B",
+        "seq": 2048,
+        "batch": 1,
+        "rank": 16,
+        "adapters": 2,
+        "tok_s": 889.1,
+        "peak_mem_gb": 24.4,
+        "peak_util": 39.5,
+        "usd_per_M": 0.7108,
+        "steps": 6,
+        "loss": 13.199
+      },
+      {
+        "card": "2xH100-9b",
+        "model": "Qwen/Qwen3.5-9B",
+        "seq": 2048,
+        "batch": 1,
+        "rank": 16,
+        "adapters": 4,
+        "tok_s": 888.9,
+        "peak_mem_gb": 24.4,
+        "peak_util": 50.0,
+        "usd_per_M": 0.7109,
+        "steps": 6,
+        "loss": 13.523
+      },
+      {
+        "card": "2xH100-9b",
+        "model": "Qwen/Qwen3.5-9B",
+        "seq": 2048,
+        "batch": 1,
+        "rank": 16,
+        "adapters": 8,
+        "tok_s": 889.6,
+        "peak_mem_gb": 24.5,
+        "peak_util": 62.5,
+        "usd_per_M": 0.7104,
+        "steps": 5,
+        "loss": 13.749
+      }
+    ]
+  },
+  "high_batch": {
+    "note": "9B on 2xH200 SPOT ($2.80): seq512 batch64 = $0.219/M -- BEATS Tinker 3.4x. batch128/256 OOM even on 282GB.",
+    "rows": [
+      {
+        "card": "2xH200-9b",
+        "model": "Qwen/Qwen3.5-9B",
+        "seq": 512,
+        "batch": 64,
+        "rank": 16,
+        "adapters": 1,
+        "tok_s": 3552.4,
+        "peak_mem_gb": 85.0,
+        "peak_util": 52.5,
+        "usd_per_M": 0.2189,
+        "steps": 6,
+        "loss": 13.458
+      },
+      {
+        "card": "2xH200-9b",
+        "model": "Qwen/Qwen3.5-9B",
+        "seq": 512,
+        "batch": 64,
+        "rank": 16,
+        "adapters": 8,
+        "tok_s": 3546.0,
+        "peak_mem_gb": 85.1,
+        "peak_util": 70.0,
+        "usd_per_M": 0.2193,
+        "steps": 2,
+        "loss": 13.946
+      }
+    ]
+  }
+}
