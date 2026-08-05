@@ -83,6 +83,8 @@ _backends = Registry("backend")
 _inference = Registry("inference_client")
 _transforms = Registry("transform")
 _callbacks = Registry("callback")
+_computes = Registry("compute")
+_availabilities = Registry("availability")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -123,6 +125,16 @@ def register_inference(name: str | None = None):
 
 def register_transform(name: str | None = None):
     return _transforms.register(name)
+
+
+def register_compute(name: str | None = None):
+    """Register a compute target (a way to run work on rented hardware)."""
+    return _computes.register(name)
+
+
+def register_availability(name: str | None = None):
+    """Register an availability probe (a way to ask a vendor what is in stock)."""
+    return _availabilities.register(name)
 
 
 def register_callback(name: str | None = None):
@@ -173,6 +185,14 @@ def get_transform(name: str) -> type:
     return _transforms.get(name)
 
 
+def get_compute(name: str) -> type:
+    return _computes.get(name)
+
+
+def get_availability(name: str) -> type:
+    return _availabilities.get(name)
+
+
 def get_callback(name: str) -> type:
     return _callbacks.get(name)
 
@@ -215,6 +235,14 @@ def list_transforms() -> list[str]:
     return _transforms.list()
 
 
+def list_computes() -> list[str]:
+    return _computes.list()
+
+
+def list_availabilities() -> list[str]:
+    return _availabilities.list()
+
+
 def list_callbacks() -> list[str]:
     return _callbacks.list()
 
@@ -231,6 +259,8 @@ def _all_registries() -> dict[str, Registry]:
         "inference_client": _inference,
         "transform": _transforms,
         "callback": _callbacks,
+        "compute": _computes,
+        "availability": _availabilities,
     }
 
 
