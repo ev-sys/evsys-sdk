@@ -74,6 +74,10 @@ class BaseAlgorithmConfig(BaseModel):
 
     # Checkpoint cadence
     save_every: int = 0
+    save_sampler: bool = True
+    """Export sampler weights at each checkpoint (needs an inference role on
+    the server). Disable on single-GPU self-hosted SkyRL where no inference
+    placement exists — training-state saves (resume) are unaffected."""
     """If 0, computed from ``save_at_fractions`` (GCD-of-marks heuristic)."""
     save_at_fractions: list[float] = Field(default_factory=lambda: [1.0])
 
@@ -212,6 +216,7 @@ class BaseAlgorithm:
                 eps=self.cfg.adam_eps,
             ),
             save_every=save_every,
+            save_sampler=self.cfg.save_sampler,
             evaluators=evaluators,
             callbacks=build_callbacks(self.cfg.callbacks),
         )
