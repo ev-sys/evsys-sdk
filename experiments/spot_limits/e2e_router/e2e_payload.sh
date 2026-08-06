@@ -42,7 +42,6 @@ uv pip install --python /root/skyrl/.venv/bin/python -q pydantic pyyaml typing-e
 cat > /root/config.yaml <<'CFGEOF'
 name: e2e_router_skyrl_4b
 output_dir: /data/run
-log_store: {kind: jsonl}
 run:
   name: sft4b
   data:
@@ -72,9 +71,9 @@ run:
       save_every: 8
       save_sampler: false
       lora_rank: 32
-      callbacks:
-        - {kind: delta_snapshot, params: {}}
 CFGEOF
+# delta_snapshot is NOT listed: it is ambient — the provisioner's env
+# (EVSYS_STORE_DIR / EVSYS_JOB_ID) switches it on for every router run.
 export TINKER_API_KEY=tml-dummy PYTHONPATH=/root/sdk/src EVSYS_PROVIDER=verda
 say "N:$EVSYS_JOB_ID" "starting evsys run (auto-resume from manifest if present)"
 /root/skyrl/.venv/bin/python -m evsys_sdk.cli run /root/config.yaml > /root/evsys_run.log 2>&1

@@ -1205,6 +1205,26 @@ def build_callbacks(specs: Any) -> list[Callback]:
     return out
 
 
+def with_default_snapshots(callbacks: list[Callback]) -> list[Callback]:
+    """Append the ambient :class:`DeltaSnapshotCallback` when the node env
+    announces a router context (``EVSYS_STORE_DIR`` or ``EVSYS_JOB_ID`` —
+    the provisioner's agent always exports both).
+
+    The yaml never has to mention ``delta_snapshot``: every router-managed
+    run snapshots by default. An explicit spec in the config wins — if a
+    DeltaSnapshotCallback is already in the list, nothing is added — and
+    outside a router context (no env) the list is returned untouched, so
+    local runs and tests see no new behavior.
+    """
+    import os as _os
+    if not (_os.environ.get("EVSYS_STORE_DIR")
+            or _os.environ.get("EVSYS_JOB_ID")):
+        return callbacks
+    if any(isinstance(c, DeltaSnapshotCallback) for c in callbacks):
+        return callbacks
+    return callbacks + [DeltaSnapshotCallback()]
+
+
 # ---------------------------------------------------------------------------
 # DeltaSnapshotCallback — portable checkpoints for router-managed jobs
 # ---------------------------------------------------------------------------
@@ -1240,14 +1260,22 @@ class DeltaSnapshotCallback(Callback):
     event. A preempted job restarts from exactly the last row the router
     heard about.
 
-    Enable from config like every callback::
+    **On by default on router-provisioned nodes.** The agent's env
+    (EVSYS_JOB_ID, EVSYS_STORE_DIR, EVSYS_EVENTS_URL, EVSYS_VOLUME) both
+    announces the router context and carries every param, so the training
+    loop adds this callback automatically (:func:`with_default_snapshots`)
+    — the experiment yaml needs nothing. Listing it explicitly::
 
         callbacks:
-          - {kind: delta_snapshot, params: {}}
+          - {kind: delta_snapshot, params: {...}}
 
-    On a router-provisioned node all params arrive via the agent's env
-    (EVSYS_JOB_ID, EVSYS_STORE_DIR, EVSYS_EVENTS_URL, EVSYS_VOLUME), so the
-    empty default config is the normal one.
+    is only for local/manual runs outside the router, or to override params;
+    an explicit spec suppresses the ambient default (no duplicates).
+
+    If the store directory turns out to be unusable (no volume mounted,
+    permission denied), the callback logs one warning and disables itself
+    for the run rather than failing training — a default-on callback must
+    never be the thing that kills a job.
     """
 
     Config: ClassVar[type] = DeltaSnapshotConfig
@@ -1263,6 +1291,7 @@ class DeltaSnapshotCallback(Callback):
         self.volume = volume or _os.environ.get("EVSYS_VOLUME", "")
         self._ck = None          # DeltaCheckpointer, created on first row
         self._base_key = "base.evd"
+        self._disabled = False   # flips on store failure; run continues
 
     @staticmethod
     def _as_state(paths: list[str]) -> dict:
@@ -1280,7 +1309,7 @@ class DeltaSnapshotCallback(Callback):
         from ..compute.events_topic import post_event
 
         paths = [p for p in (row.state_path, row.sampler_path) if p]
-        if not paths:
+        if self._disabled or not paths:
             return
         step = row.batch if row.batch is not None else state.step
         if any("://" in p for p in paths):
@@ -1301,21 +1330,39 @@ class DeltaSnapshotCallback(Callback):
                     "meta": {"checkpoint_name": row.name,
                              "state_path": row.state_path}})
             return
+        try:
+            # Probe the store FIRST — before any encoding work. On a machine
+            # with no volume at store_dir this is where a default-on callback
+            # bows out instead of failing the run.
+            store = LocalDirStore(self.store_dir)
+        except OSError as e:
+            logger.warning(
+                "delta_snapshot: store dir %s unusable (%s) — snapshots "
+                "disabled for this run", self.store_dir, e)
+            self._disabled = True
+            return
         weights = self._as_state(paths)
         work = Path(state.output_dir) / "_delta_snapshots"
-        try:
-            if self._ck is None:
-                self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
-            self._ck.save(step, weights)
-        except (ValueError, KeyError):
-            # A file changed size/name mid-run: re-base rather than fail.
-            self._base_key = f"base-{step}.evd"
-            self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
-            self._ck.save(step, weights)
-        store = LocalDirStore(self.store_dir)
         delta_key = f"step-{step}.evd"
-        put_file(store, self._base_key, work / "base.evd")
-        put_file(store, delta_key, work / f"step-{step}.evd")
+        try:
+            try:
+                if self._ck is None:
+                    self._ck = DeltaCheckpointer(weights, str(work),
+                                                 keep_last=3)
+                self._ck.save(step, weights)
+            except (ValueError, KeyError):
+                # A file changed size/name mid-run: re-base rather than fail.
+                self._base_key = f"base-{step}.evd"
+                self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
+                self._ck.save(step, weights)
+            put_file(store, self._base_key, work / "base.evd")
+            put_file(store, delta_key, work / f"step-{step}.evd")
+        except OSError as e:
+            logger.warning(
+                "delta_snapshot: write to %s failed (%s) — snapshots "
+                "disabled for this run", self.store_dir, e)
+            self._disabled = True
+            return
         digests = {k: sha256_of(store, k) for k in (self._base_key, delta_key)}
         if self.events_url and self.job_id:
             post_event(self.events_url, {
@@ -1363,4 +1410,5 @@ __all__ = [
     "WandbLoggerCallback",
     "build_callbacks",
     "dispatch",
+    "with_default_snapshots",
 ]

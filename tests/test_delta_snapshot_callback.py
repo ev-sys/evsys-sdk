@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from evsys_sdk.checkpoint_delta import load_delta
-from evsys_sdk.training.callbacks import DeltaSnapshotCallback, build_callbacks
+from evsys_sdk.training.callbacks import (DeltaSnapshotCallback,
+                                          build_callbacks,
+                                          with_default_snapshots)
 from evsys_sdk.training.checkpoints import ManifestRow
 
 
@@ -85,6 +87,41 @@ def test_registered_in_registry():
     cbs = build_callbacks([{"kind": "delta_snapshot",
                             "params": {"store_dir": "/tmp/x"}}])
     assert isinstance(cbs[0], DeltaSnapshotCallback)
+
+
+def test_ambient_default_off_without_router_env(monkeypatch):
+    monkeypatch.delenv("EVSYS_STORE_DIR", raising=False)
+    monkeypatch.delenv("EVSYS_JOB_ID", raising=False)
+    assert with_default_snapshots([]) == []          # local run: untouched
+
+
+def test_ambient_default_on_with_router_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVSYS_STORE_DIR", str(tmp_path / "store"))
+    monkeypatch.setenv("EVSYS_JOB_ID", "jobX")
+    cbs = with_default_snapshots([])
+    assert len(cbs) == 1 and isinstance(cbs[0], DeltaSnapshotCallback)
+    assert cbs[0].store_dir == str(tmp_path / "store")
+    assert cbs[0].job_id == "jobX"
+
+
+def test_ambient_default_defers_to_explicit_spec(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVSYS_JOB_ID", "jobX")
+    explicit = DeltaSnapshotCallback(store_dir=str(tmp_path / "mine"),
+                                     job_id="jobX")
+    cbs = with_default_snapshots([explicit])
+    assert cbs == [explicit]                         # no duplicate
+
+
+def test_unusable_store_disables_instead_of_failing(tmp_path):
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_bytes(b"file, not dir")            # mkdir under it fails
+    cb = DeltaSnapshotCallback(store_dir=str(blocker / "store"))
+    st = _State(tmp_path)
+    p = _write_ckpt(tmp_path, "w.bin", b"q" * 64)
+    cb.on_checkpoint(st, ManifestRow(name="c", batch=1, state_path=p))
+    assert cb._disabled is True                      # bowed out, no raise
+    cb.on_checkpoint(st, ManifestRow(name="c2", batch=2, state_path=p))
+    assert cb._disabled is True                      # and stays out
 
 
 def test_remote_scheme_checkpoint_reports_without_encoding(tmp_path, monkeypatch):
