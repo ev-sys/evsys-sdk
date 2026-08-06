@@ -29,6 +29,7 @@ loss) subclass the concrete algorithm and override ``build_batch`` /
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from pathlib import Path
 from typing import Any, ClassVar
@@ -36,12 +37,15 @@ from typing import Any, ClassVar
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..backends.tinker import PROTOCOL_TINKER
 from ..config import CallbackSpec
 from ..protocols import RunContext, RunResult
 from ..training.callbacks import build_callbacks, with_default_snapshots
 from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
 from ..training.tinker_backend import TinkerBackend
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared config base
@@ -73,6 +77,10 @@ class BaseAlgorithmConfig(BaseModel):
 
     # Checkpoint cadence
     save_every: int = 0
+    save_sampler: bool = True
+    """Export sampler weights at each checkpoint (needs an inference role on
+    the server). Disable on single-GPU self-hosted SkyRL where no inference
+    placement exists — training-state saves (resume) are unaffected."""
     """If 0, computed from ``save_at_fractions`` (GCD-of-marks heuristic)."""
     save_at_fractions: list[float] = Field(default_factory=lambda: [1.0])
 
@@ -137,10 +145,17 @@ class BaseAlgorithm:
     # --- generic driver ----------------------------------------------------
 
     def train(self, ctx: RunContext) -> RunResult:
-        if ctx.backend.name != "tinker":
+        # Gate on the PROTOCOL, not the vendor: these loops need
+        # forward_backward / optim_step / save_weights_for_sampler, which
+        # SkyRL serves from your own hardware just as the hosted service does.
+        # A backend that declares no protocol is judged by its name, so
+        # backends written before this existed keep working.
+        spoken = getattr(ctx.backend, "protocol", None) or ctx.backend.name
+        if spoken != PROTOCOL_TINKER:
             raise RuntimeError(
-                f"{type(self).__name__} requires backend=tinker "
-                f"(got '{ctx.backend.name}')."
+                f"{type(self).__name__} requires a backend speaking the "
+                f"'{PROTOCOL_TINKER}' protocol (got '{ctx.backend.name}'). "
+                "Built-ins: tinker (hosted), skyrl (your own compute)."
             )
         return asyncio.run(self._train_async(ctx))
 
@@ -196,6 +211,33 @@ class BaseAlgorithm:
         # to loggers so they can persist exactly what went into the model.
         self._dispatch_train_data(ctx, callbacks)
 
+        # True resume: weights+optimizer came back via resume_state_path;
+        # fast-forward the data cursor too, so the run continues at the NEXT
+        # step of the same batch sequence (build_batch is a pure function of
+        # step index) instead of replaying batch 0 onto trained weights.
+        start_step = 0
+        if handles.get("load_checkpoint_path") is not None \
+                and handles.get("resume_step") is not None:
+            start_step = int(handles["resume_step"]) + 1
+        if start_step >= total_steps:
+            # The prior run already trained through the horizon (e.g. it died
+            # between the final save and its done report). Nothing to train —
+            # but the lifecycle hooks still fire so a router node reports done
+            # and gets torn down instead of idling forever.
+            logger.info(
+                "resume step %d >= total steps %d — run already complete; "
+                "skipping the training loop", start_step, total_steps)
+            from ..training.callbacks import LoopState, dispatch
+            state = LoopState(step=start_step, num_steps=total_steps,
+                              output_dir=Path(ctx.output_dir), backend=backend,
+                              ctx=ctx.extras.get("log_context"))
+            dispatch(callbacks, "on_train_end", state, None)
+            return RunResult(
+                run_id=ctx.run_id, status="completed", metrics={},
+                artifacts={"already_complete": True,
+                           "resumed_from": handles.get("load_checkpoint_path")},
+            )
+
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
@@ -209,12 +251,14 @@ class BaseAlgorithm:
                 eps=self.cfg.adam_eps,
             ),
             save_every=save_every,
+            save_sampler=self.cfg.save_sampler,
             evaluators=evaluators,
             callbacks=callbacks,
             log_context=ctx.extras.get("log_context"),
             log_rollouts=bool(ctx.extras.get("log_rollouts")),
         )
-        artifacts = await loop.run(num_steps=total_steps)
+        artifacts = await loop.run(num_steps=total_steps,
+                                   start_step=start_step)
 
         # 6. record run_dir + per-checkpoint sampler URIs so downstream
         # consumers (TinkerInference.from_run_result, Experiment._eval_arm)
@@ -285,7 +329,7 @@ class BaseAlgorithm:
         if self.cfg.save_every:
             return self.cfg.save_every
         marks = sorted({
-            max(1, int(round(f * total_steps)))
+            max(1, round(f * total_steps))
             for f in self.cfg.save_at_fractions
         })
         if not marks:

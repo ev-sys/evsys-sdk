@@ -27,7 +27,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import tinker
 
@@ -199,6 +199,7 @@ class TrainingLoop:
         output_dir: str | Path,
         adam_params: tinker.AdamParams,
         save_every: int,
+        save_sampler: bool = True,
         evaluators: list[Evaluator] | None = None,
         callbacks: list[Callback] | None = None,
         log_context: Any = None,
@@ -223,6 +224,7 @@ class TrainingLoop:
         self.checkpoint_mgr = CheckpointManager(
             log_path=self.output_dir, save_every=save_every
         )
+        self.save_sampler = save_sampler
 
     # --- public surface -----------------------------------------------------
 
@@ -357,7 +359,19 @@ class TrainingLoop:
         """Snapshot both training state (for resume) and sampler weights
         (for eval), then record one manifest row."""
         state_path = await self.backend.save_full_state(name)
-        sampler_path = await self.backend.save_for_sampler(name)
+        sampler_path = None
+        if self.save_sampler:
+            # Sampler export needs an inference role; on a single-GPU
+            # self-hosted server (colocate_all=false) there is none. The
+            # training state above is everything resume needs, so a failed
+            # sampler export degrades the checkpoint rather than killing the
+            # run — loudly, because eval reads sampler_path.
+            try:
+                sampler_path = await self.backend.save_for_sampler(name)
+            except Exception as e:
+                logger.warning(
+                    "sampler export failed for %s (%s); checkpoint recorded "
+                    "with training state only", name, e)
         row = ManifestRow(
             name=name,
             batch=batch,
