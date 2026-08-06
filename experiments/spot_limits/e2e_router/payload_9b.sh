@@ -12,6 +12,13 @@ export PATH=/usr/local/cuda/bin:/root/.local/bin:$PATH CUDA_HOME=/usr/local/cuda
 # node's replacement skips recompilation.
 export FLA_TILELANG=1 TILELANG_CACHE_DIR=/data/tilelang_cache
 mkdir -p /data/tilelang_cache && ln -sfn /data/tilelang_cache /root/.tilelang
+# Disk layout: the 50GB OS disk cannot hold venv + Ray's working_dir COPY of
+# the venv + 18GB of weights (learned live: xet download died ENOSPC). Model
+# cache and Ray scratch live on the 100GB data volume -> weights also survive
+# preemption, so a reused volume skips the whole download.
+export HF_HOME=/data/hf RAY_TMPDIR=/data/ray_tmp
+mkdir -p /data/hf /data/ray_tmp /root/.cache
+ln -sfn /data/hf /root/.cache/huggingface
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="/root/.local/bin:$PATH"
 for i in 1 2 3 4; do [ -d /root/skyrl/.git ] && break; rm -rf /root/skyrl; git clone --depth 1 https://github.com/NovaSky-AI/SkyRL /root/skyrl && break; sleep $((i*5)); done
