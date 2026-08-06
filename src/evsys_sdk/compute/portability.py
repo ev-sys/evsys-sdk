@@ -44,6 +44,9 @@ log = get_logger(__name__)
 _STORAGE_CAPS: dict[str, bool] = {
     "verda": True,
     "vast": False,
+    # Preemption on Nebius is a STOP that keeps every attached disk — the
+    # strongest storage story of the three (docs: preemptible VMs).
+    "nebius": True,
 }
 
 

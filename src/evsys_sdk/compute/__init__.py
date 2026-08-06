@@ -19,6 +19,7 @@ from .base import BaseCompute, ComputeError
 # Side-effect imports: register the built-ins.
 from . import skypilot as _skypilot  # noqa: F401,E402
 from . import provisioner_verda as _provisioner_verda  # noqa: F401,E402
+from . import provisioner_nebius as _provisioner_nebius  # noqa: F401,E402
 
 
 def build_compute(spec: Any) -> BaseCompute:

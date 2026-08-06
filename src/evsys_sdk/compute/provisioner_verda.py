@@ -81,7 +81,9 @@ class VerdaProvisionerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ssh_key_id: str
+    ssh_key_id: str = ""
+    """Empty -> the first key registered with Verda, looked up at first
+    provision (any key satisfies the API; node access is via the script)."""
     payload: str = "echo agent-payload-not-configured"
     image: str = DEFAULT_IMAGE
     volume_gb: int = 300
@@ -145,6 +147,15 @@ class VerdaProvisioner:
                   snapshot_interval_s: float) -> NodeHandle | None:
         region = capacity.region or ""
         try:
+            if not self.ssh_key_id:
+                # Lazy default so build_provisioner({}) works: any registered
+                # key satisfies Verda's create-instance requirement; real
+                # node access is via the startup script, not SSH.
+                keys = self.call("sshkeys") or []
+                if not keys:
+                    log.warning("[verda-prov] no ssh key registered")
+                    return None
+                self.ssh_key_id = keys[0]["id"]
             volume = self._ensure_volume(job, plan, region)
             sid = self._script(job, plan, snapshot_interval_s, volume=volume)
             iid = self.call("instances", {

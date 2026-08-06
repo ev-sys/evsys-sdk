@@ -217,6 +217,66 @@ class PrimeIntellectAvailability(OffersProbe):
     name = "primeintellect"
 
 
+@register_availability("nebius")
+class NebiusAvailability(AvailabilityProbe):
+    """Nebius's capacity advisor — the strongest answer any vendor here gives.
+
+    ``ResourceAdviceService.List`` reports, per (region, platform, preset),
+    how many on-demand and preemptible VMs the tenant could launch right now,
+    with a confidence level. ``LIMIT_REACHED``/0 maps to UNAVAILABLE, stale
+    data to UNKNOWN, anything launchable to AVAILABLE. Prices come from the
+    published per-GPU-hour catalog (flat across counts, like Verda).
+    """
+
+    name = "nebius"
+
+    def probe(self, gpu: str, count: int, region: str | None,
+              spot: bool | None) -> list[Capacity]:
+        from .providers_nebius import PLATFORMS, NebiusProvider
+
+        p = NebiusProvider()
+        want = "".join(c for c in (gpu or "").lower() if c.isalnum())
+        out: list[Capacity] = []
+        for item in p.advice():
+            spec = item.get("spec") or {}
+            ci = spec.get("computeInstance") or spec.get("compute_instance") or {}
+            platform = ci.get("platform") or ""
+            cat = PLATFORMS.get(platform)
+            if cat is None or not str(cat["gpu"]).lower().startswith(want):
+                continue
+            preset = (ci.get("preset") or {}).get("name") or ""
+            n_gpus = ((ci.get("preset") or {}).get("resources") or {}).get(
+                "gpuCount") or next(
+                (n for n, name in cat["presets"].items() if name == preset), 0)
+            if count and n_gpus != count:
+                continue
+            reg = spec.get("region") or ""
+            if region and reg != region:
+                continue
+            status = item.get("status") or {}
+            for is_spot in ((True, False) if spot is None else (spot,)):
+                adv = status.get("preemptible" if is_spot else "onDemand") \
+                    or status.get("preemptible" if is_spot else "on_demand") \
+                    or {}
+                level = adv.get("availabilityLevel") \
+                    or adv.get("availability_level") or ""
+                free = int(adv.get("available") or 0)
+                if adv.get("dataState", adv.get("data_state")) \
+                        == "DATA_STATE_UNKNOWN":
+                    state = UNKNOWN
+                elif free > 0 and "LIMIT_REACHED" not in level:
+                    state = AVAILABLE
+                else:
+                    state = UNAVAILABLE
+                price = cat["usd_gpu_hr_spot" if is_spot else "usd_gpu_hr"]
+                out.append(Capacity(
+                    provider=self.name, gpu=cat["gpu"], count=n_gpus,
+                    state=state, region=reg, sku=f"{platform}/{preset}",
+                    usd_hr=price * n_gpus, spot=is_spot,
+                    detail=f"advisor: {free} launchable, {level or '?'}"))
+        return out
+
+
 def _probe(cloud: str) -> AvailabilityProbe:
     """Resolve a probe, falling back to the listing-derived one.
 

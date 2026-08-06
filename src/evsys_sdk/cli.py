@@ -242,24 +242,36 @@ def _cmd_queue_run(args: argparse.Namespace) -> int:
     is terminal (or forever with --forever)."""
     import os as _os
 
+    from .compute import credentials
     from .compute.checkpoint_map import CheckpointMap
     from .compute.events_topic import TopicEvents
     from .compute.job_router import JobRouter, build_provisioner
-    from .compute.providers_verda import VerdaProvider
     from .compute.queue import Queue
+    from .registry import list_provisioners
 
-    provider = VerdaProvider()          # reads ~/.verda/config.json
-    keys = provider._call("sshkeys")
-    if not keys:
-        print("error: no ssh key registered with verda", file=sys.stderr)
-        return 2
     payload = args.payload or 'cd /root && evsys run "$EVSYS_CONFIG"'
     events_url = args.events_url or _os.environ.get("EVSYS_EVENTS_URL", "")
-    # Registry-resolved: another provider is one more entry in this dict
-    # (its class registered with @register_provisioner("<name>")).
-    provs = {"verda": build_provisioner(
-        "verda", {"ssh_key_id": keys[0]["id"], "payload": payload,
-                  "events_url": events_url}, call=provider._call)}
+    # Every registered provisioner whose provider is authenticated joins the
+    # pool — the router then places each job on whichever of them has the
+    # cheapest live capacity. Onboarding a cloud = registering its class and
+    # saving credentials; this loop needs no edit.
+    provs = {}
+    for name in list_provisioners():
+        spec = credentials.PROVIDERS.get(name)
+        if spec is not None and not spec.authenticated():
+            continue
+        try:
+            provs[name] = build_provisioner(
+                name, {"payload": payload, "events_url": events_url})
+        except Exception as e:  # noqa: BLE001
+            print(f"warning: provisioner {name} unavailable: {e}",
+                  file=sys.stderr)
+    if not provs:
+        print("error: no authenticated providers (see `evsys` credentials "
+              "docs; checked: " + ", ".join(list_provisioners()) + ")",
+              file=sys.stderr)
+        return 2
+    print(f"providers: {', '.join(sorted(provs))}")
     router = JobRouter(
         Queue(path=args.queue_path) if args.queue_path else Queue(),
         CheckpointMap(), provs,
