@@ -38,3 +38,29 @@ fast-forward is the known follow-up.
 
 Cost of the whole live E2E incl. 3 debug cycles: ~$1.7 (H100 on-demand $3.25/hr,
 node lifetimes 5-15 min each).
+
+## Qwen3.5-9B live validation (2026-08-06)
+
+Job `ca3aff0308d3`, 1×H200 spot ($2.00/hr, FIN region), full automatic
+pipeline: `evsys queue` → JobRouter → VerdaProvisioner → SkyRL megatron
+server → `evsys run` → delta_snapshot (ambient, no yaml) → done → router
+self-terminated the node.
+
+* Recipe: megatron **TP=1**, `language_model_only` trio,
+  `fused_lm_head_logprob: true`, LoRA r=32, `CUDA_HOME=/usr/local/cuda`,
+  TileLang cache + HF cache + Ray tmp on the data volume
+  (`payload_9b.sh`).
+* Result: **rc=0**, 12/12 steps, `train_mean_nll=0.0048`, checkpoints at
+  step 6 / 12 / final (`tinker://model_6af4b151/...` on `/data`),
+  checkpoint + done events recorded by the router map.
+* Timeline: placed 20:49:31 → agent up → synced 82s → server healthy 91s
+  → run start 20:51:53 → **complete 20:56:28** (~7 min node time,
+  ≈ $0.25).
+* Attempt 1 failed ENOSPC: the 50GB OS disk can't hold venv + Ray's
+  working_dir copy of the venv + 18GB weights. Fix (now in the payload):
+  `HF_HOME=/data/hf`, `RAY_TMPDIR=/data/ray_tmp`,
+  `ln -sfn /data/hf ~/.cache/huggingface`.
+* Historical blockers were ONE bug: Qwen3.5's `ForConditionalGeneration`
+  arch dispatched to the VL bridge (self-packing model → GDN cu_seqlens
+  corruption at init = the "TP=1 fails"; no `output_processor` hook = the
+  fused crash). `language_model_only=true` routes to native GPTModel+GDN.

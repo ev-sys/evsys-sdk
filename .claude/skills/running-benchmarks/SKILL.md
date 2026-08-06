@@ -217,7 +217,7 @@ A silent 48-minute cell taught this: never launch without it.
 | 4B | RTX PRO 6000 spot | SkyRL | $0.0318/M | — | branch headline, 23.2× |
 | 8B | RTX PRO 6000 / A100 | SkyRL | $0.0468–0.0625/M | — | branch |
 | 8B RL | H200 only | SkyRL+vLLM | — | — | A100/RTX ruled out; single H100 died post-KV-alloc |
-| 9B | any, TP=1 | SkyRL/Megatron | **fails init** | — | needs TP≥2 |
+| 9B | 1×H200 spot, TP=1 | SkyRL/Megatron | **WORKS** — 12-step SFT, nll 0.0048, ~$0.35 total | untested | `language_model_only` trio + fused lm-head; validated live 2026-08-06, router e2e (job ca3aff0308d3) |
 | 9B | 1×H100 | HF proxy (non-comparable) | $0.99/M @2k×1 | 32k (chunked-CE) | feasibility only |
 | 9B RL | 2×H200 | HF generate proxy | $2.47/M @64 seqs | — | rollout-bound 10:1; real vLLM numbers pending |
 
