@@ -1,0 +1,154 @@
+{
+  "benchmark": "context-length limit sweep (synthetic tokens, LoRA r16, HF+SDPA, device_map=auto)",
+  "provider": "verda",
+  "pricing": {
+    "1xA100": "spot $0.6265/hr",
+    "2xH100": "spot $2.275/hr",
+    "1xH200": "on-demand $4.00/hr"
+  },
+  "note": "Memory/throughput envelope + OOM ceiling per card. NOT the SkyRL/Megatron pipeline; usd_per_M not comparable to earlier experiments/results.",
+  "oom_ceilings": [
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 16384
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3-8B",
+      "first_oom_seq": 16384
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "first_oom_seq": 8192
+    }
+  ],
+  "rows": [
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 2048,
+      "tok_s": 4102.5,
+      "peak_mem_gb": 36.7,
+      "peak_util": 100.0,
+      "peak_mem_mib": 36929,
+      "usd_per_M": 0.0424,
+      "loss": 12.107
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 2048,
+      "tok_s": 9337.8,
+      "peak_mem_gb": 36.7,
+      "peak_util": 100.0,
+      "peak_mem_mib": 37169,
+      "usd_per_M": 0.119,
+      "loss": 12.088
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 8192,
+      "tok_s": 8444.5,
+      "peak_mem_gb": 97.0,
+      "peak_util": 100.0,
+      "peak_mem_mib": 112081,
+      "usd_per_M": 0.1316,
+      "loss": 11.977
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 2048,
+      "tok_s": 8477.6,
+      "peak_mem_gb": 37.6,
+      "peak_util": 56.0,
+      "peak_mem_mib": 22137,
+      "usd_per_M": 0.0745,
+      "loss": 12.116
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3-8B",
+      "seq": 8192,
+      "tok_s": 7872.9,
+      "peak_mem_gb": 100.2,
+      "peak_util": 56.0,
+      "peak_mem_mib": 67323,
+      "usd_per_M": 0.0803,
+      "loss": 11.977
+    },
+    {
+      "card": "1xA100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "tok_s": 830.9,
+      "peak_mem_gb": 56.4,
+      "peak_util": 93.0,
+      "peak_mem_mib": 56637,
+      "usd_per_M": 0.2094,
+      "loss": 12.903
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "tok_s": 1518.8,
+      "peak_mem_gb": 56.4,
+      "peak_util": 86.0,
+      "peak_mem_mib": 56877,
+      "usd_per_M": 0.7316,
+      "loss": 12.907
+    },
+    {
+      "card": "1xH200",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 4096,
+      "tok_s": 1455.0,
+      "peak_mem_gb": 94.7,
+      "peak_util": 100.0,
+      "peak_mem_mib": 100299,
+      "usd_per_M": 0.7637,
+      "loss": 12.604
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 2048,
+      "tok_s": 1515.5,
+      "peak_mem_gb": 57.8,
+      "peak_util": 50.0,
+      "peak_mem_mib": 39137,
+      "usd_per_M": 0.417,
+      "loss": 12.942
+    },
+    {
+      "card": "2xH100",
+      "model": "Qwen/Qwen3.5-9B",
+      "seq": 4096,
+      "tok_s": 1269.8,
+      "peak_mem_gb": 97.3,
+      "peak_util": 67.5,
+      "peak_mem_mib": 69817,
+      "usd_per_M": 0.4977,
+      "loss": 12.62
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "lane": "tinker jax/tx backend (SkyRL default engine, native Qwen3.5 + batched multiLoRA)",
+  "verdict": "engine works mechanically; 9B LoRA TRAINING is blocked by standing memory that matches full-model optimizer state (fp32 master + Adam) allocated regardless of LoRA",
+  "empirics": [
+    {"hw": "1xH100 80GB", "config": "defaults", "result": "XLA arena 0.75 -> step OOM at 4096x32"},
+    {"hw": "1xH100 80GB", "config": "arena 0.92", "result": "GEMM autotuner starved: 'Failed to get configs for N instructions'"},
+    {"hw": "1xH100 80GB", "config": "arena 0.85 + autotune_level=1", "result": "same autotune starvation (level 1 still tunes GEMMs)"},
+    {"hw": "1xH100 80GB", "config": "arena 0.85, max_lora_adapters 8, gradient_checkpointing", "result": "OOM at 4096x4; adapter-slot count did not move standing memory"},
+    {"hw": "1xH100 80GB", "config": "arena 0.95, same", "result": "OOM at 4096x4; ~75.8GiB standing before activations"},
+    {"hw": "2xH100 160GB", "config": "tensor_parallel_size 2, checkpointing, arena 0.95", "result": "OOM at 4096x4; 75.8GiB/GPU standing -- sharding halved it exactly as full-model optimizer state would"},
+    {"hw": "2xH100 160GB", "config": "+ train_micro_batch_size 1", "result": "OOM at 4096x4 -- wall is standing state, not activations. GPU computes (util 61-100%) before dying"}
+  ],
+  "memory_arithmetic": "9B fp32 master 36GB + Adam m/v 72GB = 108GB /2 (TP) = 54GB/GPU + bf16 params 9GB + workspace ~= 75GB observed",
+  "paths_forward": [
+    "TP=4 (needs 8xH100 box on Verda, $26/hr on-demand -- no 4x SKU)",
+    "engine fix upstream: LoRA-only optimizer state in skyrl/tx (CI tests 0.8B where full-model Adam fits, so invisible upstream)",
+    "fsdp backend (HF transformers path) -- untried, next candidate"
+  ],
+  "xla_notes": "nvidia-smi shows the preallocated arena, not usage; autotuner needs in-arena scratch; fraction tuning cannot fix an over-budget model"
+}
