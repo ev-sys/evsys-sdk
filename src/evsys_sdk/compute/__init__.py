@@ -22,6 +22,8 @@ from . import (
     router,
     snapshot,
 )
+from . import provisioner_nebius as _provisioner_nebius  # noqa: F401
+from . import provisioner_verda as _provisioner_verda  # noqa: F401
 
 # Side-effect imports: register the built-ins.
 from . import skypilot as _skypilot  # noqa: F401

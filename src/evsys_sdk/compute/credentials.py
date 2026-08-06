@@ -99,9 +99,13 @@ PROVIDERS: dict[str, Provider] = {
                  note="Marketplace of individual hosts; reliability varies "
                       "by host, not by region."),
         Provider("nebius", "~/.nebius/credentials.json",
-                 ("tenant_id", "service_account_id", "private_key"),
+                 ("service_account_id", "public_key_id", "private_key",
+                  "project_id", "tenant_id"),
                  spot=True, autostop=True, open_ports=True,
-                 note="Also appears inside PrimeIntellect's offers."),
+                 note="Service-account JWT (RS256, kid=public_key_id) "
+                      "exchanged for a 12h token. project_id parents "
+                      "resources; tenant_id scopes the capacity advisor. "
+                      "Also appears inside PrimeIntellect's offers."),
         Provider("lambda", "~/.lambda_cloud/lambda_keys", ("api_key",), fmt="raw",
                  spot=False, autostop=True, open_ports=True,
                  note="On-demand only."),
