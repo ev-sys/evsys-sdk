@@ -29,6 +29,7 @@ loss) subclass the concrete algorithm and override ``build_batch`` /
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from pathlib import Path
 from typing import Any, ClassVar
@@ -43,6 +44,8 @@ from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
 from ..backends.tinker import PROTOCOL_TINKER
 from ..training.tinker_backend import TinkerBackend
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared config base
@@ -208,6 +211,33 @@ class BaseAlgorithm:
         # to loggers so they can persist exactly what went into the model.
         self._dispatch_train_data(ctx, callbacks)
 
+        # True resume: weights+optimizer came back via resume_state_path;
+        # fast-forward the data cursor too, so the run continues at the NEXT
+        # step of the same batch sequence (build_batch is a pure function of
+        # step index) instead of replaying batch 0 onto trained weights.
+        start_step = 0
+        if handles.get("load_checkpoint_path") is not None \
+                and handles.get("resume_step") is not None:
+            start_step = int(handles["resume_step"]) + 1
+        if start_step >= total_steps:
+            # The prior run already trained through the horizon (e.g. it died
+            # between the final save and its done report). Nothing to train —
+            # but the lifecycle hooks still fire so a router node reports done
+            # and gets torn down instead of idling forever.
+            logger.info(
+                "resume step %d >= total steps %d — run already complete; "
+                "skipping the training loop", start_step, total_steps)
+            from ..training.callbacks import LoopState, dispatch
+            state = LoopState(step=start_step, num_steps=total_steps,
+                              output_dir=Path(ctx.output_dir), backend=backend,
+                              ctx=ctx.extras.get("log_context"))
+            dispatch(callbacks, "on_train_end", state, None)
+            return RunResult(
+                run_id=ctx.run_id, status="completed", metrics={},
+                artifacts={"already_complete": True,
+                           "resumed_from": handles.get("load_checkpoint_path")},
+            )
+
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
@@ -227,7 +257,8 @@ class BaseAlgorithm:
             log_context=ctx.extras.get("log_context"),
             log_rollouts=bool(ctx.extras.get("log_rollouts")),
         )
-        artifacts = await loop.run(num_steps=total_steps)
+        artifacts = await loop.run(num_steps=total_steps,
+                                   start_step=start_step)
 
         # 6. record run_dir + per-checkpoint sampler URIs so downstream
         # consumers (TinkerInference.from_run_result, Experiment._eval_arm)

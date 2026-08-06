@@ -142,18 +142,24 @@ def _execute_run(
     # checkpoint row in its manifest instead of starting over. An explicit
     # load_checkpoint_path always wins; delete the manifest to force fresh.
     load_ckpt = run.model.load_checkpoint_path
+    resume_step = None
     if not load_ckpt:
         from .training.checkpoints import CheckpointManager
         prior = CheckpointManager(log_path=run_dir, save_every=1).find_resume()
         if prior is not None and getattr(prior, "weights_path", None):
             load_ckpt = prior.weights_path
-            logger.info("auto-resume from %s", load_ckpt)
+            # The manifest row's step lets the loop fast-forward its data
+            # cursor: the resumed run continues at step+1 on the SAME batch
+            # sequence, not a replay from batch 0 with trained weights.
+            resume_step = getattr(prior, "step", None)
+            logger.info("auto-resume from %s (step %s)", load_ckpt, resume_step)
 
     try:
         handles = backend.prepare(
             model={
                 "name": run.model.name,
                 "load_checkpoint_path": load_ckpt,
+                "resume_step": resume_step,
                 "init_from_checkpoint": run.model.init_from_checkpoint,
                 "renderer_name": run.model.renderer_name,
             },

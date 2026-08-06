@@ -112,11 +112,31 @@ class Provisioner(Protocol):
         ...
 
 
+def build_provisioner(kind: str, params: dict | None = None,
+                      call: Callable[..., Any] | None = None) -> Provisioner:
+    """Resolve a ``{kind, params}`` spec into a Provisioner — the same
+    registry + Config convention as every other extension point.
+
+    ``kind`` is looked up in the provisioner registry (built-ins register on
+    import; a provider package registers its own with
+    ``@register_provisioner("<name>")``). ``params`` are validated against
+    the class's ``Config`` so a typo fails loudly. ``call`` optionally
+    injects a transport (tests); ``None`` lets the class build its real
+    authenticated one from credentials.
+    """
+    from ..registry import get_provisioner
+    cls = get_provisioner(kind)
+    cfg = getattr(cls, "Config", None)
+    kw = cfg(**(params or {})).model_dump() if cfg is not None \
+        else dict(params or {})
+    return cls(call, **kw) if call is not None else cls(**kw)
+
+
 class JobRouter:
     """Autonomous placement + snapshot-tracking + restart. See module doc."""
 
     def __init__(self, queue: Queue, cmap: CheckpointMap,
-                 provisioner: Provisioner, *,
+                 provisioner: Provisioner | dict[str, Provisioner], *,
                  events: Callable[[], list[dict]] | None = None,
                  vendors: list[str] | None = None,
                  clusters: Callable[[], list] | None = None,
@@ -126,7 +146,18 @@ class JobRouter:
                  poll_s: float = 60.0):
         self.queue = queue
         self.cmap = cmap
-        self.prov = provisioner
+        # One provisioner (single-cloud) or a {provider: provisioner} map —
+        # the router picks by Capacity.provider on the way up and by
+        # NodeHandle.provider on the way down, so adding a cloud is one more
+        # dict entry (register the class, list the vendor), no router change.
+        if isinstance(provisioner, dict):
+            self._provs: dict[str, Provisioner] = dict(provisioner)
+            self.prov = next(iter(provisioner.values()), None)
+            if vendors is None:
+                vendors = list(provisioner)
+        else:
+            self._provs = {}
+            self.prov = provisioner
         self._events = events or (lambda: [])
         self.sched = CheckpointingScheduler(queue, clusters=clusters,
                                             vendors=vendors)
@@ -156,6 +187,18 @@ class JobRouter:
 
     # -- the automation ----------------------------------------------------
 
+    def _prov_for(self, provider: str) -> Provisioner:
+        """The provisioner owning ``provider``. Single-provisioner routers
+        return their one provisioner for any name (back-compat)."""
+        if self._provs:
+            p = self._provs.get(provider)
+            if p is None:
+                raise KeyError(
+                    f"no provisioner registered with the router for provider "
+                    f"{provider!r} (have: {sorted(self._provs)})")
+            return p
+        return self.prov
+
     def submit(self, config: str, model: str, **kw: Any) -> Job:
         return self.queue.submit(config, model, **kw)
 
@@ -177,7 +220,8 @@ class JobRouter:
                     self.queue.update(job, DONE)
                     h = self.handles.pop(job.id, None)
                     if h is not None:
-                        self.prov.terminate(h, keep_volume=True)
+                        self._prov_for(h.provider).terminate(
+                            h, keep_volume=True)
                     self._save()
                 n += 1
         return n
@@ -189,7 +233,7 @@ class JobRouter:
         """Dead machines become requeued jobs, automatically."""
         preempted = []
         for job_id, handle in list(self.handles.items()):
-            if self.prov.alive(handle):
+            if self._prov_for(handle.provider).alive(handle):
                 continue
             job = self._job(job_id)
             if job is not None and job.state == RUNNING:
@@ -222,8 +266,8 @@ class JobRouter:
                 continue
             job, cap = placement.job, placement.capacity
             plan = self._volume_plan(job, cap)
-            handle = self.prov.provision(job, cap, plan,
-                                         self.policy.interval_s)
+            handle = self._prov_for(cap.provider).provision(
+                job, cap, plan, self.policy.interval_s)
             if handle is None:
                 log.warning("[router] launch failed for %s; stays queued",
                             job.id)
@@ -254,4 +298,4 @@ class JobRouter:
 
 
 __all__ = ["DEFAULT_MTBF_S", "JobRouter", "NodeHandle", "Provisioner",
-           "VolumePlan"]
+           "VolumePlan", "build_provisioner"]

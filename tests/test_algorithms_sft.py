@@ -273,3 +273,50 @@ def test_callbacks_from_config_fire_during_train(patched_tinker_backend, ctx):
         assert seen == {"start": 1, "steps": 3, "end": 1}
     finally:
         _callbacks.unregister("sft_recorder_test")
+
+
+# ---------------------------------------------------------------------------
+# True resume: the data cursor fast-forwards with the weights
+# ---------------------------------------------------------------------------
+
+
+def test_resume_fast_forwards_data_cursor(patched_tinker_backend, ctx):
+    """A resumed run continues at resume_step+1 of the SAME batch sequence —
+    it must not replay batch 0 onto already-trained weights."""
+    ctx.extras["backend_handles"] = {
+        "model_name": "Qwen/Qwen3-4B",
+        "load_checkpoint_path": "mock://state/step_2",
+        "resume_step": 1,                       # steps 0 and 1 already done
+    }
+    algo = SFT(max_steps=3, batch_size=4, save_at_fractions=[1.0])
+    result = algo.train(ctx)
+    assert result.status == "completed"
+    # only step 2 remained
+    assert len(patched_tinker_backend.fb_calls) == 1
+    assert len(patched_tinker_backend.optim_calls) == 1
+
+
+def test_resume_past_horizon_skips_loop_but_reports_done(
+        patched_tinker_backend, ctx):
+    """Prior run died between its final save and its done report: nothing to
+    train, but on_train_end still fires so a router node reports done."""
+    from evsys_sdk.training.callbacks import Callback
+
+    ends = []
+
+    class _End(Callback):
+        def on_train_end(self, state, artifacts):
+            ends.append(state.step)
+
+    ctx.extras["backend_handles"] = {
+        "model_name": "Qwen/Qwen3-4B",
+        "load_checkpoint_path": "mock://state/final",
+        "resume_step": 2,                       # last step of a 3-step run
+    }
+    ctx.extras["callbacks"] = [_End()]
+    algo = SFT(max_steps=3, batch_size=4, save_at_fractions=[1.0])
+    result = algo.train(ctx)
+    assert result.status == "completed"
+    assert result.artifacts.get("already_complete") is True
+    assert patched_tinker_backend.fb_calls == []
+    assert ends == [3]

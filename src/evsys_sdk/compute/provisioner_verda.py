@@ -24,9 +24,12 @@ Transport is injected (``call``) exactly like the VerdaProvider tests mock
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
+
+from pydantic import BaseModel, ConfigDict
 
 from ..logger import get_logger
+from ..registry import register_provisioner
 from . import availability as av
 from .job_router import NodeHandle, VolumePlan
 from .queue import Job
@@ -72,15 +75,39 @@ echo "@reboot root /root/agent_run.sh" > /etc/cron.d/evsys-agent
 """
 
 
+class VerdaProvisionerConfig(BaseModel):
+    """The ``{kind: verda, params: {...}}`` surface — everything except the
+    transport, which is runtime-injected (or built from credentials)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ssh_key_id: str
+    payload: str = "echo agent-payload-not-configured"
+    image: str = DEFAULT_IMAGE
+    volume_gb: int = 300
+    boot_wait_s: float = 20.0
+    events_url: str = ""
+
+
+@register_provisioner("verda")
 class VerdaProvisioner:
     """Implements the router's Provisioner protocol against Verda's API."""
 
-    def __init__(self, call: Callable[..., Any], ssh_key_id: str,
+    name: ClassVar[str] = "verda"
+    Config: ClassVar[type] = VerdaProvisionerConfig
+
+    def __init__(self, call: Callable[..., Any] | None = None,
+                 ssh_key_id: str = "",
                  payload: str = "echo agent-payload-not-configured",
                  image: str = DEFAULT_IMAGE, volume_gb: int = 300,
                  boot_wait_s: float = 20.0, events_url: str = ""):
         """``call(path, body=None, method=None)`` is the Verda transport —
-        the same shape VerdaProvider uses, injected so tests can fake it."""
+        the same shape VerdaProvider uses, injected so tests can fake it.
+        ``None`` builds the real authenticated transport from the stored
+        credentials (the registry-factory path)."""
+        if call is None:
+            from .providers_verda import VerdaProvider
+            call = VerdaProvider()._call
         self.call = call
         self.ssh_key_id = ssh_key_id
         self.payload = payload
@@ -174,4 +201,5 @@ class VerdaProvisioner:
                 log.warning("[verda-prov] volume delete failed: %s", e)
 
 
-__all__ = ["AGENT_TEMPLATE", "DEFAULT_IMAGE", "VerdaProvisioner"]
+__all__ = ["AGENT_TEMPLATE", "DEFAULT_IMAGE", "VerdaProvisioner",
+           "VerdaProvisionerConfig"]

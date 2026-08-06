@@ -114,6 +114,7 @@ class SkyRLBackend:
             "base_url": self.base_url,
             "model_name": model["name"],
             "load_checkpoint_path": model.get("load_checkpoint_path"),
+            "resume_step": model.get("resume_step"),
             "init_from_checkpoint": model.get("init_from_checkpoint"),
             "renderer_name": model.get("renderer_name"),
             "run_dir": run_dir,

@@ -186,3 +186,53 @@ def test_run_exits_when_all_terminal(rig):
     router.poll_s = 0.01
     router.run(timeout_s=5)                   # returns via all-terminal, not timeout
     assert q.jobs()[0].state == DONE
+
+
+# ---------------------------------------------------------------------------
+# Multi-provider routing + the provisioner registry
+# ---------------------------------------------------------------------------
+
+
+def test_multi_provider_dict_routes_by_capacity_provider(tmp_path, monkeypatch):
+    q = Queue(path=str(tmp_path / "q.jsonl"))
+    m = CheckpointMap(path=str(tmp_path / "map.jsonl"))
+    pv, pw = FakeProvisioner(), FakeProvisioner()
+    monkeypatch.setattr(av, "scan", lambda *a, **k: [_cap(provider="verda")])
+    router = JobRouter(q, m, {"verda": pv, "vast": pw}, events=lambda: [],
+                       handles_path=str(tmp_path / "handles.json"))
+    job = router.submit("c.yaml", model="m", gpus=["H100"])
+    router.tick()
+    assert [c[0] for c in pv.calls] == [job.id]      # verda got the launch
+    assert pw.calls == []                            # vast untouched
+    # liveness + teardown route by the HANDLE's provider on later ticks
+    router.tick()
+    assert pv.machines and not pw.machines
+
+
+def test_prov_for_unknown_provider_raises(tmp_path):
+    q = Queue(path=str(tmp_path / "q.jsonl"))
+    m = CheckpointMap(path=str(tmp_path / "map.jsonl"))
+    router = JobRouter(q, m, {"verda": FakeProvisioner()}, events=lambda: [],
+                       handles_path=str(tmp_path / "handles.json"))
+    with pytest.raises(KeyError, match="prime"):
+        router._prov_for("prime")
+
+
+def test_build_provisioner_resolves_registry_and_validates(tmp_path):
+    import evsys_sdk.compute  # noqa: F401  registers the built-ins
+    from evsys_sdk.compute.job_router import build_provisioner
+    from evsys_sdk.compute.provisioner_verda import VerdaProvisioner
+    from evsys_sdk.registry import get_provisioner, list_provisioners
+
+    assert "verda" in list_provisioners()
+    assert get_provisioner("verda") is VerdaProvisioner
+
+    calls = []
+    p = build_provisioner("verda", {"ssh_key_id": "k1", "volume_gb": 100},
+                          call=lambda *a, **k: calls.append(a) or "x")
+    assert isinstance(p, VerdaProvisioner)
+    assert p.ssh_key_id == "k1" and p.volume_gb == 100
+
+    with pytest.raises(Exception, match="ssh_key_idd|extra|validation"):
+        build_provisioner("verda", {"ssh_key_idd": "typo"},
+                          call=lambda *a, **k: "x")

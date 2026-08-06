@@ -244,8 +244,7 @@ def _cmd_queue_run(args: argparse.Namespace) -> int:
 
     from .compute.checkpoint_map import CheckpointMap
     from .compute.events_topic import TopicEvents
-    from .compute.job_router import JobRouter
-    from .compute.provisioner_verda import VerdaProvisioner
+    from .compute.job_router import JobRouter, build_provisioner
     from .compute.providers_verda import VerdaProvider
     from .compute.queue import Queue
 
@@ -256,13 +255,16 @@ def _cmd_queue_run(args: argparse.Namespace) -> int:
         return 2
     payload = args.payload or 'cd /root && evsys run "$EVSYS_CONFIG"'
     events_url = args.events_url or _os.environ.get("EVSYS_EVENTS_URL", "")
-    prov = VerdaProvisioner(provider._call, ssh_key_id=keys[0]["id"],
-                            payload=payload, events_url=events_url)
+    # Registry-resolved: another provider is one more entry in this dict
+    # (its class registered with @register_provisioner("<name>")).
+    provs = {"verda": build_provisioner(
+        "verda", {"ssh_key_id": keys[0]["id"], "payload": payload,
+                  "events_url": events_url}, call=provider._call)}
     router = JobRouter(
         Queue(path=args.queue_path) if args.queue_path else Queue(),
-        CheckpointMap(), prov,
+        CheckpointMap(), provs,
         events=TopicEvents(events_url) if events_url else None,
-        vendors=["verda"], poll_s=args.poll_s)
+        poll_s=args.poll_s)
     print(f"router up: poll every {args.poll_s:.0f}s, "
           f"snapshot interval {router.policy.interval_s:.0f}s "
           f"(Young/Daly), events={'on' if events_url else 'OFF'}")
