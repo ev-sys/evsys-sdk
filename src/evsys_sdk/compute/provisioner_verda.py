@@ -60,6 +60,10 @@ fi
 export EVSYS_SNAPSHOT_INTERVAL_S={interval}
 export EVSYS_JOB_ID={job_id}
 export EVSYS_RESUME_STEP={resume_step}
+export EVSYS_CONFIG={config}
+export EVSYS_STORE_DIR=/data/store
+export EVSYS_VOLUME={volume}
+export EVSYS_EVENTS_URL={events_url}
 {payload}
 RUNEOF
 chmod +x /root/agent_run.sh
@@ -74,7 +78,7 @@ class VerdaProvisioner:
     def __init__(self, call: Callable[..., Any], ssh_key_id: str,
                  payload: str = "echo agent-payload-not-configured",
                  image: str = DEFAULT_IMAGE, volume_gb: int = 300,
-                 boot_wait_s: float = 20.0):
+                 boot_wait_s: float = 20.0, events_url: str = ""):
         """``call(path, body=None, method=None)`` is the Verda transport —
         the same shape VerdaProvider uses, injected so tests can fake it."""
         self.call = call
@@ -83,13 +87,17 @@ class VerdaProvisioner:
         self.image = image
         self.volume_gb = volume_gb
         self.boot_wait_s = boot_wait_s
+        self.events_url = events_url
 
     # -- helpers -----------------------------------------------------------
 
-    def _script(self, job: Job, plan: VolumePlan, interval_s: float) -> str:
+    def _script(self, job: Job, plan: VolumePlan, interval_s: float,
+                volume: str = "") -> str:
         resume = plan.checkpoint.step if plan.checkpoint else 0
         script = AGENT_TEMPLATE.format(interval=int(interval_s),
                                        job_id=job.id, resume_step=resume,
+                                       config=job.config, volume=volume,
+                                       events_url=self.events_url,
                                        payload=self.payload)
         sid = self.call("scripts", {"name": f"evsys-agent-{job.id}",
                                     "script": script}, "POST")
@@ -110,8 +118,8 @@ class VerdaProvisioner:
                   snapshot_interval_s: float) -> NodeHandle | None:
         region = capacity.region or ""
         try:
-            sid = self._script(job, plan, snapshot_interval_s)
             volume = self._ensure_volume(job, plan, region)
+            sid = self._script(job, plan, snapshot_interval_s, volume=volume)
             iid = self.call("instances", {
                 "instance_type": capacity.sku, "image": self.image,
                 "ssh_key_ids": [self.ssh_key_id], "startup_script_id": sid,

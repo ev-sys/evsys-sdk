@@ -199,6 +199,69 @@ def _cmd_new_experiment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_queue_submit(args: argparse.Namespace) -> int:
+    from .compute.queue import Queue
+
+    q = Queue(path=args.queue_path) if args.queue_path else Queue()
+    kw = {"count": args.count,
+          "spot": None if args.spot == "auto" else args.spot == "yes"}
+    if args.gpus:
+        kw["gpus"] = args.gpus.split(",")
+    job = q.submit(args.config, model=args.model, **kw)
+    print(f"queued {job.describe()}")
+    return 0
+
+
+def _cmd_queue_status(args: argparse.Namespace) -> int:
+    from .compute.checkpoint_map import CheckpointMap
+    from .compute.queue import Queue
+
+    q = Queue(path=args.queue_path) if args.queue_path else Queue()
+    cmap = CheckpointMap()
+    jobs = q.jobs()
+    if not jobs:
+        print("queue is empty")
+        return 0
+    for j in jobs:
+        ck = cmap.latest(j.id)
+        resume = f"  ckpt step {ck.step} @ {ck.store.describe()}" if ck else ""
+        print(f"{j.describe()}{resume}")
+    return 0
+
+
+def _cmd_queue_run(args: argparse.Namespace) -> int:
+    """The daemon: place, track, survive preemptions. Runs until every job
+    is terminal (or forever with --forever)."""
+    import os as _os
+
+    from .compute.checkpoint_map import CheckpointMap
+    from .compute.events_topic import TopicEvents
+    from .compute.job_router import JobRouter
+    from .compute.provisioner_verda import VerdaProvisioner
+    from .compute.providers_verda import VerdaProvider
+    from .compute.queue import Queue
+
+    provider = VerdaProvider()          # reads ~/.verda/config.json
+    keys = provider._call("sshkeys")
+    if not keys:
+        print("error: no ssh key registered with verda", file=sys.stderr)
+        return 2
+    payload = args.payload or 'cd /root && evsys run "$EVSYS_CONFIG"'
+    events_url = args.events_url or _os.environ.get("EVSYS_EVENTS_URL", "")
+    prov = VerdaProvisioner(provider._call, ssh_key_id=keys[0]["id"],
+                            payload=payload, events_url=events_url)
+    router = JobRouter(
+        Queue(path=args.queue_path) if args.queue_path else Queue(),
+        CheckpointMap(), prov,
+        events=TopicEvents(events_url) if events_url else None,
+        vendors=["verda"], poll_s=args.poll_s)
+    print(f"router up: poll every {args.poll_s:.0f}s, "
+          f"snapshot interval {router.policy.interval_s:.0f}s "
+          f"(Young/Daly), events={'on' if events_url else 'OFF'}")
+    router.run(timeout_s=None if args.forever else args.timeout_s)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evsys", description="EvolvingSystems experiments CLI.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -253,6 +316,28 @@ def main(argv: list[str] | None = None) -> int:
     p_brun.add_argument("--run-id", default=None, help="Upload eval rollouts to this dashboard run.")
     p_brun.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID (for --id/--name).")
     p_brun.set_defaults(func=_cmd_benchmark_run)
+
+    p_queue = sub.add_parser("queue", help="Durable job queue + autonomous router.")
+    queue_sub = p_queue.add_subparsers(dest="queue_cmd", required=True)
+    p_qsub = queue_sub.add_parser("submit", help="Queue an experiment config for the router.")
+    p_qsub.add_argument("config", help="Path to the experiment YAML.")
+    p_qsub.add_argument("--model", required=True, help="Base model the job trains.")
+    p_qsub.add_argument("--gpus", default="", help="Comma list of acceptable GPUs (default: measured-best order).")
+    p_qsub.add_argument("--count", type=int, default=1)
+    p_qsub.add_argument("--spot", choices=["auto", "yes", "no"], default="auto")
+    p_qsub.add_argument("--queue-path", default=None)
+    p_qsub.set_defaults(func=_cmd_queue_submit)
+    p_qst = queue_sub.add_parser("status", help="Jobs + their latest checkpoints.")
+    p_qst.add_argument("--queue-path", default=None)
+    p_qst.set_defaults(func=_cmd_queue_status)
+    p_qrun = queue_sub.add_parser("run", help="Run the router daemon (place/track/restart).")
+    p_qrun.add_argument("--poll-s", type=float, default=60.0)
+    p_qrun.add_argument("--timeout-s", type=float, default=None)
+    p_qrun.add_argument("--forever", action="store_true")
+    p_qrun.add_argument("--events-url", default="", help="ntfy-style topic nodes report to (or EVSYS_EVENTS_URL).")
+    p_qrun.add_argument("--payload", default="", help="Command the node agent runs (default: evsys run $EVSYS_CONFIG).")
+    p_qrun.add_argument("--queue-path", default=None)
+    p_qrun.set_defaults(func=_cmd_queue_run)
 
     p_new = sub.add_parser("new-experiment", help="Create experiments/<YYYYMMDD>_<slug>/{config.yaml,run.py}.")
     p_new.add_argument("slug", help="Short kebab/snake name for the experiment.")

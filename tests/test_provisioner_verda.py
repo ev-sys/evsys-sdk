@@ -49,9 +49,10 @@ def test_fresh_provision_creates_volume_and_does_attach_dance(prov):
     assert isinstance(h, NodeHandle)
     assert h.machine_id == "inst-1" and h.volume == "vol-new"
     ops = [(path, (body or {}).get("action"), m) for path, body, m in api.log]
-    # order: script, volume create, instance create, shutdown, attach, boot
-    assert ("scripts", None, "POST") == ops[0]
-    assert ops[1][0] == "volumes"
+    # order: volume create (id feeds the script env), script, instance,
+    # then the dance: shutdown, attach, boot
+    assert ops[0][0] == "volumes"
+    assert ("scripts", None, "POST") == ops[1]
     assert ops[2][0] == "instances"
     assert ("instances", "shutdown", "PUT") in ops
     assert ("volumes", "attach", "PUT") in ops

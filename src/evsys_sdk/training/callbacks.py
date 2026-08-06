@@ -349,6 +349,116 @@ def build_callbacks(specs: Any) -> list[Callback]:
 
 
 # ---------------------------------------------------------------------------
+# DeltaSnapshotCallback — portable checkpoints for router-managed jobs
+# ---------------------------------------------------------------------------
+
+
+class DeltaSnapshotConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    store_dir: str = ""
+    """Node store directory (the persistent volume mount). Empty -> the
+    ``EVSYS_STORE_DIR`` env var, then ``/data/store``."""
+    events_url: str = ""
+    """Topic to report checkpoints to. Empty -> ``EVSYS_EVENTS_URL``; still
+    empty -> events are skipped (local runs work without a router)."""
+    job_id: str = ""
+    """Router job id. Empty -> ``EVSYS_JOB_ID``."""
+    provider: str = ""
+    """Cloud holding the volume. Empty -> ``EVSYS_PROVIDER``, then 'verda'."""
+    volume: str = ""
+    """Volume id for the StoreRef. Empty -> ``EVSYS_VOLUME``."""
+
+
+@register_callback("delta_snapshot")
+class DeltaSnapshotCallback(Callback):
+    """Ship every loop checkpoint to the node's persistent volume as an
+    XOR-delta, and report it so the router's CheckpointMap stays current.
+
+    This is the node half of the JobRouter contract: the loop saves its
+    checkpoint as usual; ``on_checkpoint`` re-encodes the saved files as
+    base + compressed delta (:mod:`evsys_sdk.checkpoint_delta` over the raw
+    bytes — file sizes are stable within a run, and a size change just
+    re-bases), writes them to the volume store, and posts a ``checkpoint``
+    event. A preempted job restarts from exactly the last row the router
+    heard about.
+
+    Enable from config like every callback::
+
+        callbacks:
+          - {kind: delta_snapshot, params: {}}
+
+    On a router-provisioned node all params arrive via the agent's env
+    (EVSYS_JOB_ID, EVSYS_STORE_DIR, EVSYS_EVENTS_URL, EVSYS_VOLUME), so the
+    empty default config is the normal one.
+    """
+
+    Config: ClassVar[type] = DeltaSnapshotConfig
+
+    def __init__(self, store_dir: str = "", events_url: str = "",
+                 job_id: str = "", provider: str = "", volume: str = ""):
+        import os as _os
+        self.store_dir = store_dir or _os.environ.get("EVSYS_STORE_DIR",
+                                                      "/data/store")
+        self.events_url = events_url or _os.environ.get("EVSYS_EVENTS_URL", "")
+        self.job_id = job_id or _os.environ.get("EVSYS_JOB_ID", "")
+        self.provider = provider or _os.environ.get("EVSYS_PROVIDER", "verda")
+        self.volume = volume or _os.environ.get("EVSYS_VOLUME", "")
+        self._ck = None          # DeltaCheckpointer, created on first row
+        self._base_key = "base.evd"
+
+    @staticmethod
+    def _as_state(paths: list[str]) -> dict:
+        """Checkpoint files as uint8 arrays — byte-exact, format-agnostic."""
+        import numpy as _np
+        state = {}
+        for p in paths:
+            state[Path(p).name] = _np.frombuffer(
+                Path(p).read_bytes(), dtype=_np.uint8).copy()
+        return state
+
+    def on_checkpoint(self, state: LoopState, row) -> None:
+        from ..checkpoint_delta import DeltaCheckpointer
+        from ..compute.checkpoint_store import LocalDirStore, put_file, sha256_of
+        from ..compute.events_topic import post_event
+
+        paths = [p for p in (row.state_path, row.sampler_path) if p]
+        if not paths:
+            return
+        step = row.batch if row.batch is not None else state.step
+        weights = self._as_state(paths)
+        work = Path(state.output_dir) / "_delta_snapshots"
+        try:
+            if self._ck is None:
+                self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
+            self._ck.save(step, weights)
+        except (ValueError, KeyError):
+            # A file changed size/name mid-run: re-base rather than fail.
+            self._base_key = f"base-{step}.evd"
+            self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
+            self._ck.save(step, weights)
+        store = LocalDirStore(self.store_dir)
+        delta_key = f"step-{step}.evd"
+        put_file(store, self._base_key, work / "base.evd")
+        put_file(store, delta_key, work / f"step-{step}.evd")
+        digests = {k: sha256_of(store, k) for k in (self._base_key, delta_key)}
+        if self.events_url and self.job_id:
+            post_event(self.events_url, {
+                "kind": "checkpoint", "job_id": self.job_id, "step": int(step),
+                "store": {"kind": "local_dir", "provider": self.provider,
+                          "volume": self.volume, "path": self.store_dir},
+                "base_key": self._base_key, "delta_key": delta_key,
+                "sha256": digests,
+                "meta": {"checkpoint_name": row.name}})
+
+    def on_train_end(self, state: LoopState, artifacts) -> None:
+        from ..compute.events_topic import post_event
+        if self.events_url and self.job_id:
+            post_event(self.events_url,
+                       {"kind": "done", "job_id": self.job_id})
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
@@ -366,6 +476,7 @@ def _fmt_value(v: Any) -> str:
 __all__ = [
     "Callback",
     "CsvMetricsCallback",
+    "DeltaSnapshotCallback",
     "EarlyStoppingCallback",
     "LoopState",
     "PrintProgressCallback",
