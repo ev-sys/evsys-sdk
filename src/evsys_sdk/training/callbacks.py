@@ -426,6 +426,24 @@ class DeltaSnapshotCallback(Callback):
         if not paths:
             return
         step = row.batch if row.batch is not None else state.step
+        if any("://" in p for p in paths):
+            # Remote-scheme checkpoint (e.g. tinker:// under a SkyRL server).
+            # The bytes live in the server's checkpoints_base — which, on a
+            # router-provisioned node, is already ON the persistent volume —
+            # so there is nothing to re-encode. Report the event so the map
+            # knows the step and where the volume is.
+            if self.events_url and self.job_id:
+                from ..compute.events_topic import post_event
+                post_event(self.events_url, {
+                    "kind": "checkpoint", "job_id": self.job_id,
+                    "step": int(step),
+                    "store": {"kind": "local_dir", "provider": self.provider,
+                              "volume": self.volume, "path": self.store_dir},
+                    "base_key": "", "delta_key": "",
+                    "sha256": {},
+                    "meta": {"checkpoint_name": row.name,
+                             "state_path": row.state_path}})
+            return
         weights = self._as_state(paths)
         work = Path(state.output_dir) / "_delta_snapshots"
         try:

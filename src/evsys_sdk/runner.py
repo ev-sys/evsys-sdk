@@ -156,11 +156,23 @@ def _execute_run(
     alg_cls = get_algorithm(run.algorithm.kind)
     algorithm = alg_cls(**(run.algorithm.params or {}))
 
+    # Auto-resume: a run restarted into the same run_dir (a preempted node
+    # re-placed by the router, or a manual rerun) continues from the last
+    # checkpoint row in its manifest instead of starting over. An explicit
+    # load_checkpoint_path always wins; delete the manifest to force fresh.
+    load_ckpt = run.model.load_checkpoint_path
+    if not load_ckpt:
+        from .training.checkpoints import CheckpointManager
+        prior = CheckpointManager(log_path=run_dir, save_every=1).find_resume()
+        if prior is not None and getattr(prior, "weights_path", None):
+            load_ckpt = prior.weights_path
+            logger.info("auto-resume from %s", load_ckpt)
+
     try:
         handles = backend.prepare(
             model={
                 "name": run.model.name,
-                "load_checkpoint_path": run.model.load_checkpoint_path,
+                "load_checkpoint_path": load_ckpt,
                 "init_from_checkpoint": run.model.init_from_checkpoint,
                 "renderer_name": run.model.renderer_name,
             },

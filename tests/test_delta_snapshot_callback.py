@@ -85,3 +85,19 @@ def test_registered_in_registry():
     cbs = build_callbacks([{"kind": "delta_snapshot",
                             "params": {"store_dir": "/tmp/x"}}])
     assert isinstance(cbs[0], DeltaSnapshotCallback)
+
+
+def test_remote_scheme_checkpoint_reports_without_encoding(tmp_path, monkeypatch):
+    events = []
+    monkeypatch.setattr("evsys_sdk.compute.events_topic.post_event",
+                        lambda url, ev, transport=None: events.append(ev) or True)
+    cb = DeltaSnapshotCallback(store_dir="/data/store", events_url="http://t/x",
+                               job_id="j", volume="vol-1")
+    st = _State(tmp_path)
+    row = ManifestRow(name="c", batch=500,
+                      state_path="tinker://run-1/weights/step_500")
+    cb.on_checkpoint(st, row)
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["step"] == 500 and ev["delta_key"] == ""
+    assert ev["meta"]["state_path"].startswith("tinker://")
