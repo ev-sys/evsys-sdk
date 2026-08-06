@@ -258,10 +258,21 @@ def test_train_runs_end_to_end(patched_tinker_backend, ctx):
 
 
 def test_train_logs_per_step_sdft_metrics(patched_tinker_backend, ctx):
-    """SDFT.build_batch's batch.metrics should land in each per-step row."""
+    """SDFT.build_batch's batch.metrics should land in each per-step row.
+
+    Per-step metrics flow through callbacks now (on_step_end), not log_store."""
+    from evsys_sdk.training.callbacks import Callback
+
+    rows: list[dict] = []
+
+    class _Rec(Callback):
+        def on_step_end(self, state, step_idx, batch, metrics):
+            rows.append({"step": step_idx, "split": "train", "metrics": dict(metrics)})
+
+    ctx.extras["callbacks"] = [_Rec()]
     algo = SDFT(max_steps=2, batch_size=4, skip_first_n_tokens=0)
     algo.train(ctx)
-    train_rows = [r for r in ctx.log_store.metric_rows if r["split"] == "train"]
+    train_rows = [r for r in rows if r["split"] == "train"]
     assert len(train_rows) == 2
     # `sdft/*` keys should appear (from build_topk_targets metrics merged via
     # batch.metrics).
@@ -272,10 +283,3 @@ def test_train_logs_per_step_sdft_metrics(patched_tinker_backend, ctx):
         assert "progress/step" in r["metrics"]
 
 
-def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
-    SDFT(max_steps=2, batch_size=4).train(ctx)
-    hp = ctx.log_store.hyperparams
-    assert hp is not None
-    assert hp["algorithm"] == "sdft"
-    assert hp["model_name"] == "Qwen/Qwen3-4B"
-    assert hp["total_steps"] == 2

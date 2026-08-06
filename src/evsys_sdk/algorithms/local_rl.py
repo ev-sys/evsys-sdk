@@ -13,6 +13,7 @@ from trl import GRPOConfig, GRPOTrainer
 
 from ..protocols import RunContext, RunResult
 from ..registry import get_verifier, register_algorithm
+from ..training.callbacks import dispatch, make_loop_state
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,6 @@ class LocalRL:
 
         out = Path(ctx.output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
 
         # Build dataset of prompts + extra columns kwargs the reward fn needs.
         ds_rows = []
@@ -139,17 +139,17 @@ class LocalRL:
         trainer.save_model(str(final))
         tokenizer.save_pretrained(str(final))
 
+        cbs, state = make_loop_state(ctx)
         for entry in getattr(trainer.state, "log_history", []):
             step = int(entry.get("step", 0) or 0)
             metrics = {k: float(v) for k, v in entry.items() if isinstance(v, (int, float)) and k != "step"}
             if metrics:
-                ctx.log_store.log_metrics(metrics, step=step)
+                state.step = step
+                dispatch(cbs, "on_step_end", state, step, None, metrics)
 
         artifacts = {"final_checkpoint": str(final)}
         for ckpt in sorted(out.glob("checkpoint-*")):
             artifacts[ckpt.name] = str(ckpt)
-        for k, v in artifacts.items():
-            ctx.log_store.log_artifact(k, v, kind="checkpoint")
 
         return RunResult(
             run_id=ctx.run_id,

@@ -39,11 +39,16 @@ from evsys_sdk.training import (
 
 
 class _StubLogStore:
+    """Capture callback recording per-step metrics dispatched to callbacks."""
     def __init__(self):
         self.rows: list[dict] = []
 
-    def log_metrics(self, metrics, *, step, split="train"):
-        self.rows.append({"step": step, "split": split, "metrics": dict(metrics)})
+    def on_step_end(self, state, step_idx, batch, metrics):
+        self.rows.append({"step": step_idx, "split": "train", "metrics": dict(metrics)})
+
+    def on_eval(self, state, step_idx, eval_name, metrics):
+        self.rows.append({"step": step_idx + 1, "split": "val",
+                          "metrics": {f"val/{eval_name}/{k}": float(v) for k, v in metrics.items()}})
 
 
 def _adam():
@@ -95,7 +100,7 @@ def test_callback_hooks_fire_at_expected_moments(tmp_path: Path):
     rec = _Recorder()
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=2, callbacks=[rec],
     )
     asyncio.run(loop.run(num_steps=4))
@@ -115,8 +120,8 @@ def test_callback_failure_does_not_kill_loop(tmp_path: Path):
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
-        save_every=10, callbacks=[_Boom()],
+        output_dir=tmp_path, adam_params=_adam(),
+        save_every=10, callbacks=[log, _Boom()],
     )
     artifacts = asyncio.run(loop.run(num_steps=3))
     # loop completed all 3 steps despite the failing callback
@@ -135,7 +140,7 @@ def test_callbacks_run_in_order_each_hook(tmp_path: Path):
             log_calls.append(("B", step_idx))
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=10, callbacks=[_A(), _B()],
     )
     asyncio.run(loop.run(num_steps=2))
@@ -160,8 +165,8 @@ def test_request_stop_breaks_loop_after_current_step(tmp_path: Path):
     log = _StubLogStore()
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=log, output_dir=tmp_path, adam_params=_adam(),
-        save_every=10, callbacks=[_StopAt(at_step=1)],
+        output_dir=tmp_path, adam_params=_adam(),
+        save_every=10, callbacks=[log, _StopAt(at_step=1)],
     )
     artifacts = asyncio.run(loop.run(num_steps=10))
     # Stop fired AFTER step 1's metric row was written; loop broke before step 2.
@@ -181,7 +186,7 @@ def test_print_progress_every_n_steps(tmp_path: Path):
     cb = PrintProgressCallback(every=2, stream=stream)
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=10, callbacks=[cb],
     )
     asyncio.run(loop.run(num_steps=5))
@@ -195,7 +200,7 @@ def test_print_progress_keys_filter(tmp_path: Path):
     cb = PrintProgressCallback(every=1, keys=["progress/step"], stream=stream)
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=10, callbacks=[cb],
     )
     asyncio.run(loop.run(num_steps=1))
@@ -214,7 +219,7 @@ def test_csv_metrics_writes_header_plus_one_row_per_step(tmp_path: Path):
     cb = CsvMetricsCallback(out_path=out_path)
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=10, callbacks=[cb],
     )
     asyncio.run(loop.run(num_steps=3))
@@ -290,7 +295,7 @@ def test_csv_metrics_closes_file_on_train_end(tmp_path: Path):
     cb = CsvMetricsCallback(out_path=out_path)
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_ConstSB(),
-        log_store=_StubLogStore(), output_dir=tmp_path, adam_params=_adam(),
+        output_dir=tmp_path, adam_params=_adam(),
         save_every=10, callbacks=[cb],
     )
     asyncio.run(loop.run(num_steps=1))
@@ -354,6 +359,5 @@ def _make_state() -> LoopState:
     return LoopState(
         step=0, num_steps=10, output_dir=Path("."),
         backend=None,   # type: ignore[arg-type]
-        log_store=None,
         checkpoint_mgr=None,  # type: ignore[arg-type]
     )

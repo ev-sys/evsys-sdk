@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..protocols import RunContext, RunResult
 from ..registry import register_algorithm
+from ..training.callbacks import dispatch, make_loop_state
 
 
 class MockSFTConfig(BaseModel):
@@ -37,8 +38,6 @@ class MockSFT:
         out = Path(ctx.output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
-
         # Pull dataset to set step count.
         # Try the data spec to estimate; otherwise default 100.
         n_rows = ctx.extras.get("n_train_rows", 100)
@@ -51,20 +50,20 @@ class MockSFT:
 
         save_steps = sorted({max(1, round(f * total_steps)) for f in self.cfg.save_at_fractions})
 
+        cbs, state = make_loop_state(ctx, num_steps=total_steps)
         artifacts: dict[str, str] = {}
         for step in range(1, total_steps + 1):
             # Loss decreases like 2.0 * exp(-step/total*3) + small noise; deterministic.
             loss = 2.0 * math.exp(-3.0 * step / total_steps) + 0.05 * math.sin(step * 0.3)
-            ctx.log_store.log_metrics({"train/loss": loss}, step=step)
+            state.step = step
+            dispatch(cbs, "on_step_end", state, step, None, {"train/loss": loss})
             if step in save_steps:
                 ckpt_dir = out / f"checkpoint-{step}"
                 ckpt_dir.mkdir(exist_ok=True)
                 (ckpt_dir / "metadata.json").write_text(
                     json.dumps({"step": step, "loss": loss, "algorithm": self.name})
                 )
-                key = f"ckpt_step_{step}"
-                ctx.log_store.log_artifact(key, str(ckpt_dir), kind="checkpoint")
-                artifacts[key] = str(ckpt_dir)
+                artifacts[f"ckpt_step_{step}"] = str(ckpt_dir)
 
         final_dir = out / "final"
         final_dir.mkdir(exist_ok=True)
@@ -72,7 +71,6 @@ class MockSFT:
             json.dumps({"final": True, "step": total_steps, "algorithm": self.name})
         )
         artifacts["final_checkpoint"] = str(final_dir)
-        ctx.log_store.log_artifact("final_checkpoint", str(final_dir), kind="checkpoint")
 
         return RunResult(
             run_id=ctx.run_id,

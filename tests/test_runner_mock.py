@@ -16,7 +16,6 @@ from evsys_sdk import (
     BackendConfig,
     DataConfig,
     ExperimentConfig,
-    LogStoreSpec,
     ModelConfig,
     RunConfig,
     TransformSpec,
@@ -29,7 +28,6 @@ def _make_cfg(tmp_path: Path, sample_rows: list[dict]) -> ExperimentConfig:
     return ExperimentConfig(
         name="mock_e2e",
         output_dir=str(tmp_path / "out"),
-        log_store=LogStoreSpec(kind="jsonl"),
         run=RunConfig(
             name="mock_run",
             data=DataConfig(
@@ -56,7 +54,7 @@ def test_runner_mock_sft_end_to_end(tmp_path: Path, sample_rows):
     # Mock writes 2 checkpoints (50%, 100%) + final.
     assert "final_checkpoint" in r.artifacts
     # Logs landed.
-    metrics_path = tmp_path / "out" / "mock_run" / "logs" / "metrics.jsonl"
+    metrics_path = tmp_path / "out" / "mock_run" / "logs" / "training" / "metrics.jsonl"
     assert metrics_path.exists()
     rows = [json.loads(line) for line in metrics_path.read_text().splitlines() if line.strip()]
     assert any("train/loss" in row.get("metrics", {}) for row in rows)

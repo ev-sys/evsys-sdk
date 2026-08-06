@@ -231,12 +231,9 @@ def test_loop_respects_per_evaluator_run_every(tmp_path: Path):
             )], loss_fn="cross_entropy")
         def step_metrics(self, *a, **k): return {}
 
-    class _LS:
-        def log_metrics(self, *a, **k): pass
-
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_SB(),
-        log_store=_LS(), output_dir=tmp_path,
+        output_dir=tmp_path,
         adam_params=tinker.AdamParams(learning_rate=1e-4, beta1=0.9, beta2=0.95, eps=1e-8),
         save_every=100,
         evaluators=[_Ev(name="fast", run_every=3), _Ev(name="slow", run_every=5)],
@@ -276,12 +273,9 @@ def test_evaluator_with_run_every_zero_never_fires(tmp_path: Path):
             )], loss_fn="cross_entropy")
         def step_metrics(self, *a, **k): return {}
 
-    class _LS:
-        def log_metrics(self, *a, **k): pass
-
     loop = TrainingLoop(
         backend=MockBackend(), step_builder=_SB(),
-        log_store=_LS(), output_dir=tmp_path,
+        output_dir=tmp_path,
         adam_params=tinker.AdamParams(learning_rate=1e-4, beta1=0.9, beta2=0.95, eps=1e-8),
         save_every=100,
         evaluators=[_Ev()],

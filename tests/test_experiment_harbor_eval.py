@@ -157,6 +157,9 @@ def test_eval_arm_harbor_scores_and_uploads(monkeypatch):
                              artifacts={"checkpoint-final": "tinker://ckpt"}),
     )
 
+    # run id normally lands on the shared context via evsys_logger.on_run_start;
+    # this test drives _eval_arm_harbor directly, so seed it.
+    e._logctx.ids["run_id"] = "run1"
     e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]})
 
     # scored
@@ -266,7 +269,7 @@ def test_eval_arm_harbor_persists_rollouts_under_run_dir(monkeypatch, tmp_path):
     e._eval_arm_harbor(arm, run_cfg, _bench(), {"engine": "harbor", "name": "b", "tags": ["test"]})
 
     ws = captured["workspace_dir"]
-    assert ws == tmp_path / "r" / "harbor_eval" / "b"   # persisted under the run dir
+    assert ws == tmp_path / "r" / ".harbor" / "test" / "b"  # harbor scratch, out of logs/
     assert ws.exists()                                   # created, not a vanished tempdir
     assert str(ws).startswith(str(tmp_path))             # never a system tempdir
 

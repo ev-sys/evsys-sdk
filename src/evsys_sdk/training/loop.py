@@ -8,8 +8,8 @@ The loop owns:
 * routing a callable ``loss_fn`` through ``forward_backward_custom_async``,
 * periodic checkpoint saves via :class:`~evsys_sdk.training.checkpoints.CheckpointManager`,
 * periodic in-loop evaluation via :class:`Evaluator` objects,
-* writing one row per step into ``ctx.log_store`` (so the existing
-  ``forward_step_metrics`` forwarder picks them up unchanged),
+* dispatching per-step / eval metrics to the logger callbacks (``on_step_end`` /
+  ``on_eval``) — the loop holds no log_store of its own,
 * a final "final" checkpoint at the end of training.
 
 What the loop does NOT own: data shaping. A :class:`StepBuilder` decides
@@ -62,6 +62,10 @@ class TrainingBatch:
     metrics: dict[str, float] = field(default_factory=dict)
     """Algorithm-precomputed per-step metrics (e.g. teacher entropy,
     reward stats). Merged into the per-step log row."""
+    rollouts: list[Any] | None = None
+    """Optional on-policy rollouts the algorithm produced this step (RL/SDFT set
+    this to their ``TrajectoryGroup``s; SFT leaves it ``None``). Logged via the
+    ``on_rollout`` hook only when ``log_rollouts`` is on (e.g. a ``--dry`` run)."""
 
 
 @runtime_checkable
@@ -192,26 +196,30 @@ class TrainingLoop:
         *,
         backend: Backend,
         step_builder: StepBuilder,
-        log_store: Any,
         output_dir: str | Path,
         adam_params: tinker.AdamParams,
         save_every: int,
         save_sampler: bool = True,
         evaluators: list[Evaluator] | None = None,
         callbacks: list[Callback] | None = None,
+        log_context: Any = None,
         log_prefix: str = "",
+        log_rollouts: bool = False,
         metric_keys: _LoopMetricKeys | None = None,
     ) -> None:
         self.backend = backend
         self.step_builder = step_builder
-        self.log_store = log_store
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.adam_params = adam_params
         self.save_every = save_every
         self.evaluators: list[Evaluator] = list(evaluators or [])
         self.callbacks: list[Callback] = list(callbacks or [])
+        # The experiment-wide LogContext (shared with experiment-scope hooks),
+        # threaded onto LoopState so loop-scope logger hooks reach ctx.ids/store.
+        self.log_context = log_context
         self.log_prefix = log_prefix
+        self.log_rollouts = log_rollouts
         self._keys = metric_keys or _LoopMetricKeys()
         self.checkpoint_mgr = CheckpointManager(
             log_path=self.output_dir, save_every=save_every
@@ -233,8 +241,8 @@ class TrainingLoop:
             num_steps=num_steps,
             output_dir=self.output_dir,
             backend=self.backend,
-            log_store=self.log_store,
             checkpoint_mgr=self.checkpoint_mgr,
+            ctx=self.log_context,
         )
         self._dispatch("on_train_start", state)
 
@@ -272,6 +280,34 @@ class TrainingLoop:
 
         batch = await self.step_builder.build_batch(step)
 
+        # Surface on-policy rollouts (RL/SDFT set batch.rollouts) to loggers when
+        # rollout logging is on (e.g. a --dry run). SFT leaves rollouts None.
+        if self.log_rollouts and batch.rollouts and state is not None:
+            self._dispatch("on_rollout", state, step, batch.rollouts)
+
+        # A step can legitimately yield no trainable data — e.g. RL with
+        # ``drop_constant_reward`` when every sampled group has identical reward
+        # (no advantage signal). Skip the gradient update instead of crashing
+        # the backend on an empty batch; still log progress and run any due eval.
+        if not batch.data:
+            logger.warning(
+                "step %d produced an empty batch (no trainable data) — skipping "
+                "the gradient update for this step.", step,
+            )
+            skip_metrics: dict[str, float] = {
+                self._keys.step: float(step),
+                self._keys.done_frac: float(step + 1) / float(num_steps),
+                self._keys.optim_lr: float(self.adam_params.learning_rate),
+                "train/skipped_empty_batch": 1.0,
+            }
+            skip_metrics.update(batch.metrics)
+            if state is not None:
+                self._dispatch("on_step_end", state, step, batch, skip_metrics)
+            due = [ev for ev in self.evaluators if self._is_due(ev, step)]
+            if due:
+                await self._run_eval(step, due, state)
+            return
+
         # Dispatch loss based on whether it's a name (server-side) or a
         # callable (client-side custom). Custom losses don't take
         # ``loss_fn_config`` — they're closures.
@@ -308,7 +344,6 @@ class TrainingLoop:
         metrics.update(batch.metrics)
         metrics[self._keys.finish_batch] = time.time() - t0
 
-        self.log_store.log_metrics(metrics, step=step)
         if state is not None:
             self._dispatch("on_step_end", state, step, batch, metrics)
 
@@ -372,29 +407,17 @@ class TrainingLoop:
                     "evaluator %r raised at step %d; continuing", ev.name, step
                 )
                 continue
-            self.log_store.log_metrics(
-                {f"val/{ev.name}/{k}": float(v) for k, v in ev_metrics.items()},
-                step=step + 1,
-                split="val",
-            )
             if state is not None:
                 self._dispatch("on_eval", state, step, ev.name, dict(ev_metrics))
 
     # --- callback dispatch -------------------------------------------------
 
     def _dispatch(self, hook: str, *args: Any) -> None:
-        """Call ``hook`` on every callback. A raising callback NEVER kills
-        the loop; the exception is logged at WARNING and we move on."""
-        for cb in self.callbacks:
-            fn = getattr(cb, hook, None)
-            if fn is None:
-                continue
-            try:
-                fn(*args)
-            except Exception:
-                logger.exception(
-                    "callback %s.%s raised; continuing", type(cb).__name__, hook,
-                )
+        """Call ``hook`` on every callback (error-isolated). Thin wrapper over
+        the shared :func:`~evsys_sdk.training.callbacks.dispatch` so the loop
+        and the Experiment fan out identically."""
+        from .callbacks import dispatch
+        dispatch(self.callbacks, hook, *args)
 
 
 __all__ = [

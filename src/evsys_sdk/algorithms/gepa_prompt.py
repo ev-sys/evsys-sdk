@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..protocols import RunContext, RunResult
 from ..registry import get_inference, register_algorithm
+from ..training.callbacks import dispatch, make_loop_state
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,6 @@ class GEPAPromptAlgorithm:
         rng = random.Random(self.cfg.seed)
 
         task_lm = get_inference(self.cfg.task_lm)(**self.cfg.task_lm_config)
-        ctx.log_store.log_hyperparams({"algorithm": self.name, **self.cfg.model_dump()})
 
         if self.cfg.use_gepa_lib:
             try:
@@ -97,21 +97,24 @@ class GEPAPromptAlgorithm:
 def _run_hill_climber(*, ctx, cfg, examples, task_lm, score_fn, out, rng) -> RunResult:
     best_prompt = cfg.seed_prompt
     best_score = _evaluate(best_prompt, examples[: cfg.examples_per_eval], task_lm, score_fn)
-    ctx.log_store.log_scalar("gepa/score", best_score, step=0)
+    cbs, state = make_loop_state(ctx, num_steps=cfg.max_iterations)
+    state.step = 0
+    dispatch(cbs, "on_step_end", state, 0, None, {"gepa/score": best_score})
 
     for step in range(1, cfg.max_iterations + 1):
         candidate = _mutate_prompt(best_prompt, rng)
         candidate_score = _evaluate(
             candidate, examples[: cfg.examples_per_eval], task_lm, score_fn,
         )
-        ctx.log_store.log_scalar("gepa/score", candidate_score, step=step)
+        metrics = {"gepa/score": candidate_score}
         if candidate_score > best_score:
             best_score, best_prompt = candidate_score, candidate
-            ctx.log_store.log_scalar("gepa/best_score", best_score, step=step)
+            metrics["gepa/best_score"] = best_score
+        state.step = step
+        dispatch(cbs, "on_step_end", state, step, None, metrics)
 
     prompts_path = out / "prompts.json"
     prompts_path.write_text(json.dumps({"system_prompt": best_prompt}, indent=2))
-    ctx.log_store.log_artifact("final_prompt", str(prompts_path), kind="prompt")
 
     return RunResult(
         run_id=ctx.run_id, status="completed",
@@ -193,12 +196,15 @@ def _run_with_gepa_lib(*, ctx, cfg, examples, task_lm, score_fn, out, rng) -> Ru
         })
 
     metric_call_count = [0]
+    cbs, loop_state = make_loop_state(ctx, num_steps=cfg.max_iterations)
 
     def callback(state):
         metric_call_count[0] += 1
         try:
             score = float(getattr(state, "best_score", 0.0) or 0.0)
-            ctx.log_store.log_scalar("gepa/score", score, step=metric_call_count[0])
+            loop_state.step = metric_call_count[0]
+            dispatch(cbs, "on_step_end", loop_state, metric_call_count[0], None,
+                     {"gepa/score": score})
         except Exception:
             pass
 
@@ -215,7 +221,6 @@ def _run_with_gepa_lib(*, ctx, cfg, examples, task_lm, score_fn, out, rng) -> Ru
 
     prompts_path = out / "prompts.json"
     prompts_path.write_text(json.dumps({"system_prompt": best_prompt}, indent=2))
-    ctx.log_store.log_artifact("final_prompt", str(prompts_path), kind="prompt")
 
     return RunResult(
         run_id=ctx.run_id, status="completed",

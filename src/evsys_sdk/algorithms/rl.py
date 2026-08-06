@@ -82,7 +82,14 @@ class RL(BaseAlgorithm):
         # Rollouts are materialized + persisted under the run's workspace on
         # disk; training rollouts are NOT uploaded to the dashboard (only eval
         # rollouts are — see harbor_eval).
-        self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
+        self._workspace = Path(ctx.output_dir) / ".harbor" / "train"
+        # Resolve the renderer like the backend (algorithm config first, then
+        # the model's renderer from backend handles) so the rollout doesn't
+        # fall back to harbor's thinking-enabled default when the renderer is
+        # set on ``model.renderer_name``.
+        self._renderer_name = self.cfg.renderer_name or ctx.extras.get(
+            "backend_handles", {}
+        ).get("renderer_name")
         self._steps_per_epoch = max(1, len(self._tasks) // self.cfg.batch_size)
 
     async def build_batch(self, step_idx: int) -> TrainingBatch:
@@ -102,7 +109,7 @@ class RL(BaseAlgorithm):
             model_name=self._model_name,
             model_path=model_path,
             workspace_dir=self._workspace,
-            renderer_name=self.cfg.renderer_name,
+            renderer_name=self._renderer_name,
             num_samples=self.cfg.num_samples,
             max_turns=self.cfg.max_turns,
             max_tokens=self.cfg.max_tokens,
@@ -112,18 +119,23 @@ class RL(BaseAlgorithm):
             n_concurrent=self.cfg.n_concurrent,
             max_retries=self.cfg.max_retries,
         )
+        all_groups = groups  # keep originals so --dry can log dropped rollouts
         if self.cfg.drop_constant_reward:
             groups = [g for g in groups if not _all_equal(g.rewards)]
         if not groups:
             return TrainingBatch(
                 data=[], loss_fn="importance_sampling",
                 metrics={"reward/n_trajectories": 0.0},
+                rollouts=all_groups,
             )
 
         advantages = compute_advantages(groups)
         datums, _meta = assemble_training_data(groups, advantages)
         metrics = compute_trajectory_metrics(groups)
-        return TrainingBatch(data=datums, loss_fn="importance_sampling", metrics=metrics)
+        return TrainingBatch(
+            data=datums, loss_fn="importance_sampling",
+            metrics=metrics, rollouts=groups,
+        )
 
     def _hyperparams_extra(self) -> dict[str, Any]:
         return {"n_tasks": len(self._tasks)}

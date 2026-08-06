@@ -40,9 +40,40 @@ def _read_yaml(source: str | Path | dict[str, Any]) -> dict[str, Any]:
 def load_yaml(source: str | Path | dict[str, Any]) -> ExperimentConfig:
     """Parse and validate a YAML experiment file."""
     data = _read_yaml(source)
+    # Default output_dir to the config file's OWN directory (the "experiment
+    # directory" where config + runner live) instead of ./outputs, so logs/ land
+    # next to the experiment. Only when the user didn't set it explicitly.
+    if (
+        isinstance(source, (str, Path))
+        and isinstance(data, dict)
+        and "output_dir" not in data
+    ):
+        data["output_dir"] = str(Path(source).resolve().parent)
     cfg = ExperimentConfig.model_validate(data)
     if cfg.matrix is not None:
         cfg = _expand_matrix(cfg)
+    return cfg
+
+
+def apply_dry_run(cfg: ExperimentConfig, *, steps: int = 5) -> ExperimentConfig:
+    """Mutate ``cfg`` in place for a quick dry run: cap every run's algorithm to
+    ``steps`` (where the algorithm's Config supports ``max_steps``) and turn on
+    rollout logging. Returns the same config for chaining."""
+    cfg.log_rollouts = True
+    runs: list[RunConfig] = []
+    if cfg.run is not None:
+        runs.append(cfg.run)
+    if cfg.runs is not None:
+        runs.extend(cfg.runs)
+    from .registry import get_algorithm
+    for r in runs:
+        try:
+            algo_cls = get_algorithm(r.algorithm.kind)
+            fields = getattr(getattr(algo_cls, "Config", None), "model_fields", {})
+            if "max_steps" in fields:
+                r.algorithm.params["max_steps"] = steps
+        except Exception:
+            pass
     return cfg
 
 
