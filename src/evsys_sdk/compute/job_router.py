@@ -200,6 +200,11 @@ class JobRouter:
         return self.prov
 
     def submit(self, config: str, model: str, **kw: Any) -> Job:
+        """Queue a job. **Spot by default**: snapshots + auto-restart make
+        preemption a cost, not a risk, so the on-demand premium is opt-in —
+        pass ``spot=False`` to force on-demand or ``spot=None`` to take
+        whichever is cheapest."""
+        kw.setdefault("spot", True)
         return self.queue.submit(config, model, **kw)
 
     def _drain_events(self) -> int:

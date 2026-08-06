@@ -236,3 +236,13 @@ def test_build_provisioner_resolves_registry_and_validates(tmp_path):
     with pytest.raises(Exception, match="ssh_key_idd|extra|validation"):
         build_provisioner("verda", {"ssh_key_idd": "typo"},
                           call=lambda *a, **k: "x")
+
+
+def test_submit_defaults_to_spot(tmp_path):
+    q = Queue(path=str(tmp_path / "q.jsonl"))
+    m = CheckpointMap(path=str(tmp_path / "map.jsonl"))
+    router = JobRouter(q, m, FakeProvisioner(), events=lambda: [],
+                       handles_path=str(tmp_path / "handles.json"))
+    assert router.submit("c.yaml", model="m").spot is True      # the default
+    assert router.submit("c.yaml", model="m", spot=None).spot is None
+    assert router.submit("c.yaml", model="m", spot=False).spot is False

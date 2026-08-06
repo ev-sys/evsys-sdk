@@ -349,7 +349,12 @@ def main(argv: list[str] | None = None) -> int:
     p_qsub.add_argument("--model", required=True, help="Base model the job trains.")
     p_qsub.add_argument("--gpus", default="", help="Comma list of acceptable GPUs (default: measured-best order).")
     p_qsub.add_argument("--count", type=int, default=1)
-    p_qsub.add_argument("--spot", choices=["auto", "yes", "no"], default="auto")
+    p_qsub.add_argument(
+        "--spot", choices=["auto", "yes", "no"], default="yes",
+        help="Purchase mode. Default 'yes': preemptible/spot only — the "
+             "checkpointing router makes preemption cheap, so paying the "
+             "on-demand premium is opt-in. 'no' forces on-demand, 'auto' "
+             "takes whichever is cheapest right now.")
     p_qsub.add_argument("--queue-path", default=None)
     p_qsub.set_defaults(func=_cmd_queue_submit)
     p_qst = queue_sub.add_parser("status", help="Jobs + their latest checkpoints.")

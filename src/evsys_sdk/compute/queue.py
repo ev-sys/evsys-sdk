@@ -94,8 +94,12 @@ class Job:
     jobs stays FIFO instead of reordering itself every tick."""
     spot: bool | None = None
     """True forces spot, False forces on-demand, None takes whichever is
-    cheaper. None is the default because spot-only search hid real capacity:
-    Verda had 1x and 2x machines purchasable on-demand while every spot probe
+    cheaper. The *submission surfaces* (``JobRouter.submit``, ``evsys queue
+    submit``) default to True — with checkpoint+restart in the loop,
+    preemptible is the economically correct default and on-demand is the
+    opt-in. The dataclass default stays None because spot-only search hid
+    real capacity when used for *probing*: Verda had 1x and 2x machines
+    purchasable on-demand while every spot probe
     came back empty. Preemption risk is real, but it is the snapshot system's
     problem, not a reason to refuse cheap hardware."""
     state: str = QUEUED
