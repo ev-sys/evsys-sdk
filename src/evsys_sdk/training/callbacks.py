@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from ..config import ExperimentConfig, RunConfig
     from ..experiment import ArmResult, EvalResult, ExperimentResult
     from ..protocols import RunResult
-    from .backend import Backend, SamplingClient
+    from .backend import Backend
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
 
@@ -73,9 +73,9 @@ class LogContext:
     """
 
     output_dir: Path
-    config: "ExperimentConfig | None" = None
+    config: ExperimentConfig | None = None
     run_key: str | None = None
-    run_config: "RunConfig | None" = None
+    run_config: RunConfig | None = None
     group_name: str | None = None
     ids: dict[str, str] = field(default_factory=dict)
     """Callback-populated dashboard ids: ``experiment_id``, ``group:<name>``,
@@ -104,11 +104,11 @@ class LoopState:
     step: int
     """Current step index (0-based). Advances per iteration."""
     num_steps: int
-    output_dir: "Path | None" = None
-    backend: "Backend | None" = None
-    checkpoint_mgr: "CheckpointManager | None" = None
+    output_dir: Path | None = None
+    backend: Backend | None = None
+    checkpoint_mgr: CheckpointManager | None = None
     stop_requested: bool = False
-    ctx: "LogContext | None" = None
+    ctx: LogContext | None = None
     """The experiment-wide :class:`LogContext` (shared with the Experiment-scope
     hooks). ``None`` for a bare ``run_experiment`` with no Experiment driving it;
     populated when the Experiment threads callbacks into the loop."""
@@ -147,7 +147,7 @@ class Callback:
         a wandb run, snapshot the config — anything that should happen
         before the first step."""
 
-    def on_train_end(self, state: LoopState, artifacts: "LoopArtifacts") -> None:
+    def on_train_end(self, state: LoopState, artifacts: LoopArtifacts) -> None:
         """Fires once after the loop completes (including the final
         checkpoint save). Flush summary writes, close files."""
 
@@ -157,14 +157,14 @@ class Callback:
         self,
         state: LoopState,
         step_idx: int,
-        batch: "TrainingBatch",
+        batch: TrainingBatch,
         metrics: dict[str, float],
     ) -> None:
         """Fires after every train step's metric row is written. The
         universal "do something per step" hook (printing, plotting,
         custom metric derivations, gradient debugging)."""
 
-    def on_train_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
+    def on_train_data(self, ctx: LogContext, rows: list[dict[str, Any]]) -> None:
         """Fires once in setup with the FINAL examples fed to the model (after
         the chat template / rendering). Lets a logger persist exactly what went
         into training."""
@@ -176,7 +176,7 @@ class Callback:
 
     # --- side events -------------------------------------------------------
 
-    def on_checkpoint(self, state: LoopState, row: "ManifestRow") -> None:
+    def on_checkpoint(self, state: LoopState, row: ManifestRow) -> None:
         """Fires after each checkpoint manifest row is recorded. Useful
         for shipping to S3, pruning old checkpoints, kicking a side eval."""
 
@@ -216,7 +216,7 @@ class Callback:
     def on_benchmark_eval(
         self,
         ctx: LogContext,
-        eval_result: "EvalResult",
+        eval_result: EvalResult,
         predictions: list[dict],
         *,
         step: int | None = None,
@@ -228,14 +228,14 @@ class Callback:
         predictions."""
 
     def on_run_end(
-        self, ctx: LogContext, run_result: "RunResult", arm: "ArmResult",
+        self, ctx: LogContext, run_result: RunResult, arm: ArmResult,
     ) -> None:
         """Fires per arm, after eval, before the run is marked completed. A
         logger flushes/closes its run-scoped sink (wandb.finish) and records
         the final status (update_run)."""
 
     def on_experiment_end(
-        self, ctx: LogContext, result: "ExperimentResult",
+        self, ctx: LogContext, result: ExperimentResult,
     ) -> None:
         """Fires once at the end of the experiment. Final summary / flush."""
 
@@ -262,7 +262,7 @@ def dispatch(callbacks: list[Callback], hook: str, *args: Any, **kwargs: Any) ->
             )
 
 
-def make_loop_state(ctx: Any, *, num_steps: int = 0) -> tuple[list["Callback"], "LoopState"]:
+def make_loop_state(ctx: Any, *, num_steps: int = 0) -> tuple[list[Callback], LoopState]:
     """For algorithms that DON'T drive a :class:`TrainingLoop` (mock/local/gepa):
     pull the threaded logger callbacks off ``ctx.extras`` and build a minimal
     :class:`LoopState` so they can dispatch loop-scope hooks (``on_step_end`` /
@@ -510,7 +510,7 @@ class WandbLoggerCallback(Callback):
     def _lazy_wandb(self) -> Any:
         if self._wandb is None and not self._disabled:
             try:
-                import wandb  # noqa: PLC0415
+                import wandb
                 self._wandb = wandb
             except Exception:
                 self._disabled = True
@@ -596,7 +596,7 @@ class TensorBoardLoggerCallback(Callback):
         if self._disabled:
             return
         try:
-            from torch.utils.tensorboard import SummaryWriter  # noqa: PLC0415
+            from torch.utils.tensorboard import SummaryWriter
         except Exception:
             self._disabled = True
             logger.warning("tensorboard_logger: tensorboard/torch missing; disabling")
@@ -721,7 +721,7 @@ class LocalLoggerCallback(Callback):
     def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
         if self._dir is None:
             return
-        import json  # noqa: PLC0415
+        import json
         folder = self._FOLDER.get(split, split)
         fp = self._metrics_fps.get(folder)
         if fp is None:
@@ -751,7 +751,7 @@ class LocalLoggerCallback(Callback):
         d = self._ensure_dir(ctx)
         if d is None:
             return
-        import json  # noqa: PLC0415
+        import json
         fp = self._phase_dir("data") / "training_data.jsonl"
         with fp.open("w") as f:
             for r in rows:
@@ -763,7 +763,7 @@ class LocalLoggerCallback(Callback):
     def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
         if self._dir is None:
             return
-        import json  # noqa: PLC0415
+        import json
         texts = self._harbor_completion_texts("train")
         recs: list[dict] = []
         flat = 0
@@ -813,7 +813,7 @@ class LocalLoggerCallback(Callback):
     def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
         if self._dir is None:
             return
-        import json  # noqa: PLC0415
+        import json
         ename = getattr(eval_result, "name", "benchmark")
         metrics = dict(getattr(eval_result, "metrics", {}) or {})
         split = str(getattr(eval_result, "split", None) or "test")
@@ -843,7 +843,7 @@ class LocalLoggerCallback(Callback):
         for fp in self._metrics_fps.values():
             try:
                 fp.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         self._metrics_fps = {}
 
@@ -909,7 +909,7 @@ class EvsysLoggerCallback(Callback):
             # independent of any store the Experiment holds for benchmark /
             # dataset resolution. Tests inject ``cb._store`` directly.
             try:
-                from ..store import EvsysStore  # noqa: PLC0415
+                from ..store import EvsysStore
                 self._store = EvsysStore(project_id=self.project_id)
             except Exception:
                 self._disabled = True
@@ -979,7 +979,7 @@ class EvsysLoggerCallback(Callback):
         )
         eval_id = self._id(resp)
         if predictions:
-            from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
+            from .harbor_eval import upload_eval_rollouts
             rows = [{**p, "eval_id": eval_id} for p in predictions]
             upload_eval_rollouts(self._store, run_id, rows)
 
@@ -1205,6 +1205,181 @@ def build_callbacks(specs: Any) -> list[Callback]:
     return out
 
 
+def with_default_snapshots(callbacks: list[Callback]) -> list[Callback]:
+    """Append the ambient :class:`DeltaSnapshotCallback` when the node env
+    announces a router context (``EVSYS_STORE_DIR`` or ``EVSYS_JOB_ID`` —
+    the provisioner's agent always exports both).
+
+    The yaml never has to mention ``delta_snapshot``: every router-managed
+    run snapshots by default. An explicit spec in the config wins — if a
+    DeltaSnapshotCallback is already in the list, nothing is added — and
+    outside a router context (no env) the list is returned untouched, so
+    local runs and tests see no new behavior.
+    """
+    import os as _os
+    if not (_os.environ.get("EVSYS_STORE_DIR")
+            or _os.environ.get("EVSYS_JOB_ID")):
+        return callbacks
+    if any(isinstance(c, DeltaSnapshotCallback) for c in callbacks):
+        return callbacks
+    return [*callbacks, DeltaSnapshotCallback()]
+
+
+# ---------------------------------------------------------------------------
+# DeltaSnapshotCallback — portable checkpoints for router-managed jobs
+# ---------------------------------------------------------------------------
+
+
+class DeltaSnapshotConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    store_dir: str = ""
+    """Node store directory (the persistent volume mount). Empty -> the
+    ``EVSYS_STORE_DIR`` env var, then ``/data/store``."""
+    events_url: str = ""
+    """Topic to report checkpoints to. Empty -> ``EVSYS_EVENTS_URL``; still
+    empty -> events are skipped (local runs work without a router)."""
+    job_id: str = ""
+    """Router job id. Empty -> ``EVSYS_JOB_ID``."""
+    provider: str = ""
+    """Cloud holding the volume. Empty -> ``EVSYS_PROVIDER``, then 'verda'."""
+    volume: str = ""
+    """Volume id for the StoreRef. Empty -> ``EVSYS_VOLUME``."""
+
+
+@register_callback("delta_snapshot")
+class DeltaSnapshotCallback(Callback):
+    """Ship every loop checkpoint to the node's persistent volume as an
+    XOR-delta, and report it so the router's CheckpointMap stays current.
+
+    This is the node half of the JobRouter contract: the loop saves its
+    checkpoint as usual; ``on_checkpoint`` re-encodes the saved files as
+    base + compressed delta (:mod:`evsys_sdk.checkpoint_delta` over the raw
+    bytes — file sizes are stable within a run, and a size change just
+    re-bases), writes them to the volume store, and posts a ``checkpoint``
+    event. A preempted job restarts from exactly the last row the router
+    heard about.
+
+    **On by default on router-provisioned nodes.** The agent's env
+    (EVSYS_JOB_ID, EVSYS_STORE_DIR, EVSYS_EVENTS_URL, EVSYS_VOLUME) both
+    announces the router context and carries every param, so the training
+    loop adds this callback automatically (:func:`with_default_snapshots`)
+    — the experiment yaml needs nothing. Listing it explicitly::
+
+        callbacks:
+          - {kind: delta_snapshot, params: {...}}
+
+    is only for local/manual runs outside the router, or to override params;
+    an explicit spec suppresses the ambient default (no duplicates).
+
+    If the store directory turns out to be unusable (no volume mounted,
+    permission denied), the callback logs one warning and disables itself
+    for the run rather than failing training — a default-on callback must
+    never be the thing that kills a job.
+    """
+
+    Config: ClassVar[type] = DeltaSnapshotConfig
+
+    def __init__(self, store_dir: str = "", events_url: str = "",
+                 job_id: str = "", provider: str = "", volume: str = ""):
+        import os as _os
+        self.store_dir = store_dir or _os.environ.get("EVSYS_STORE_DIR",
+                                                      "/data/store")
+        self.events_url = events_url or _os.environ.get("EVSYS_EVENTS_URL", "")
+        self.job_id = job_id or _os.environ.get("EVSYS_JOB_ID", "")
+        self.provider = provider or _os.environ.get("EVSYS_PROVIDER", "verda")
+        self.volume = volume or _os.environ.get("EVSYS_VOLUME", "")
+        self._ck = None          # DeltaCheckpointer, created on first row
+        self._base_key = "base.evd"
+        self._disabled = False   # flips on store failure; run continues
+
+    @staticmethod
+    def _as_state(paths: list[str]) -> dict:
+        """Checkpoint files as uint8 arrays — byte-exact, format-agnostic."""
+        import numpy as _np
+        state = {}
+        for p in paths:
+            state[Path(p).name] = _np.frombuffer(
+                Path(p).read_bytes(), dtype=_np.uint8).copy()
+        return state
+
+    def on_checkpoint(self, state: LoopState, row) -> None:
+        from ..checkpoint_delta import DeltaCheckpointer
+        from ..compute.checkpoint_store import LocalDirStore, put_file, sha256_of
+        from ..compute.events_topic import post_event
+
+        paths = [p for p in (row.state_path, row.sampler_path) if p]
+        if self._disabled or not paths:
+            return
+        step = row.batch if row.batch is not None else state.step
+        if any("://" in p for p in paths):
+            # Remote-scheme checkpoint (e.g. tinker:// under a SkyRL server).
+            # The bytes live in the server's checkpoints_base — which, on a
+            # router-provisioned node, is already ON the persistent volume —
+            # so there is nothing to re-encode. Report the event so the map
+            # knows the step and where the volume is.
+            if self.events_url and self.job_id:
+                from ..compute.events_topic import post_event
+                post_event(self.events_url, {
+                    "kind": "checkpoint", "job_id": self.job_id,
+                    "step": int(step),
+                    "store": {"kind": "local_dir", "provider": self.provider,
+                              "volume": self.volume, "path": self.store_dir},
+                    "base_key": "", "delta_key": "",
+                    "sha256": {},
+                    "meta": {"checkpoint_name": row.name,
+                             "state_path": row.state_path}})
+            return
+        try:
+            # Probe the store FIRST — before any encoding work. On a machine
+            # with no volume at store_dir this is where a default-on callback
+            # bows out instead of failing the run.
+            store = LocalDirStore(self.store_dir)
+        except OSError as e:
+            logger.warning(
+                "delta_snapshot: store dir %s unusable (%s) — snapshots "
+                "disabled for this run", self.store_dir, e)
+            self._disabled = True
+            return
+        weights = self._as_state(paths)
+        work = Path(state.output_dir) / "_delta_snapshots"
+        delta_key = f"step-{step}.evd"
+        try:
+            try:
+                if self._ck is None:
+                    self._ck = DeltaCheckpointer(weights, str(work),
+                                                 keep_last=3)
+                self._ck.save(step, weights)
+            except (ValueError, KeyError):
+                # A file changed size/name mid-run: re-base rather than fail.
+                self._base_key = f"base-{step}.evd"
+                self._ck = DeltaCheckpointer(weights, str(work), keep_last=3)
+                self._ck.save(step, weights)
+            put_file(store, self._base_key, work / "base.evd")
+            put_file(store, delta_key, work / f"step-{step}.evd")
+        except OSError as e:
+            logger.warning(
+                "delta_snapshot: write to %s failed (%s) — snapshots "
+                "disabled for this run", self.store_dir, e)
+            self._disabled = True
+            return
+        digests = {k: sha256_of(store, k) for k in (self._base_key, delta_key)}
+        if self.events_url and self.job_id:
+            post_event(self.events_url, {
+                "kind": "checkpoint", "job_id": self.job_id, "step": int(step),
+                "store": {"kind": "local_dir", "provider": self.provider,
+                          "volume": self.volume, "path": self.store_dir},
+                "base_key": self._base_key, "delta_key": delta_key,
+                "sha256": digests,
+                "meta": {"checkpoint_name": row.name}})
+
+    def on_train_end(self, state: LoopState, artifacts) -> None:
+        from ..compute.events_topic import post_event
+        if self.events_url and self.job_id:
+            post_event(self.events_url,
+                       {"kind": "done", "job_id": self.job_id})
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
@@ -1223,8 +1398,9 @@ def _fmt_value(v: Any) -> str:
 __all__ = [
     "Callback",
     "CsvMetricsCallback",
-    "EarlyStoppingCallback",
     "DebugLoggerCallback",
+    "DeltaSnapshotCallback",
+    "EarlyStoppingCallback",
     "EvsysLoggerCallback",
     "LocalLoggerCallback",
     "LogContext",
@@ -1234,4 +1410,5 @@ __all__ = [
     "WandbLoggerCallback",
     "build_callbacks",
     "dispatch",
+    "with_default_snapshots",
 ]

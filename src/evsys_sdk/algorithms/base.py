@@ -38,11 +38,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import CallbackSpec
 from ..protocols import RunContext, RunResult
-from ..training.callbacks import build_callbacks
+from ..training.callbacks import build_callbacks, with_default_snapshots
 from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
 from ..training.tinker_backend import TinkerBackend
-
 
 # ---------------------------------------------------------------------------
 # Shared config base
@@ -189,6 +188,9 @@ class BaseAlgorithm:
         callbacks = build_callbacks(self.cfg.callbacks) + list(
             ctx.extras.get("callbacks") or []
         )
+        # Router-managed nodes snapshot by default — the yaml never mentions
+        # delta_snapshot; the provisioner's env is the switch.
+        callbacks = with_default_snapshots(callbacks)
 
         # Surface the final training data (post-transform / chat-template rows)
         # to loggers so they can persist exactly what went into the model.
