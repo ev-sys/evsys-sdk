@@ -158,6 +158,60 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report_push(args: argparse.Namespace) -> int:
+    from .report_upload import push_report
+
+    try:
+        result = push_report(
+            args.local_dir,
+            path=args.path,
+            project_id=args.project_id,
+            name=args.name,
+            entry_file=args.entry,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps({
+        "report_id": result.report_id,
+        "path": result.path,
+        "content_hash": result.content_hash,
+        "n_files": result.n_files,
+        "size_bytes": result.size_bytes,
+        "entry_file": result.entry_file,
+        "url": result.url,
+    }, indent=2))
+    if result.url:
+        print(f"\n# open (logged-in project member): {result.url}", file=sys.stderr)
+    return 0
+
+
+def _cmd_report_tree(args: argparse.Namespace) -> int:
+    from .store import EvsysStore, EvsysStoreError
+
+    try:
+        store = EvsysStore(project_id=args.project_id)
+        tree = store.list_report_tree()
+    except EvsysStoreError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps({"tree": tree}, indent=2))
+    return 0
+
+
+def _cmd_report_list(args: argparse.Namespace) -> int:
+    from .store import EvsysStore, EvsysStoreError
+
+    try:
+        store = EvsysStore(project_id=args.project_id)
+        reports = store.list_reports()
+    except EvsysStoreError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps({"reports": reports}, indent=2))
+    return 0
+
+
 def _cmd_benchmark_run(args: argparse.Namespace) -> int:
     """Score a benchmark (by --path / --id / --name) on a closed/API model."""
     from .benchmark_run import run_benchmark
@@ -245,6 +299,34 @@ def main(argv: list[str] | None = None) -> int:
     p_bup.add_argument("path", help="Path to data/benchmark/<name>/.")
     p_bup.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
     p_bup.set_defaults(func=_cmd_benchmark_upload)
+
+    p_report = sub.add_parser("report", help="Manage project HTML reports.")
+    report_sub = p_report.add_subparsers(dest="report_cmd", required=True)
+    p_rpush = report_sub.add_parser(
+        "push",
+        help="Upload a local static HTML report dir into a project virtual path.",
+    )
+    p_rpush.add_argument("local_dir", help="Directory containing index.html (+ assets).")
+    p_rpush.add_argument(
+        "--path", required=True,
+        help="Virtual path, e.g. experiments/run-1/eval (leaf is report name unless --name).",
+    )
+    p_rpush.add_argument("--name", default=None, help="Report name (path is then parent folders only).")
+    p_rpush.add_argument("--entry", default="index.html", help="Entry HTML file inside the dir.")
+    p_rpush.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
+    p_rpush.set_defaults(func=_cmd_report_push)
+
+    p_rtree = report_sub.add_parser(
+        "tree", help="Print the project's report folder tree (JSON)."
+    )
+    p_rtree.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
+    p_rtree.set_defaults(func=_cmd_report_tree)
+
+    p_rlist = report_sub.add_parser(
+        "list", help="List reports flat with path + openable viewer URL (JSON)."
+    )
+    p_rlist.add_argument("--project-id", default=None, help="Override EVSYS_PROJECT_ID.")
+    p_rlist.set_defaults(func=_cmd_report_list)
 
     p_brun = bench_sub.add_parser(
         "run", help="Score a benchmark on a closed/API model (no training)."

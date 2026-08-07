@@ -256,5 +256,45 @@ class EvsysStore:
                     split: str | None = None) -> list[dict]:
         return self._call("get_metrics", run_id=run_id, name=name, split=split)
 
+    # -- project HTML reports -------------------------------------------------
+
+    def list_report_tree(self, project_id: str | None = None) -> list[dict]:
+        """Nested folder/report tree (each report includes ``path`` + ``url``)."""
+        return self._call("list_report_tree", project_id=self._project(project_id)) or []
+
+    def list_reports(self, project_id: str | None = None) -> list[dict]:
+        """Flat list of reports with virtual paths and openable viewer URLs."""
+        return self._call("list_reports", project_id=self._project(project_id)) or []
+
+    def get_report(self, report_id: str, *, project_id: str | None = None) -> dict:
+        return self._call(
+            "get_report",
+            report_id=report_id,
+            project_id=self._project(project_id),
+        )
+
+    def create_report_folder(
+        self,
+        name: str,
+        *,
+        parent_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict:
+        return self._call(
+            "create_report_folder",
+            project_id=self._project(project_id),
+            name=name,
+            parent_id=parent_id,
+        )
+
+    def delete_report_node(
+        self, node_id: str, *, project_id: str | None = None
+    ) -> dict:
+        return self._call(
+            "delete_report_node",
+            node_id=node_id,
+            project_id=self._project(project_id),
+        )
+
 
 __all__ = ["EvsysStore", "EvsysStoreError"]
