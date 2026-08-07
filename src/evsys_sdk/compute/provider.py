@@ -40,6 +40,9 @@ money today:
 from __future__ import annotations
 
 import abc
+import atexit
+import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -165,9 +168,22 @@ def ssh(ip: str, cmd: str, key: str, timeout: float = 300) -> tuple[int, str]:
 
 
 def push(ip: str, files: Iterable[str], key: str, dest: str = "/root/") -> bool:
+    """Copy files to a host. False on any failure.
+
+    scp is atomic across its argument list: one missing local path fails the
+    whole transfer. That is indistinguishable from a network problem in the
+    return value, and it cost three acquire/teardown cycles - each one renting
+    a GPU, passing the CUDA gate, failing the copy and releasing - before the
+    cause was found. So check locally first and name the file.
+    """
     files = list(files)
     if not files:
         return True
+    absent = [f for f in files if not os.path.exists(f)]
+    if absent:
+        log.error("[provider] refusing to scp: %d local file(s) missing: %s",
+                  len(absent), ", ".join(absent))
+        return False
     try:
         p = subprocess.run(
             ["scp", "-i", key, "-o", "StrictHostKeyChecking=no",
@@ -286,6 +302,54 @@ class Session:
 
     def __init__(self, provider: Provider, machine: Machine, key: str):
         self.provider, self.machine, self.key = provider, machine, key
+        self._released = False
+        # `with` only protects against exceptions and clean returns. A SIGTERM
+        # - which is what `kill <launcher>` sends - unwinds nothing, so the
+        # machine keeps billing with no process left to release it. That
+        # happened: killing two launchers left an H200 and 7 volumes running,
+        # ~$360/mo of storage alone. Register a last-resort release.
+        atexit.register(self._release)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                prev = signal.getsignal(sig)
+                signal.signal(sig, self._on_signal(sig, prev))
+            except (ValueError, OSError):
+                pass       # not the main thread; atexit still covers us
+
+    def _on_signal(self, sig, prev):
+        def handler(signum, frame):
+            log.warning("[provider] signal %s - releasing %s before exit",
+                        signum, self.machine.id[:8])
+            self._release()
+            if callable(prev) and prev not in (signal.SIG_IGN, signal.SIG_DFL):
+                prev(signum, frame)
+            else:
+                raise SystemExit(128 + signum)
+        return handler
+
+    def _release(self) -> None:
+        """Idempotent teardown. Safe to call from __exit__, a signal, or atexit."""
+        if self._released:
+            return
+        self._released = True
+        try:
+            self.provider.poll(self.machine)
+        except Exception:
+            pass
+        gone = self.machine.state == GONE
+        try:
+            rel.record(rel.PREEMPTED if gone else rel.TORN_DOWN,
+                       provider=self.provider.name, gpu=self.machine.gpu,
+                       count=self.machine.count, region=self.machine.region,
+                       uptime_s=self.machine.uptime_s, usd_hr=self.machine.usd_hr)
+        except Exception:
+            pass
+        if not gone:
+            try:
+                self.provider.terminate(self.machine)
+            except Exception as e:  # noqa: BLE001
+                log.error("[provider] COULD NOT RELEASE %s: %s - it is still "
+                          "billing", self.machine.id, e)
 
     def __enter__(self) -> Session:
         return self
@@ -304,17 +368,7 @@ class Session:
         return self.machine.state == RUNNING
 
     def __exit__(self, *exc: Any) -> None:
-        try:
-            self.provider.poll(self.machine)
-        except Exception:
-            pass
-        gone = self.machine.state == GONE
-        rel.record(rel.PREEMPTED if gone else rel.TORN_DOWN,
-                   provider=self.provider.name, gpu=self.machine.gpu,
-                   count=self.machine.count, region=self.machine.region,
-                   uptime_s=self.machine.uptime_s, usd_hr=self.machine.usd_hr)
-        if not gone:
-            self.provider.terminate(self.machine)
+        self._release()
         # Disks outlive their machines on every provider tested. Sweep even
         # when the machine vanished on its own, because that is exactly when
         # nothing else will.

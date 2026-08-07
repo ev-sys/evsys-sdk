@@ -192,3 +192,63 @@ class TestOffer:
         big = pv.Offer("s", "R", "H200", 8, 11.20, True)
         one = pv.Offer("s", "R", "H200", 1, 1.50, True)
         assert big.usd_per_gpu_hr < one.usd_per_gpu_hr
+
+
+class TestSessionSurvivesBeingKilled:
+    """`with` protects against exceptions and returns. It does nothing for
+    SIGTERM, which is what `kill <launcher>` sends - and that left an H200 and
+    seven volumes billing with no process alive to release them."""
+
+    def _sess(self, monkeypatch):
+        import evsys_sdk.compute.provider as pv
+        killed = []
+
+        class P:
+            name = "fake"
+            def poll(self, m): m.state = pv.RUNNING; return m
+            def terminate(self, m): killed.append(m.id)
+            def orphans(self): return []
+
+        m = pv.Machine(id="i-1", provider="fake", sku="s", region="r",
+                       gpu="H200", count=1, usd_hr=2.0)
+        monkeypatch.setattr(pv.rel, "record", lambda *a, **k: None)
+        return pv.Session(P(), m, "key"), killed
+
+    def test_release_is_idempotent(self, monkeypatch):
+        s, killed = self._sess(monkeypatch)
+        s._release(); s._release(); s._release()
+        assert killed == ["i-1"], "a machine must not be terminated twice"
+
+    def test_exit_still_releases(self, monkeypatch):
+        s, killed = self._sess(monkeypatch)
+        with s:
+            pass
+        assert killed == ["i-1"]
+
+    def test_signal_handler_releases_then_exits(self, monkeypatch):
+        import signal as sig
+        s, killed = self._sess(monkeypatch)
+        h = s._on_signal(sig.SIGTERM, sig.SIG_DFL)
+        with pytest.raises(SystemExit):
+            h(sig.SIGTERM, None)
+        assert killed == ["i-1"], "SIGTERM must release the machine"
+
+    def test_a_terminate_that_fails_does_not_escape(self, monkeypatch):
+        """A provider API failure during teardown must not propagate: it would
+        take down the launcher and orphan every other machine it holds. It is
+        logged as an error instead, and release stays marked done so a retry
+        loop does not spin on it."""
+        import evsys_sdk.compute.provider as pv
+
+        class Boom:
+            name = "fake"
+            def poll(self, m): m.state = pv.RUNNING; return m
+            def terminate(self, m): raise RuntimeError("api down")
+            def orphans(self): return []
+
+        m = pv.Machine(id="i-2", provider="fake", sku="s", region="r",
+                       gpu="H200", count=1, usd_hr=2.0)
+        monkeypatch.setattr(pv.rel, "record", lambda *a, **k: None)
+        s = pv.Session(Boom(), m, "k")
+        s._release()          # must not raise
+        assert s._released
