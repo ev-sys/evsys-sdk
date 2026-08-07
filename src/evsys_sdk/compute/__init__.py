@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from ..registry import get_compute
-from . import (availability, catalog, credentials, liveness, pricing, provider,
-               queue, reliability, router, snapshot)
+from . import (availability, catalog, credentials, liveness, pack, pricing,
+               provider, queue, reliability, router, snapshot)
 from .providers_vast import VastProvider
 from .providers_verda import VerdaProvider
 from .base import BaseCompute, ComputeError
@@ -37,4 +37,4 @@ def build_compute(spec: Any) -> BaseCompute:
 __all__ = ["BaseCompute", "ComputeError", "VastProvider", "VerdaProvider",
            "availability",
            "build_compute", "catalog", "credentials", "liveness", "pricing",
-           "provider", "queue", "reliability", "router", "snapshot"]
+           "pack", "provider", "queue", "reliability", "router", "snapshot"]
