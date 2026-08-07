@@ -53,6 +53,10 @@ class SDFTConfig(BaseAlgorithmConfig):
     # SDFT knobs
     topk: int = 20
     teacher_sync_every: int | None = None  # reserved; static teacher for now
+    student_snapshot_every: int = 8
+    """Refresh the on-policy sampler checkpoint every N steps (bounded
+    staleness). Tinker counts each ``save_weights_for_sampler`` as a session;
+    snapshotting every step hits the active-session cap on long runs."""
     max_context_length: int = 2048
     demo_template: str = DEFAULT_DEMO_TEMPLATE
     system_prompt: str | None = None
@@ -100,6 +104,7 @@ class SDFT(BaseAlgorithm):
         # saves a sampler checkpoint and points the harbor agent at it).
         self._backend = backend
         self._snapshot_i = 0
+        self._sampler_path: str | None = None
         # Rollouts persist under the run's workspace on disk; training rollouts
         # are NOT uploaded to the dashboard (only eval rollouts are).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
@@ -123,11 +128,15 @@ class SDFT(BaseAlgorithm):
         ]
 
         # 2. On-policy student rollouts via harbor's engine, generation-only
-        #    (verify=False → no verifier/reward). Save a sampler checkpoint so the
-        #    harbor agent samples from the current weights. One group per prompt
-        #    (prompt order); take its single sample.
-        self._snapshot_i += 1
-        model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
+        #    (verify=False → no verifier/reward). Snapshot sampler weights every
+        #    ``student_snapshot_every`` steps (bounded staleness vs session cap).
+        every = max(1, int(self.cfg.student_snapshot_every))
+        if self._sampler_path is None or (step_idx % every) == 0:
+            self._snapshot_i += 1
+            self._sampler_path = await self._backend.save_for_sampler(
+                f"student_snap_{self._snapshot_i}",
+            )
+        model_path = self._sampler_path
         groups = await run_harbor_rollouts(
             [self._student_user_content(q) for q in questions],
             outcome_reward=False,        # raw prompts → generation-only (no verifier/reward)
