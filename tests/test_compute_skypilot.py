@@ -787,27 +787,17 @@ class TestDefaultsThatMakeItWorkOutOfTheBox:
                      server_backend="megatron")
         assert "trainer.policy.language_model_only" not in c._server_config()
 
-    def test_single_gpu_rl_is_refused(self, monkeypatch):
-        """SkyRL's tinker path has no working single-GPU RL shape: its own
-        reference is '1 GPU for the policy worker, 1 for vLLM', and every
-        colocated attempt on recent HEAD returned zeros. Refusing beats
-        emitting a config that silently measures nothing."""
-        import pytest as _pt
-        from evsys_sdk.compute.base import ComputeError
+    def test_single_gpu_rl_colocates_plainly(self, monkeypatch):
+        """One GPU, one RL experiment: SkyRL-Train's default shape. The
+        multi-LoRA slot knobs are a disagg concern and must NOT ride along -
+        every mysterious colocated failure recorded carried them."""
         c = _compute(monkeypatch, _FakeSky(), accelerators="H100:1",
-                     server_backend="megatron", rl=True)
-        with _pt.raises(ComputeError, match="disaggregated"):
-            c._server_config()
-
-    def test_single_gpu_rl_explicit_colocate_is_allowed(self, monkeypatch):
-        """An explicit colocate_all in backend_config overrides the refusal -
-        it is a default, not a policy."""
-        c = _compute(monkeypatch, _FakeSky(), accelerators="H100:1",
-                     server_backend="megatron", rl=True,
-                     backend_config={"trainer.placement.colocate_all": True})
+                     server_backend="megatron", rl=True, multi_lora=True)
         cfg = c._server_config()
         assert cfg["trainer.placement.colocate_all"] is True
         assert cfg["generator.inference_engine.gpu_memory_utilization"] == 0.25
+        assert "trainer.policy.model.lora.max_loras" not in cfg
+        assert "trainer.policy.megatron_config.lora_config.merge_lora" not in cfg
 
     def test_multi_gpu_rl_disaggregates(self, monkeypatch):
         c = _compute(monkeypatch, _FakeSky(), accelerators="H200:2",
@@ -821,11 +811,13 @@ class TestDefaultsThatMakeItWorkOutOfTheBox:
                      server_backend="megatron", rl=False)
         assert c._server_config()["trainer.placement.colocate_all"] is False
 
-    def test_multi_lora_cannot_override_placement(self, monkeypatch):
-        """multi_lora defaults must not reset placement decided above it."""
+    def test_multi_lora_belongs_to_disagg(self, monkeypatch):
+        """On 2+ GPUs the LoRA slot knobs apply and placement stays disagg."""
         c = _compute(monkeypatch, _FakeSky(), accelerators="H200:2",
                      server_backend="megatron", rl=True, multi_lora=True)
-        assert c._server_config()["trainer.placement.colocate_all"] is False
+        cfg = c._server_config()
+        assert cfg["trainer.placement.colocate_all"] is False
+        assert cfg["trainer.policy.model.lora.max_loras"] == 8
 
     def test_explicit_config_still_wins(self, monkeypatch):
         c = _compute(monkeypatch, _FakeSky(), server_backend="megatron",

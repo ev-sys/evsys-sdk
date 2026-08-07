@@ -393,25 +393,14 @@ class SkyPilotCompute(BaseCompute):
         ``gpu_memory_utilization`` is reserved up front rather than grown into.
         """
         if self.cfg.rl and self._gpu_count() <= 1:
-            if (self.cfg.backend_config or {}).get(
-                    "trainer.placement.colocate_all") is None:
-                # Refusing beats emitting a config that produces silent zeros.
-                # SkyRL's own multi-LoRA tinker reference is explicit - "1 GPU
-                # for the policy worker, 1 for vLLM", colocate_all=False - and
-                # every colocated single-GPU RL attempt on recent HEAD returned
-                # zero tokens across ~20 cells, two models, bin-packing on and
-                # off, while the 2-GPU disaggregated shape produced a complete
-                # 16-cell matrix on the same code. Colocated worked on 2026-08-03
-                # HEAD, so this may be an upstream regression; until it is fixed
-                # there, one GPU cannot run RL on this path.
-                raise ComputeError(
-                    "RL on a single GPU is not currently runnable: the SkyRL "
-                    "tinker path's supported RL shape is disaggregated (one "
-                    "GPU for the policy, one for vLLM). Request 2+ GPUs, e.g. "
-                    'accelerators: "A100:2" - or set '
-                    "trainer.placement.colocate_all explicitly in "
-                    "backend_config to override at your own risk.")
-            return {"generator.inference_engine.gpu_memory_utilization":
+            # Colocated single-experiment RL: SkyRL-Train's own default shape.
+            # Multi-LoRA is a disaggregated concern - its slot knobs
+            # (merge_lora=false, max_loras) exist so a second GPU's engine can
+            # serve adapters by name, and every mysterious colocated failure we
+            # recorded carried those knobs. One GPU, one experiment, plain
+            # config.
+            return {"trainer.placement.colocate_all": True,
+                    "generator.inference_engine.gpu_memory_utilization":
                         self.COLOCATED_GMU}
         return {"trainer.placement.colocate_all": False}
 
@@ -428,10 +417,18 @@ class SkyPilotCompute(BaseCompute):
     def _server_config(self) -> dict[str, Any]:
         """Backend config actually sent, defaults under explicit settings."""
         cfg: dict[str, Any] = {}
+        single_gpu_rl = self.cfg.rl and self._gpu_count() <= 1
         if self.cfg.server_backend == "megatron":
             cfg.update(self._throughput_defaults())
             cfg.update(self._model_defaults())
-        if self.cfg.multi_lora and self.cfg.server_backend == "megatron":
+        if single_gpu_rl and self.cfg.multi_lora:
+            # Not a tuning choice: multi-LoRA serving belongs to disaggregated
+            # placement. On one colocated GPU it is one experiment, and the
+            # LoRA-slot server config is dropped rather than carried along.
+            log.info("[skypilot] single-GPU RL runs one experiment; "
+                     "multi-LoRA slot config omitted (it is a disagg concern)")
+        if (self.cfg.multi_lora and not single_gpu_rl
+                and self.cfg.server_backend == "megatron"):
             cfg.update(self._multi_lora_defaults())
         elif self.cfg.multi_lora:
             log.info("[skypilot] multi_lora ignored on backend=%s — multi-tenant "
