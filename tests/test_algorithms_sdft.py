@@ -279,3 +279,78 @@ def test_train_logs_hyperparams_once(patched_tinker_backend, ctx):
     assert hp["algorithm"] == "sdft"
     assert hp["model_name"] == "Qwen/Qwen3-4B"
     assert hp["total_steps"] == 2
+
+
+# ---------------------------------------------------------------------------
+# step_metrics — weighted soft CE (matches the optimizer)
+# ---------------------------------------------------------------------------
+
+
+def _soft_datum(*, weights_flat: list[float]) -> "tinker.Datum":
+    import tinker
+    import torch
+    n = len(weights_flat)
+    # pretend 1 position × K candidates (or N×K flattened — metric flattens anyway)
+    return tinker.Datum(
+        model_input=tinker.ModelInput.from_ints([1, 2, 3]),
+        loss_fn_inputs={
+            "target_tokens": tinker.TensorData.from_torch(
+                torch.arange(n, dtype=torch.long),
+            ),
+            "weights": tinker.TensorData.from_torch(
+                torch.tensor(weights_flat, dtype=torch.float32),
+            ),
+        },
+    )
+
+
+def test_step_metrics_uses_teacher_weights_not_unweighted_mean():
+    """Peaked teacher: unweighted mean of K logprobs is dominated by the
+    low-prob tail; weighted CE must follow the peak token."""
+    from evsys_sdk.training.loop import TrainingBatch
+
+    # K=3: peak weight 0.9 on token with logprob -1; tail tokens at -10
+    weights = [0.9, 0.05, 0.05]
+    logprobs = [-1.0, -10.0, -10.0]
+    batch = TrainingBatch(
+        data=[_soft_datum(weights_flat=weights)],
+        loss_fn="cross_entropy",
+    )
+
+    class _Result:
+        loss_fn_outputs = [{"logprobs": logprobs}]
+
+    metrics = SDFT().step_metrics(0, batch, _Result())
+    # weighted: -(0.9*-1 + 0.05*-10 + 0.05*-10) / 1.0 = 1.9
+    assert metrics["train/mean_loss"] == pytest.approx(1.9)
+    assert metrics["train/mean_logprob"] == pytest.approx(-1.9)
+    assert metrics["train/loss_n_tokens"] == pytest.approx(1.0)
+
+    # Unweighted nonzero mean would be -( -1-10-10 )/3 = 7 — must NOT match.
+    assert metrics["train/mean_loss"] != pytest.approx(7.0)
+
+
+def test_step_metrics_ignores_zero_weight_slots():
+    from evsys_sdk.training.loop import TrainingBatch
+
+    batch = TrainingBatch(
+        data=[_soft_datum(weights_flat=[0.0, 1.0, 0.0])],
+        loss_fn="cross_entropy",
+    )
+
+    class _Result:
+        loss_fn_outputs = [{"logprobs": [-99.0, -0.5, -99.0]}]
+
+    metrics = SDFT().step_metrics(0, batch, _Result())
+    assert metrics["train/mean_loss"] == pytest.approx(0.5)
+
+
+def test_step_metrics_empty_without_outputs():
+    from evsys_sdk.training.loop import TrainingBatch
+
+    batch = TrainingBatch(data=[_soft_datum(weights_flat=[1.0])], loss_fn="cross_entropy")
+
+    class _Result:
+        loss_fn_outputs = None
+
+    assert SDFT().step_metrics(0, batch, _Result()) == {}

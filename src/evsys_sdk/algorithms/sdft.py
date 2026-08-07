@@ -25,7 +25,7 @@ import tinker
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
-from ..training.batch_utils import coerce_floats
+from ..training.batch_utils import coerce_floats, extract_weights
 from ..training.loop import TrainingBatch
 from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
@@ -197,34 +197,46 @@ class SDFT(BaseAlgorithm):
     def step_metrics(
         self, step_idx: int, batch: TrainingBatch, fb_result: Any,
     ) -> dict[str, float]:
-        """``train/mean_loss`` = mean negative-logprob of the teacher's
-        preferred tokens under the student's distribution.
+        """``train/mean_loss`` = weight-averaged soft (or hard) CE.
 
-        The loop already merges ``batch.metrics`` (teacher entropy / truncated
-        count); here we add the loss derived from the forward-backward output.
-        Per-position student logprobs are 0 on non-loss positions, negative on
-        the rest; ignore the zeros."""
+        Soft top-K SDFT datums carry ``(N, K)`` ``target_tokens`` /
+        ``weights`` where ``weights[t, k] = p_T^{(t)}(x_{t,k})``. Tinker
+        returns matching ``(N, K)`` student logprobs. The objective we
+        minimize is ``-sum w log π``; this metric is the same quantity
+        normalized by ``sum w`` (mean per-unit-weight NLL).
+
+        An earlier unweighted average over nonzero logprobs ignored ``w``
+        and rose as the teacher peaked — even when weighted CE improved.
+        """
         outputs = getattr(fb_result, "loss_fn_outputs", None)
         if not outputs:
             return {}
         total_logprob = 0.0
-        n_tokens = 0
-        for out in outputs:
-            logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
-                                      else getattr(out, "logprobs", None))
+        total_weight = 0.0
+        for datum, out in zip(batch.data, outputs):
+            logprobs = coerce_floats(
+                out.get("logprobs") if isinstance(out, dict)
+                else getattr(out, "logprobs", None),
+            )
             if not logprobs:
                 continue
-            for v in logprobs:
-                if v != 0.0:
-                    total_logprob += v
-                    n_tokens += 1
-        if n_tokens == 0:
+            weights = coerce_floats(extract_weights(datum))
+            if weights is None or len(weights) == 0:
+                continue
+            k = min(len(logprobs), len(weights))
+            for j in range(k):
+                w = weights[j]
+                if w == 0.0:
+                    continue
+                total_logprob += logprobs[j] * w
+                total_weight += w
+        if total_weight <= 0:
             return {}
-        mean_lp = total_logprob / n_tokens
+        mean_lp = total_logprob / total_weight
         return {
             "train/mean_logprob": float(mean_lp),
             "train/mean_loss": -float(mean_lp),
-            "train/loss_n_tokens": float(n_tokens),
+            "train/loss_n_tokens": float(total_weight),
         }
 
     def _hyperparams_extra(self) -> dict[str, Any]:
