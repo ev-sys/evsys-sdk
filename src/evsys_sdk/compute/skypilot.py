@@ -134,6 +134,15 @@ class SkyPilotComputeConfig(BaseModel):
 
     Requires ``server_backend='megatron'``: multi-tenant LoRA exists on no other
     backend, so this is ignored elsewhere rather than silently misconfiguring."""
+    rl: bool = False
+    """Whether this server will do RL (generation), not just SFT.
+
+    It changes placement, and getting it wrong fails in a way that reads like a
+    hardware problem. ``colocate_all: false`` asks for a policy GPU *and* an
+    inference GPU. On one card that is unsatisfiable — but only RL notices,
+    because SFT never starts vLLM. So a single-GPU SFT run is happy with
+    ``false`` while a single-GPU RL run dies with "Failed to create placement
+    group with 1 bundles"."""
     max_adapters: int = Field(default=8, ge=1)
     """Peak concurrent adapters to size the LoRA slots for.
 
@@ -324,20 +333,95 @@ class SkyPilotCompute(BaseCompute):
         n = self.cfg.max_adapters
         return {
             "strategy": "megatron",
-            "trainer.placement.colocate_all": False,
+            # colocate_all is NOT set here. _placement_defaults owns it, and
+            # this used to override it back to false - which on a single-GPU RL
+            # server is the unsatisfiable placement group.
             "trainer.policy.megatron_config.lora_config.merge_lora": False,
             "trainer.policy.model.lora.max_loras": n,
             "trainer.policy.model.lora.max_cpu_loras": n,
         }
 
+    #: Tokens per microbatch. `micro_train_batch_size_per_gpu` defaults to 1,
+    #: which makes every training sample its own forward/backward - about 0.27s
+    #: of fixed cost each, 96% of the step at sequence length 128 and 25% at
+    #: 8192. Setting a token budget bin-packs samples instead, and one value is
+    #: correct at every sequence length. Measured 20x on identical cells; 65,536
+    #: peaks around 35 GiB, which fits an 80 GB card.
+    MICROBATCH_TOKENS = 65536
+
+    #: vLLM pre-allocates this fraction the moment it starts - it is not a
+    #: ceiling it grows into. Under colocation the 0.8 default reserves nearly
+    #: the whole card and the policy has nowhere to live, so the engine never
+    #: initialises.
+    COLOCATED_GMU = 0.25
+
+    def _throughput_defaults(self) -> dict[str, Any]:
+        """Settings without which a run is silently many times slower."""
+        return {"trainer.max_tokens_per_microbatch": self.MICROBATCH_TOKENS,
+                "trainer.fused_lm_head_logprob": True,
+                "trainer.logprobs_chunk_size": 1024}
+
+    def _model_defaults(self) -> dict[str, Any]:
+        """Per-model settings the model cannot start without.
+
+        Qwen3.5 checkpoints declare ``Qwen3_5ForConditionalGeneration``, so
+        megatron-bridge dispatches them to the vision-language model. That model
+        packs sequences inside its own forward, so SkyRL's sample packing
+        double-packs and corrupts the GDN ``cu_seqlens`` - which surfaces as an
+        unexplained failure at init. It also refuses the fused-LM-head hook.
+        ``language_model_only`` routes to the native GPTModel+GDN path, which
+        supports both, and makes tensor-parallel 1 legal so a single Hopper card
+        suffices for LoRA. Validation requires policy, ref and generator to
+        agree, so all three are set together or not at all.
+        """
+        model = (self.cfg.model or "").lower()
+        if "qwen3.5" in model or "qwen3_5" in model:
+            return {"trainer.policy.language_model_only": True,
+                    "trainer.ref.language_model_only": True,
+                    "generator.inference_engine.language_model_only": True}
+        return {}
+
+    def _placement_defaults(self) -> dict[str, Any]:
+        """Where the policy and the inference engine live.
+
+        Only RL on a single GPU must colocate: ``colocate_all: false`` wants a
+        policy GPU and an inference GPU, which one card cannot satisfy. SFT
+        never starts vLLM, so it is unaffected either way and keeps ``false``,
+        which is what multi-tenant LoRA needs.
+
+        Under colocation the engine also needs a small pre-allocation, because
+        ``gpu_memory_utilization`` is reserved up front rather than grown into.
+        """
+        if self.cfg.rl and self._gpu_count() <= 1:
+            return {"trainer.placement.colocate_all": True,
+                    "generator.inference_engine.gpu_memory_utilization":
+                        self.COLOCATED_GMU}
+        return {"trainer.placement.colocate_all": False}
+
+    def _gpu_count(self) -> int:
+        acc = self._as_list(self.cfg.accelerators)
+        if not acc:
+            return 0
+        _, _, n = str(acc[0]).partition(":")
+        try:
+            return int(n) if n else 1
+        except ValueError:
+            return 1
+
     def _server_config(self) -> dict[str, Any]:
         """Backend config actually sent, defaults under explicit settings."""
         cfg: dict[str, Any] = {}
+        if self.cfg.server_backend == "megatron":
+            cfg.update(self._throughput_defaults())
+            cfg.update(self._model_defaults())
         if self.cfg.multi_lora and self.cfg.server_backend == "megatron":
             cfg.update(self._multi_lora_defaults())
         elif self.cfg.multi_lora:
             log.info("[skypilot] multi_lora ignored on backend=%s — multi-tenant "
                      "LoRA exists only on megatron", self.cfg.server_backend)
+        if self.cfg.server_backend == "megatron":
+            # Last, so placement beats the multi-LoRA defaults above.
+            cfg.update(self._placement_defaults())
         # The caller's own keys win: a default that overrode an explicit
         # setting would be a trap, not a convenience.
         cfg.update(self.cfg.backend_config or {})

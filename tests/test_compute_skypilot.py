@@ -740,8 +740,13 @@ class TestMultiLoraByDefault:
         assert cfg["trainer.policy.megatron_config.lora_config.merge_lora"] is False
 
     def test_off_when_asked(self, monkeypatch):
+        """multi_lora=False drops the LoRA knobs but keeps the settings a run is
+        broken without: without max_tokens_per_microbatch every sample becomes
+        its own forward/backward and throughput falls by more than 10x."""
         c = _compute(monkeypatch, _FakeSky(), server_backend="megatron", multi_lora=False)
-        assert c._server_config() == {}
+        cfg = c._server_config()
+        assert "trainer.policy.model.lora.max_loras" not in cfg
+        assert cfg["trainer.max_tokens_per_microbatch"] == 65536
 
     def test_ignored_on_backends_without_multi_tenancy(self, monkeypatch):
         """Multi-tenant LoRA exists only on megatron; silently writing these
@@ -753,3 +758,64 @@ class TestMultiLoraByDefault:
         sky = _FakeSky(endpoint_after=1)
         c = _compute(monkeypatch, sky, server_backend="jax")
         assert "--backend-config" not in c._task(sky).run
+
+
+class TestDefaultsThatMakeItWorkOutOfTheBox:
+    """A researcher writing `kind: skyrl` should not have to know these. Each
+    one, unset, either breaks the server or costs an order of magnitude."""
+
+    def test_microbatch_token_budget_is_set(self, monkeypatch):
+        """micro_train_batch_size_per_gpu defaults to 1, making every sample its
+        own forward/backward - measured 20x slower at seq 128."""
+        c = _compute(monkeypatch, _FakeSky(), server_backend="megatron")
+        assert c._server_config()["trainer.max_tokens_per_microbatch"] == 65536
+
+    def test_qwen35_gets_the_language_model_only_trio(self, monkeypatch):
+        """Qwen3.5 declares a vision-language architecture, so it is dispatched
+        to the VL model, whose self-packing corrupts the GDN cu_seqlens. All
+        three must agree or validation rejects the config."""
+        c = _compute(monkeypatch, _FakeSky(), model="Qwen/Qwen3.5-9B",
+                     server_backend="megatron")
+        cfg = c._server_config()
+        for k in ("trainer.policy.language_model_only",
+                  "trainer.ref.language_model_only",
+                  "generator.inference_engine.language_model_only"):
+            assert cfg[k] is True
+
+    def test_non_qwen35_does_not_get_it(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), model="Qwen/Qwen3-4B",
+                     server_backend="megatron")
+        assert "trainer.policy.language_model_only" not in c._server_config()
+
+    def test_single_gpu_rl_colocates(self, monkeypatch):
+        """colocate_all=false wants a policy GPU and an inference GPU; one card
+        cannot satisfy it and RL dies with 'placement group with 1 bundles'."""
+        c = _compute(monkeypatch, _FakeSky(), accelerators="H100:1",
+                     server_backend="megatron", rl=True)
+        cfg = c._server_config()
+        assert cfg["trainer.placement.colocate_all"] is True
+        assert cfg["generator.inference_engine.gpu_memory_utilization"] == 0.25
+
+    def test_multi_gpu_rl_disaggregates(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), accelerators="H200:2",
+                     server_backend="megatron", rl=True)
+        assert c._server_config()["trainer.placement.colocate_all"] is False
+
+    def test_single_gpu_sft_does_not_colocate(self, monkeypatch):
+        """SFT never starts vLLM, so it is unaffected by placement and keeps the
+        false that multi-tenant LoRA wants."""
+        c = _compute(monkeypatch, _FakeSky(), accelerators="H100:1",
+                     server_backend="megatron", rl=False)
+        assert c._server_config()["trainer.placement.colocate_all"] is False
+
+    def test_multi_lora_cannot_override_placement(self, monkeypatch):
+        """The bug this guards: multi_lora's defaults ran after placement and
+        reset colocate_all to false, breaking single-GPU RL."""
+        c = _compute(monkeypatch, _FakeSky(), accelerators="H100:1",
+                     server_backend="megatron", rl=True, multi_lora=True)
+        assert c._server_config()["trainer.placement.colocate_all"] is True
+
+    def test_explicit_config_still_wins(self, monkeypatch):
+        c = _compute(monkeypatch, _FakeSky(), server_backend="megatron",
+                     backend_config={"trainer.max_tokens_per_microbatch": 4096})
+        assert c._server_config()["trainer.max_tokens_per_microbatch"] == 4096
