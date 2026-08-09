@@ -775,7 +775,9 @@ class LocalLoggerCallback(Callback):
         return d
 
     # --- metrics (one file per concern) -----------------------------------
-    def _write_metrics(self, step: int, metrics: dict, split: str) -> None:
+    def _write_metrics(
+        self, step: int, metrics: dict, split: str, *, name: str | None = None,
+    ) -> None:
         if self._dir is None:
             return
         import json  # noqa: PLC0415
@@ -784,8 +786,10 @@ class LocalLoggerCallback(Callback):
         if fp is None:
             fp = (self._phase_dir(folder) / "metrics.jsonl").open("a")
             self._metrics_fps[folder] = fp
-        row = {"step": step, "split": split,
-               "metrics": {k: float(v) for k, v in metrics.items()}}
+        row: dict[str, Any] = {"step": step, "split": split}
+        if name is not None:        # benchmark name, so multiple benchmarks in
+            row["name"] = name      # one split's metrics.jsonl stay distinct
+        row["metrics"] = {k: float(v) for k, v in metrics.items()}
         fp.write(json.dumps(row) + "\n")
         fp.flush()
         if self._mirror is not None and self._mirror_run:
@@ -901,10 +905,16 @@ class LocalLoggerCallback(Callback):
         import json  # noqa: PLC0415
         ename = getattr(eval_result, "name", "benchmark")
         metrics = dict(getattr(eval_result, "metrics", {}) or {})
-        split = str(getattr(eval_result, "split", None) or "test")
+        # split (→ validation/ vs test/ folder) comes from the eval's tags;
+        # EvalResult has no `.split` attribute, so reading one always fell back
+        # to "test" and collapsed val + test into test/.
+        tags = getattr(eval_result, "tags", None) or []
+        split = "val" if "val" in tags else "test" if "test" in tags else (
+            str(tags[0]) if tags else "test"
+        )
         self._evals.append({"name": ename, "step": step, "split": split, "metrics": metrics})
         if metrics:                       # aggregate scores -> <folder>/metrics.jsonl
-            self._write_metrics(int(step or 0), metrics, split)
+            self._write_metrics(int(step or 0), metrics, split, name=ename)
         if predictions:                   # per-example predictions -> <folder>/rollouts.jsonl
             folder = self._FOLDER.get(split, split)
             fp = self._phase_dir(folder) / "rollouts.jsonl"

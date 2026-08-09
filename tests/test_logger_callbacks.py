@@ -329,3 +329,29 @@ def test_evsys_logger_on_checkpoint_uses_keyword_run_id():
     cb.on_checkpoint(state, row)   # must NOT raise (the bug raised TypeError)
     call = next(c for c in fake.calls if c[0] == "add_checkpoint")
     assert call[1] == {"run_id": "run9", "uri": "tinker://ckpt/s10", "label": "final", "step": 10}
+
+def test_local_logger_routes_benchmark_by_tags_and_records_name(tmp_path):
+    """A `val`-tagged benchmark lands in validation/ (not test/), a `test`-tagged
+    one in test/, and each metrics row carries the benchmark name so multiple
+    benchmarks in one split stay distinct."""
+    import json
+    from evsys_sdk.training.callbacks import LocalLoggerCallback
+
+    cb = LocalLoggerCallback(print_every=0)
+    ctx = LogContext(output_dir=tmp_path, run_key="arm0")
+    cb.on_run_start(ctx)
+
+    val = SimpleNamespace(name="val_no_tools", metrics={"pass@3": 0.1}, tags=["val"])
+    test = SimpleNamespace(name="full_1795", metrics={"pass@3": 0.2}, tags=["test"])
+    cb.on_benchmark_eval(ctx, val, [{"task_id": "t1"}], step=None)
+    cb.on_benchmark_eval(ctx, test, [{"task_id": "t2"}], step=None)
+
+    logs = tmp_path / "arm0" / "logs"
+    # routed to the right folders
+    vrow = json.loads((logs / "validation" / "metrics.jsonl").read_text().splitlines()[0])
+    trow = json.loads((logs / "test" / "metrics.jsonl").read_text().splitlines()[0])
+    assert vrow["split"] == "val" and vrow["name"] == "val_no_tools"
+    assert trow["split"] == "test" and trow["name"] == "full_1795"
+    # predictions land in the matching split folder, not piled into test/
+    assert (logs / "validation" / "rollouts.jsonl").exists()
+    assert len((logs / "test" / "rollouts.jsonl").read_text().splitlines()) == 1
