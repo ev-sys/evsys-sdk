@@ -16,11 +16,13 @@ shells out to a real ``claude``.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from ..logger import get_logger
+from ..provenance import AGENT_TRIGGER, trigger_env
 
 log = get_logger(__name__)
 
@@ -115,17 +117,24 @@ def build_command(escalation_path: str | Path, *, agent_cfg: Any, root: str | Pa
     return cmd
 
 
-def _launch(cmd: list[str], *, cwd: str | Path, log_file: Path, detach: bool) -> Any:
+def _launch(cmd: list[str], *, cwd: str | Path, log_file: Path, detach: bool,
+            env: dict[str, str] | None = None) -> Any:
     """The one real side effect (monkeypatched in tests). Detached → fire-and-forget
-    ``Popen`` in its own session; foreground → ``run`` and return the completed process."""
+    ``Popen`` in its own session; foreground → ``run`` and return the completed process.
+
+    ``env`` carries the trigger provenance, so every experiment the agent
+    launches — however deep in whatever script it writes — is stamped with the
+    escalation that caused it."""
     log_file.parent.mkdir(parents=True, exist_ok=True)
+    full_env = {**os.environ, **(env or {})} if env else None
     if detach:
         f = log_file.open("w")
         return subprocess.Popen(
             cmd, cwd=str(cwd), stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
+            env=full_env,
         )
     proc = subprocess.run(
-        cmd, cwd=str(cwd), capture_output=True, text=True, check=False,
+        cmd, cwd=str(cwd), capture_output=True, text=True, check=False, env=full_env,
     )
     log_file.write_text((proc.stdout or "") + (proc.stderr or ""))
     return proc
@@ -169,7 +178,9 @@ def spawn(escalation_path: str | Path, *, agent_cfg: Any, root: str | Path,
                             verdict_path=verdict_path, log_file=log_file, detach=detach)
     cmd = build_command(escalation_path, agent_cfg=agent_cfg, root=root, verdict_path=verdict_path)
     log.info("[trigger] spawning agent on %s (detach=%s)", escalation_path.name, detach)
-    return _LAUNCH(cmd, cwd=(cwd or root.parent.parent), log_file=log_file, detach=detach)
+    return _LAUNCH(cmd, cwd=(cwd or root.parent.parent), log_file=log_file, detach=detach,
+                   env=trigger_env(escalation_path, agent=AGENT_TRIGGER,
+                                   agent_run=escalation_path.stem))
 
 
 __all__ = ["build_command", "spawn"]

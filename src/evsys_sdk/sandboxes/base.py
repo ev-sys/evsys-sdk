@@ -47,6 +47,7 @@ never heard of is selected from YAML by name::
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
@@ -181,6 +182,69 @@ class BaseSandbox:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content)
             landed.append(rel)
+        return landed
+
+    # -- copy-out of a whole tree ------------------------------------------
+
+    def list_tree(self, rel_dir: str, *, max_files: int = 2000) -> list[str]:
+        """Workdir-relative paths of every file under ``rel_dir`` in the sandbox.
+
+        Implemented with ``find`` through :meth:`exec` rather than a per-vendor
+        directory API, so it works on every provider — including one a user
+        wrote — with no extra method on the contract.
+        """
+        root = self.path(rel_dir)
+        code, out = self.exec(
+            f"find {shlex.quote(root)} -type f 2>/dev/null | head -n {int(max_files)}",
+            timeout_s=120,
+        )
+        if code != 0 and not out.strip():
+            return []
+        prefix = f"{self.workdir}/"
+        found = []
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith(prefix):
+                found.append(line[len(prefix):])
+        return sorted(found)
+
+    def collect_tree(self, rel_dir: str, dest_root: Path, *,
+                     baseline: dict[str, str] | None = None,
+                     max_files: int = 2000,
+                     max_bytes: int = 8_000_000) -> list[str]:
+        """Copy a whole DIRECTORY back to the host — the results an agent
+        produced in there, whose filenames we cannot know in advance.
+
+        The fixed-artifact :meth:`collect` is the right shape for the four
+        files the agent may rewrite. It is the wrong shape for "everything the
+        agent's experiments wrote": those are dozens of files with generated
+        ids. Without this, an agent that runs a training run inside a sandbox
+        loses every experiment, metric, eval and rollout when the box dies.
+
+        Bounded on purpose (``max_files`` / ``max_bytes``): a sandbox is not a
+        trusted peer, and an agent that fills a disk must not fill ours. What
+        is skipped is logged, never silently dropped.
+        """
+        baseline = baseline or {}
+        landed: list[str] = []
+        budget = int(max_bytes)
+        skipped = 0
+        for rel in self.list_tree(rel_dir, max_files=max_files):
+            content = self.read(self.path(rel))
+            if content is None or content == baseline.get(rel):
+                continue
+            size = len(content.encode("utf-8", "ignore"))
+            if size > budget:
+                skipped += 1
+                continue
+            budget -= size
+            dest = dest_root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content)
+            landed.append(rel)
+        if skipped:
+            log.warning("[sandbox:%s] %s file(s) under %s skipped: %d-byte budget exhausted",
+                        self.name, skipped, rel_dir, max_bytes)
         return landed
 
 

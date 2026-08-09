@@ -109,16 +109,25 @@ def eval_predictions(
     *,
     eval_id: str | None = None,
     step: int | None = None,
+    kind: str = "eval",
+    limit: int | None = None,
 ) -> list[dict]:
-    """Build dashboard prediction rows (``kind='eval'``) — one per
-    (task, sample). Carries the token-level rollout + reward for the eval."""
+    """Build dashboard prediction rows — one per (task, sample). Carries the
+    token-level rollout + reward.
+
+    ``kind`` distinguishes a periodic in-training ``validation`` from the final
+    ``eval`` pass; ``limit`` stops building rows once that many exist, so a
+    capped capture never materialises rows it is going to discard.
+    """
     rows: list[dict] = []
     for task, group in zip(tasks, groups):
         for sample_idx, traj in enumerate(group.trajectories):
+            if limit is not None and len(rows) >= limit:
+                return rows
             last = traj.turns[-1] if traj.turns else None
             usage = (traj.metadata or {}).get("usage") or {}
             rows.append({
-                "kind": "eval",
+                "kind": kind,
                 "eval_id": eval_id,
                 "task_id": task.task_id,
                 "sample_idx": sample_idx,

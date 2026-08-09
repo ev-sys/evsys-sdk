@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from ..provenance import current_trigger, trigger_tags
 from ..registry import get_callback, register_callback
 
 if TYPE_CHECKING:
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
     from .backend import Backend, SamplingClient
     from .checkpoints import CheckpointManager, ManifestRow
     from .loop import LoopArtifacts, TrainingBatch
+
+from .rollout_capture import DEFAULT_ROLLOUT_CAP, KIND_TRAIN, RolloutCapture
 
 logger = logging.getLogger(__name__)
 
@@ -891,12 +894,17 @@ class EvsysLoggerCallback(Callback):
     name: ClassVar[str] = "evsys_logger"
     Config: ClassVar[type] = EvsysLoggerConfig
 
-    def __init__(self, *, project_id: str | None = None, flush_every: int = 1) -> None:
+    def __init__(self, *, project_id: str | None = None, flush_every: int = 1,
+                 rollout_cap: int = DEFAULT_ROLLOUT_CAP) -> None:
         self.project_id = project_id
         self.flush_every = max(1, int(flush_every))
         self._store: Any = None
         self._disabled = False
         self._buf: list[tuple[int, dict, str]] = []
+        # Training rollouts are capped per run: the first N are worth reading,
+        # the other ten thousand are not.
+        self._capture = RolloutCapture(rollout_cap)
+        self._run_id: str | None = None
 
     # -- store lifecycle ----------------------------------------------------
 
@@ -929,10 +937,21 @@ class EvsysLoggerCallback(Callback):
         if store is None:
             return
         meta = (getattr(ctx.config, "metadata", None) or {}) if ctx.config else {}
+        # Stamp the escalation that caused this, when an agent spawned us. This
+        # is what lets the UI answer "what did the autoresearch agent try?" —
+        # without it every experiment is an orphan. Carried in `config` (an
+        # already-accepted dict field, so no backend schema change) plus tags,
+        # which make it a one-query filter locally and on the dashboard.
+        trigger = current_trigger()
+        tags = list(meta.get("tags") or []) + trigger_tags(trigger)
+        config = dict(meta.get("config") or {})
+        if trigger:
+            config["trigger"] = trigger
         resp = store.create_experiment(
             experiment_name=getattr(ctx.config, "name", "experiment"),
             hypothesis=meta.get("hypothesis"),
-            tags=list(meta.get("tags") or []) or None,
+            tags=tags or None,
+            config=config or None,
         )
         eid = self._id(resp)
         if eid:
@@ -963,6 +982,7 @@ class EvsysLoggerCallback(Callback):
         rid = self._id(resp)
         if rid:
             ctx.ids["run_id"] = rid
+            self._run_id = rid
 
     def on_benchmark_eval(self, ctx, eval_result, predictions, *, step=None) -> None:
         if self._disabled or self._store is None:
@@ -982,6 +1002,26 @@ class EvsysLoggerCallback(Callback):
             from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
             rows = [{**p, "eval_id": eval_id} for p in predictions]
             upload_eval_rollouts(self._store, run_id, rows)
+
+    def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
+        """Persist the first N on-policy TRAINING rollouts of the run.
+
+        The loop only calls this while the capture has budget, so a long run
+        writes 20 rows and then goes quiet — enough to answer "what is the
+        model actually producing while it trains?" without a million rows.
+        """
+        if self._disabled or self._store is None or not self._run_id:
+            return
+        left = self._capture.remaining(KIND_TRAIN)
+        if left == 0:
+            return
+        from .harbor_eval import upload_eval_rollouts  # noqa: PLC0415
+        from .rollout_capture import training_rollout_rows  # noqa: PLC0415
+
+        rows = training_rollout_rows(rollouts, step=step_idx, limit=left)
+        kept = self._capture.take(KIND_TRAIN, rows)
+        if kept:
+            upload_eval_rollouts(self._store, self._run_id, kept)
 
     def on_run_end(self, ctx, run_result, arm) -> None:
         if self._disabled or self._store is None:

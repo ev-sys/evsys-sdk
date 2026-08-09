@@ -18,3 +18,9 @@ outputs/
 
 # Skill-generated configs (created by /train-local, not hand-authored)
 examples/configs/generated_*.yaml
+
+# Local run artifacts — the mirror, run outputs and loop state are per-machine
+# scratch, never source. They were committed by accident and reached four PRs.
+evsys_sdk/
+outputs/
+.evsys/
