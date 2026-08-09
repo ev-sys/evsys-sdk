@@ -95,7 +95,7 @@ def resolve_hook(trigger_cfg: Any, *, store: LocalTriggerStore | None = None) ->
         every_n=int(getattr(trigger_cfg, "every_n", 20)),
         window=int(getattr(trigger_cfg, "window", 100)),
     )
-    return TriggerDriver(st, seed_policy=seed)
+    return TriggerDriver(st, seed_policy=seed, agent_cfg=getattr(trigger_cfg, "agent", None))
 
 
 __all__ = ["build_trigger", "import_trigger_code", "resolve_hook"]

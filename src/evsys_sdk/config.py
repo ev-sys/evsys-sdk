@@ -80,6 +80,31 @@ class TracesConfig(_Strict):
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
 
 
+class TriggerAgentConfig(_Strict):
+    """The ``trigger.agent`` block — how an escalation spawns the headless trigger
+    agent (``claude -p``). Disabled by default: with ``enabled: false`` the gate
+    only emits escalation events; flip it on to close the autonomous loop.
+    """
+
+    enabled: bool = False
+    """When true, the driver spawns the trigger agent (detached) on each escalation."""
+    claude_bin: str = "claude"
+    """The Claude Code executable to invoke."""
+    model: str | None = None
+    """Optional model override passed as ``--model``."""
+    plugin_dir: str | None = None
+    """Path to the evsys-sdk plugin (``--plugin-dir``) so the ``trigger-agent`` +
+    ``training-decider`` subagents + skills are available to the headless run."""
+    permission_mode: str = "acceptEdits"
+    """Headless permission mode (non-interactive); e.g. 'acceptEdits', 'bypassPermissions'."""
+    autoresearch: bool = True
+    """When true, the agent may launch ``training-decider`` on a YES verdict."""
+    extra_args: list[str] = Field(default_factory=list)
+    """Extra argv appended to the ``claude`` command."""
+    prompt_template: str | None = None
+    """Override the default mission prompt (``{escalation_path}`` etc. are formatted in)."""
+
+
 class TriggerConfig(_Strict):
     """The ``trigger`` section of :class:`SystemConfig` — the cheap, always-on gate.
 
@@ -108,8 +133,8 @@ class TriggerConfig(_Strict):
     """How many recent raw traces the state keeps for the fn to read."""
     state_dir: str = ".evsys/triggers"
     """Local dir for policy.json / state.json / log.jsonl / escalations/."""
-    agent: dict[str, Any] = Field(default_factory=dict)
-    """The trigger-agent block (model, budget, ...) — reserved for the follow-up."""
+    agent: TriggerAgentConfig = Field(default_factory=TriggerAgentConfig)
+    """How an escalation spawns the headless trigger agent (``claude -p``)."""
 
 
 class SystemConfig(_Strict):

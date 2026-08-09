@@ -43,6 +43,7 @@ from .config import (
     TracesConfig,
     TraceSourceSpec,
     TransformSpec,
+    TriggerAgentConfig,
     TriggerConfig,
     VerifierSpec,
 )
@@ -208,6 +209,7 @@ __all__ = [
     "TracesConfig",
     "TraceSourceSpec",
     "TriggerConfig",
+    "TriggerAgentConfig",
     # Trigger (Layer 2 — the cheap gate)
     "Trigger",
     "TriggerDecision",
