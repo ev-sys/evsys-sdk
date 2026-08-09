@@ -37,7 +37,11 @@ from harbor.models.agent.context import AgentContext
 from harbor.models.verifier.result import VerifierResult
 from harbor.verifier.base import BaseVerifier
 
-from .harbor_engine import _COMPLETION_FILE, _VERIFIER_SPEC_FILE
+from .harbor_engine import (
+    _COMPLETION_FILE,
+    _VERIFIER_SPEC_FILE,
+    split_system_instruction,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +208,14 @@ class BasicLoopAgent(BaseAgent):
         context: AgentContext,
     ) -> None:
         chat = Chat(await self._shared_llm())
-        if self._system_prompt:
-            chat.messages.append({"role": "system", "content": self._system_prompt})
+        # A per-task system prompt (carried inside the instruction behind a
+        # sentinel) wins over the job-level one; absent it, fall back to
+        # self._system_prompt. This is what lets one job mix tasks that each need
+        # their own system message (e.g. per-task tool schemas).
+        per_task_system, instruction = split_system_instruction(instruction)
+        system_prompt = per_task_system if per_task_system is not None else self._system_prompt
+        if system_prompt:
+            chat.messages.append({"role": "system", "content": system_prompt})
         resp = await chat.chat(instruction)
         context.rollout_details = chat.rollout_details   # token-level (tinker); empty for API models
         # Propagate usage/cost onto the AgentContext so harbor records it on the
@@ -217,10 +227,13 @@ class BasicLoopAgent(BaseAgent):
         context.cost_usd = chat.total_cost
         # Write the completion to the agent dir so the host-side EvsysVerifier
         # (run by harbor) can read it (self.logs_dir == trial_paths.agent_dir).
+        # ``resp.content`` is usually a str, but some renderers (e.g. qwen3 with
+        # thinking) return structured content as a list of segments — normalize to
+        # text so the verifier always gets a plain string.
         logs_dir = getattr(self, "logs_dir", None)
         if logs_dir is not None:
             Path(logs_dir).mkdir(parents=True, exist_ok=True)
-            (Path(logs_dir) / _COMPLETION_FILE).write_text(resp.content or "")
+            (Path(logs_dir) / _COMPLETION_FILE).write_text(_content_to_text(resp.content))
 
 
 class EvsysVerifier(BaseVerifier):
@@ -244,6 +257,31 @@ class EvsysVerifier(BaseVerifier):
             except Exception:  # pragma: no cover - a bad fn shouldn't crash the trial
                 reward = 0.0
         return VerifierResult(rewards={"reward": reward})
+
+
+def _content_to_text(content: Any) -> str:
+    """Normalize an LLM response's ``content`` to plain text for the verifier.
+
+    Usually a ``str``. Some renderers (e.g. qwen3 with thinking) return content as
+    a list of segments — strings and/or dicts like ``{"type": "text", "text": ...}``
+    or ``{"content": ...}``. Flatten those to their text; anything else is
+    ``str()``-ed. ``None`` → ``""``. The verifier parses ``<tool_call>`` blocks out
+    of whatever text the model produced, so concatenating the segments is correct."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for seg in content:
+            if isinstance(seg, str):
+                parts.append(seg)
+            elif isinstance(seg, dict):
+                parts.append(str(seg.get("text") or seg.get("content") or ""))
+            else:
+                parts.append(str(seg))
+        return "".join(parts)
+    return str(content)
 
 
 def _read_text(path: Path) -> str:
