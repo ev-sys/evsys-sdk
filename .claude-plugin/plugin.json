@@ -1,7 +1,13 @@
 {
   "name": "evsys-sdk",
-  "description": "General training-decision agent + SDK usage skills for evsys-sdk. Reads a project's goal and experiment history, decides what experiment to run next, and launches it via the project's own train/benchmark skills.",
-  "version": "0.1.0",
+  "description": "Training-decision agent + SDK usage skills for evsys-sdk, plus a live docs MCP (evsys-docs) that always serves the latest published documentation. Reads a project's goal and experiment history, decides what experiment to run next, and launches it via the project's own train/benchmark skills.",
+  "version": "0.2.0",
   "author": { "name": "EvolvingSystems" },
-  "agents": ["./agents/training-decider.md"]
+  "agents": ["./agents/training-decider.md"],
+  "mcpServers": {
+    "evsys-docs": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://ev-sys.gitmcp.io/evsys-sdk"]
+    }
+  }
 }
