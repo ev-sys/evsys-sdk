@@ -6,7 +6,7 @@ from typing import Any
 
 from ..logger import get_logger
 from ..registry import get_context_source
-from .base import BaseContextSource
+from .base import BaseContextSource, ContextHook
 from .store import LocalContextStore
 
 log = get_logger(__name__)
@@ -15,13 +15,15 @@ log = get_logger(__name__)
 def build_context_sources(
     specs: Any,
     *,
+    hook: ContextHook | None = None,
     store: LocalContextStore | None = None,
 ) -> list[tuple[Any, BaseContextSource]]:
     """Resolve ``{kind, params, state_dir, ...}`` specs → ``(spec, source)`` pairs.
 
     ``kind`` is looked up in the context-source registry; ``params`` are validated
     against the adapter's ``Config`` (a YAML typo fails loudly). Each source gets a
-    ``LocalContextStore`` rooted at the spec's ``state_dir`` (or the shared ``store``)."""
+    ``LocalContextStore`` rooted at the spec's ``state_dir`` (or the shared ``store``)
+    and the per-item ``hook`` (the ``context_trigger`` gate, or the no-op)."""
     out: list[tuple[Any, BaseContextSource]] = []
     for spec in specs or []:
         kind = spec.kind if hasattr(spec, "kind") else spec["kind"]
@@ -31,7 +33,7 @@ def build_context_sources(
         ) or ".evsys/context"
         cls = get_context_source(kind)
         st = store or LocalContextStore(state_dir)
-        out.append((spec, cls(store=st, spec=spec, **raw)))
+        out.append((spec, cls(store=st, hook=hook, spec=spec, **raw)))
     return out
 
 

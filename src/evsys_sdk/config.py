@@ -264,6 +264,11 @@ class SystemConfig(_Strict):
     traces: TracesConfig = Field(default_factory=TracesConfig)
     trigger: TriggerConfig | None = None
     context: ContextConfig = Field(default_factory=ContextConfig)
+    context_trigger: TriggerConfig | None = None
+    """A second gate — the SAME `TriggerConfig`, but run over ingested *context*
+    (its `evaluate(state)` sees a window of context items instead of traces). On
+    escalation it spawns the SAME trigger agent. Give it its own `state_dir`
+    (default `.evsys/context_triggers`) so it doesn't collide with `trigger`."""
 
 
 # ---------------------------------------------------------------------------

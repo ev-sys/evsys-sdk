@@ -25,14 +25,33 @@ from .trace_sources.runtime import _parse_duration, build_trace_sources
 log = get_logger(__name__)
 
 
+def _resolve_gate(trigger_cfg: Any, *, fallback_state_dir: str | None = None) -> Any:
+    """Build a TriggerDriver hook from a `TriggerConfig` (or None). For the context
+    gate, substitute a context-specific state_dir when it's still the default, so
+    the two gates never share `policy.json` / `escalations/`."""
+    if trigger_cfg is None:
+        return None
+    from .triggers import resolve_hook
+    from .triggers.state import LocalTriggerStore
+
+    sd = getattr(trigger_cfg, "state_dir", ".evsys/triggers")
+    if fallback_state_dir and sd == ".evsys/triggers":
+        return resolve_hook(trigger_cfg, store=LocalTriggerStore(fallback_state_dir))
+    return resolve_hook(trigger_cfg)
+
+
 def _watchers(cfg: Any, *, trace_hook: TraceHook | None) -> list[tuple[str, Any, float]]:
-    """(label, source, interval) for every trace + context source in the config."""
+    """(label, source, interval) for every trace + context source in the config,
+    each already wired to its gate: traces → `trigger`, context → `context_trigger`."""
     out: list[tuple[str, Any, float]] = []
+    trace_hook = trace_hook or _resolve_gate(getattr(cfg, "trigger", None))
+    context_hook = _resolve_gate(getattr(cfg, "context_trigger", None),
+                                 fallback_state_dir=".evsys/context_triggers")
     traces = getattr(cfg, "traces", None)
     for spec, src in build_trace_sources(getattr(traces, "trace_sources", None) or [], hook=trace_hook):
         out.append((f"trace:{src.name}", src, _parse_duration(getattr(spec, "pull_every", "60s"))))
     context = getattr(cfg, "context", None)
-    for spec, src in build_context_sources(getattr(context, "context_sources", None) or []):
+    for spec, src in build_context_sources(getattr(context, "context_sources", None) or [], hook=context_hook):
         out.append((f"context:{src.name}", src, _parse_duration(getattr(spec, "pull_every", "60s"))))
     return out
 
