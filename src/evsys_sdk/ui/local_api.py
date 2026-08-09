@@ -66,6 +66,18 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def _loose_dict(text: str) -> dict | None:
+    """`run_config` reaches the mirror as a Python repr (LocalStore stringifies
+    on the way out), which is not JSON. Recover it without eval."""
+    import ast
+
+    try:
+        value = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _coerce(value: Any) -> Any:
     """``LocalStore`` stringifies values on the way to disk (``str(v)``), so
     ``seed`` comes back as ``"42"`` and ``run_config`` as a Python repr. Put
@@ -211,6 +223,40 @@ class LocalDashboard:
             }
         return {"eval": {"id": eval_id, "metrics": {}}, "predictions": [],
                 "limit": limit, "offset": offset, "total": 0}
+
+    def run_data(self, run_id: str) -> dict:
+        """Both ends of the data pipeline for one run, plus the transform chain
+        that connects them.
+
+        A run's config declares `data.transforms`; what those transforms
+        actually did to a row is invisible unless you can see the row before
+        and after. Both stages are labelled with their detected format
+        (``chat_messages`` for SFT, ``harbor_task`` for RL) so the UI can
+        render each one the way it deserves rather than as raw JSON.
+        """
+        from ..data_types import detect_format
+
+        rec = _read_json(self._gen_dir(run_id) / LOCAL_GENERATION_FILE) or {}
+        cfg = rec.get("run_config")
+        if isinstance(cfg, str):          # LocalStore stringifies; recover what we can
+            cfg = _loose_dict(cfg)
+        data_cfg = (cfg or {}).get("data") or {}
+
+        out: dict[str, Any] = {
+            "transforms": data_cfg.get("transforms") or [],
+            "source": {k: data_cfg.get(k) for k in
+                       ("source_kind", "path", "dataset_name", "dataset_id", "hf_dataset")
+                       if data_cfg.get(k)},
+            "stages": {},
+        }
+        for kind in ("raw", "train"):
+            rows = _read_jsonl(self._gen_dir(run_id) / f"data_{kind}.jsonl")
+            out["stages"][kind] = {
+                "rows": rows,
+                "n": len(rows),
+                "format": detect_format(rows[0]) if rows else "unknown",
+            }
+        return out
 
     def run_predictions(self, run_id: str, *, kind: str | None = None) -> list[dict]:
         """Every captured rollout for a run, optionally one ``kind``

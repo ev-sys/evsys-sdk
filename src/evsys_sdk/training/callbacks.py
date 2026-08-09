@@ -64,6 +64,10 @@ from .rollout_capture import (
 
 logger = logging.getLogger(__name__)
 
+DATA_SAMPLE_ROWS = 20
+"""Rows of each pipeline stage mirrored for the UI — enough to see what the
+transform did to a row, not a second copy of the dataset."""
+
 
 # ---------------------------------------------------------------------------
 # LogContext — experiment-wide context shared across ALL hooks (both scopes)
@@ -175,13 +179,20 @@ class Callback:
         universal "do something per step" hook (printing, plotting,
         custom metric derivations, gradient debugging)."""
 
+    def on_raw_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
+        """Fires once in setup with the rows as LOADED, before
+        ``data.transforms`` ran — the input side of the conversion."""
+
     def on_train_data(self, ctx: "LogContext", rows: list[dict[str, Any]]) -> None:
         """Fires once in setup with the FINAL examples fed to the model (after
         the chat template / rendering). Lets a logger persist exactly what went
         into training."""
 
-    def on_rollout(self, state: LoopState, step_idx: int, rollouts: list[Any]) -> None:
-        """Fires per step with the algorithm's on-policy rollouts — only when
+    def on_rollout(self, state: LoopState, step_idx: int, rollouts: list[Any],
+                   items: list[Any] | None = None) -> None:
+        """Fires per step with the algorithm's on-policy rollouts, and the items
+        they were sampled from (aligned 1:1) when the algorithm supplies them
+        — only when
         ``log_rollouts`` is on (e.g. a ``--dry`` run) and the algorithm set
         ``batch.rollouts`` (RL/SDFT do; SFT never does)."""
 
@@ -796,20 +807,31 @@ class LocalLoggerCallback(Callback):
             print(f"  [eval {eval_name} @ {step_idx}] {cells}", flush=True)
 
     # --- data going in ----------------------------------------------------
+    def on_raw_data(self, ctx: LogContext, rows: list[dict]) -> None:
+        self._write_data_stage(ctx, "raw", rows, "raw_data.jsonl")
+
     def on_train_data(self, ctx: LogContext, rows: list[dict]) -> None:
+        self._write_data_stage(ctx, "train", rows, "training_data.jsonl")
+
+    def _write_data_stage(self, ctx: LogContext, kind: str, rows: list[dict],
+                          filename: str) -> None:
+        """One end of the transform chain: the full set to the run's logs, a
+        capped sample to the mirror for the UI to render."""
         d = self._ensure_dir(ctx)
         if d is None:
             return
         import json  # noqa: PLC0415
-        fp = self._phase_dir("data") / "training_data.jsonl"
+        fp = self._phase_dir("data") / filename
         with fp.open("w") as f:
             for r in rows:
                 f.write(json.dumps(r, default=str) + "\n")
+        if self._mirror is not None and self._mirror_run:
+            self._mirror.log_data(self._mirror_run, kind, rows[:DATA_SAMPLE_ROWS])
         if self.print_every:
-            print(f"  [training_data] {len(rows)} rows → {fp}", flush=True)
+            print(f"  [{kind}_data] {len(rows)} rows → {fp}", flush=True)
 
     # --- training rollouts (--dry) ----------------------------------------
-    def on_rollout(self, state: LoopState, step_idx, rollouts) -> None:
+    def on_rollout(self, state: LoopState, step_idx, rollouts, items=None) -> None:
         if self._dir is None:
             return
         import json  # noqa: PLC0415
@@ -839,8 +861,8 @@ class LocalLoggerCallback(Callback):
             if left != 0:
                 from .rollout_capture import training_rollout_rows  # noqa: PLC0415
 
-                kept = self._capture.take(
-                    KIND_TRAIN, training_rollout_rows(rollouts, step=step_idx, limit=left))
+                kept = self._capture.take(KIND_TRAIN, training_rollout_rows(
+                    rollouts, step=step_idx, limit=left, items=items))
                 # recs carry the decoded completion text recovered from harbor;
                 # graft it on so a rollout is readable, not just token ids.
                 for row, rec in zip(kept, recs):
@@ -912,12 +934,14 @@ class LocalLoggerCallback(Callback):
     def on_checkpoint(self, state: LoopState, row: ManifestRow) -> None:
         if self._mirror is None or not self._mirror_run:
             return
+        # ManifestRow is {name, batch, epoch, state_path, sampler_path} — the
+        # sampler path is the one you can actually load for inference.
         self._mirror.add_checkpoint(self._mirror_run, {
             "id": str(uuid.uuid4()),
-            "uri": str(getattr(row, "path", "") or getattr(row, "uri", "") or ""),
-            "label": getattr(row, "name", None),
-            "step": getattr(row, "step", None),
-            "is_final": bool(getattr(row, "is_final", False)),
+            "uri": row.sampler_path or row.state_path or "",
+            "label": row.name,
+            "step": row.batch,
+            "is_final": row.name == "final",
         })
 
     # --- close out --------------------------------------------------------
@@ -941,6 +965,12 @@ class LocalLoggerCallback(Callback):
         self._metrics_fps = {}
 
     def on_experiment_end(self, ctx, result) -> None:
+        if self._mirror is not None and self._mirror_exp:
+            self._mirror.update_experiment(self._mirror_exp, {
+                "status": "completed",
+                "best_score": getattr(result, "best_score", None),
+                "conclusion": getattr(result, "conclusion", None),
+            })
         if self._hypothesis is None:
             self._hypothesis = getattr(result, "hypothesis", None)
         conclusion = getattr(result, "conclusion", None)

@@ -124,6 +124,18 @@ class LocalExperimentStore:
         with self._lock:
             self._append_jsonl(self._gen_dir(generation_id) / LOCAL_CHECKPOINTS_FILE, body)
 
+    def log_data(self, generation_id: str, kind: str, rows: list[dict[str, Any]]) -> None:
+        """Mirror a SAMPLE of the run's data at one stage of the pipeline
+        (``raw`` before transforms, ``train`` after). A sample, not the dataset:
+        this is for reading, and a full copy of the training set on every run
+        would be a duplicate nobody opens."""
+        path = self._gen_dir(generation_id) / f"data_{kind}.jsonl"
+        with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("w") as f:
+                for r in rows:
+                    f.write(json.dumps(r, default=str) + "\n")
+
     def log_predictions(self, generation_id: str, predictions: list[dict[str, Any]]) -> None:
         with self._lock:
             path = self._gen_dir(generation_id) / LOCAL_PREDICTIONS_FILE

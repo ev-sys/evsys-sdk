@@ -49,6 +49,14 @@ def build_trace_sources(
         state_dir = getattr(spec, "state_dir", None) or (
             spec.get("state_dir") if isinstance(spec, dict) else None
         ) or ".evsys/traces"
+        imp = getattr(spec, "import_path", None) or (
+            spec.get("import_path") if isinstance(spec, dict) else None)
+        if imp:
+            # registration is an import side effect — load the researcher's
+            # module before resolving `kind`, exactly as the trigger does
+            from ..triggers.runtime import import_trigger_code
+
+            import_trigger_code(imp)
         cls = get_trace_source(kind)
         st = store or LocalTraceStore(state_dir)
         out.append((spec, cls(store=st, hook=hook, spec=spec, **raw)))

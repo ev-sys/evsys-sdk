@@ -130,11 +130,16 @@ def _launch(cmd: list[str], *, cwd: str | Path, log_file: Path, detach: bool,
     if detach:
         f = log_file.open("w")
         return subprocess.Popen(
-            cmd, cwd=str(cwd), stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
+            # stdin from /dev/null: a headless claude waits ~3s for input that
+            # never comes and opens the transcript with a warning. The remote
+            # path already closes it; the local one did not.
+            cmd, cwd=str(cwd), stdin=subprocess.DEVNULL,
+            stdout=f, stderr=subprocess.STDOUT, start_new_session=True,
             env=full_env,
         )
     proc = subprocess.run(
-        cmd, cwd=str(cwd), capture_output=True, text=True, check=False, env=full_env,
+        cmd, cwd=str(cwd), stdin=subprocess.DEVNULL,
+        capture_output=True, text=True, check=False, env=full_env,
     )
     log_file.write_text((proc.stdout or "") + (proc.stderr or ""))
     return proc

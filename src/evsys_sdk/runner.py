@@ -84,6 +84,28 @@ def _load_rows(data: DataConfig, data_store) -> list[dict[str, Any]]:
     raise ValueError(f"Unknown source_kind: {data.source_kind}")
 
 
+def _dispatch_data(extras: dict[str, Any], raw_rows: list[dict[str, Any]],
+                   train_rows: list[Any]) -> None:
+    """Fire ``on_raw_data`` / ``on_train_data``. Best-effort: logging must never
+    break a run."""
+    from .training.callbacks import dispatch
+
+    cbs = extras.get("callbacks") or []
+    ctx = extras.get("log_context")
+    if not cbs or ctx is None:
+        return
+    def _dicts(rows):
+        out = []
+        for r in rows or []:
+            if isinstance(r, dict):
+                out.append(r)
+            elif hasattr(r, "model_dump"):
+                out.append(r.model_dump())
+        return out
+    dispatch(cbs, "on_raw_data", ctx, _dicts(raw_rows))
+    dispatch(cbs, "on_train_data", ctx, _dicts(train_rows))
+
+
 def _apply_transforms(rows: list[dict[str, Any]], data: DataConfig) -> list[dict[str, Any]]:
     for spec in data.transforms:
         cls = get_transform(spec.kind)
@@ -157,6 +179,10 @@ def _execute_run(
     extras: dict[str, Any] = {
         "train_rows": train_rows,
         "n_train_rows": len(train_rows),
+        # The rows as LOADED, before `data.transforms` ran. Kept so the UI can
+        # show both ends of the conversion — a transform chain you cannot see
+        # the input and output of is not debuggable.
+        "raw_rows": raw_rows,
         "backend_handles": handles,
         "model_name": run.model.name,
         "tags": run.tags,
@@ -179,6 +205,12 @@ def _execute_run(
             output_dir=base_output_dir, config=cfg, run_key=safe_name,
         )
         dispatch(extras["callbacks"], "on_run_start", extras["log_context"])
+
+    # Both ends of the data pipeline, dispatched HERE rather than from the
+    # algorithm: what a run trained on is a property of the run, so it must be
+    # recorded for every algorithm — including custom ones and the mocks, which
+    # do not derive from BaseAlgorithm and so never fired these hooks.
+    _dispatch_data(extras, raw_rows, train_rows)
 
     ctx = RunContext(
         run_id=safe_name,

@@ -77,6 +77,7 @@ class RolloutCapture:
 
 def training_rollout_rows(
     rollouts: list[Any], *, step: int, limit: int = -1,
+    items: list[Any] | None = None,
 ) -> list[dict]:
     """Flatten ``TrainingBatch.rollouts`` (harbor ``TrajectoryGroup``s) into
     prediction rows shaped like :func:`harbor_eval.eval_predictions` output.
@@ -85,7 +86,11 @@ def training_rollout_rows(
     caller passes the capture's remaining budget so nothing extra is built.
     """
     rows: list[dict] = []
+    items = list(items or [])
     for group_idx, group in enumerate(rollouts or []):
+        # the task this group was sampled from, when the algorithm supplied it
+        item = items[group_idx] if group_idx < len(items) else None
+        verifier = getattr(item, "verifier", None)
         for sample_idx, traj in enumerate(getattr(group, "trajectories", []) or []):
             if limit >= 0 and len(rows) >= limit:
                 return rows
@@ -98,11 +103,12 @@ def training_rollout_rows(
             rows.append({
                 "kind": KIND_TRAIN,
                 "eval_id": None,
-                "task_id": getattr(group, "task_id", None) or f"group-{group_idx}",
+                "task_id": (getattr(item, "task_id", None)
+                            or getattr(group, "task_id", None) or f"group-{group_idx}"),
                 "sample_idx": sample_idx,
                 "step": step,
-                "instruction": getattr(group, "instruction", None),
-                "expected": None,
+                "instruction": getattr(item, "instruction", None),
+                "expected": getattr(verifier, "expected", None),
                 "reward": getattr(traj, "reward", None),
                 "completion": text,
                 "completion_token_ids": getattr(last, "completion_tokens", []) if last else [],

@@ -63,6 +63,12 @@ class TrainingBatch:
     metrics: dict[str, float] = field(default_factory=dict)
     """Algorithm-precomputed per-step metrics (e.g. teacher entropy,
     reward stats). Merged into the per-step log row."""
+    rollout_items: list[Any] | None = None
+    """The items the rollouts were sampled FROM, aligned 1:1 with ``rollouts``
+    (RL sets its ``HarborTask``s). A ``TrajectoryGroup`` carries only its
+    trajectories, so without this a captured rollout has no instruction, no
+    task id and nothing to compare its output against — it renders as an
+    anonymous blob of text."""
     rollouts: list[Any] | None = None
     """Optional on-policy rollouts the algorithm produced this step (RL/SDFT set
     this to their ``TrajectoryGroup``s; SFT leaves it ``None``). Logged via the
@@ -288,7 +294,8 @@ class TrainingLoop:
         # rollout logging is on (e.g. a --dry run). SFT leaves rollouts None.
         if batch.rollouts and state is not None and (
                 self.log_rollouts or self.rollout_capture.remaining(KIND_TRAIN) != 0):
-            self._dispatch("on_rollout", state, step, batch.rollouts)
+            self._dispatch("on_rollout", state, step, batch.rollouts,
+                           batch.rollout_items)
 
         # A step can legitimately yield no trainable data — e.g. RL with
         # ``drop_constant_reward`` when every sampled group has identical reward

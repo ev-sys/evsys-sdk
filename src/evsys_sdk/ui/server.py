@@ -40,6 +40,9 @@ TRACE_TAIL = 100
 LOG_TAIL = 500
 
 
+DEFAULT_MIRROR_DIR = "evsys_sdk"
+"""Mirror dir relative to the project — matches EVSYS_LOG_DIR's default."""
+
 def _parse_duration_s(text: str, default: float = 60.0) -> float:
     """'4s' / '5m' / '1h' → seconds (mirrors the daemon's pull_every strings)."""
     m = _DURATION.match(text or "")
@@ -107,6 +110,27 @@ def _collect_traces(project_dir: Path, cfg: SystemConfig) -> dict:
     return {"total": total, "items": items[-TRACE_TAIL:], "sources": sources, "freshest_mtime": freshest}
 
 
+#: Bytes of an agent transcript shipped per poll. A streaming agent writes one
+#: JSON event per step, so the log runs to megabytes on a long run and the
+#: whole thing was being re-sent — and re-parsed — every four seconds.
+AGENT_LOG_TAIL = 400_000
+
+
+def _tail_log(path: Path) -> str | None:
+    """The tail of an agent transcript, keeping every stage marker.
+
+    A plain tail would cut off the ``===== remote <stage>: started =====``
+    lines that say which agent the rest belongs to, so those are carried
+    forward from the dropped head.
+    """
+    text = _read_text(path)
+    if text is None or len(text) <= AGENT_LOG_TAIL:
+        return text
+    head, tail = text[:-AGENT_LOG_TAIL], text[-AGENT_LOG_TAIL:]
+    markers = [ln for ln in head.splitlines() if ln.startswith("===== remote ")]
+    return "\n".join([*markers, f"[… {len(head)} earlier bytes not shown …]", tail])
+
+
 def _collect_escalations(root: Path) -> list[dict]:
     esc_dir = root / "escalations"
     if not esc_dir.is_dir():
@@ -119,7 +143,7 @@ def _collect_escalations(root: Path) -> list[dict]:
                 "id": stem,
                 "event": _read_json(path),
                 "verdict": _read_json(root / "verdicts" / f"{stem}.json"),
-                "agent_log": _read_text(root / "agent-runs" / f"{stem}.log"),
+                "agent_log": _tail_log(root / "agent-runs" / f"{stem}.log"),
                 "prompt_before": _read_text(root / "prompt-snapshots" / f"{stem}.txt"),
                 "mtime": _mtime(path),
             }
@@ -251,6 +275,16 @@ def _collect_gate(project_dir: Path, cfg: SystemConfig, root: Path) -> dict:
     return {"policy": policy, "source": source, "source_path": source_path}
 
 
+def _sdk_version() -> str | None:
+    """Installed evsys-sdk version, or None when it cannot be determined."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("evsys-sdk")
+    except PackageNotFoundError:
+        return None
+
+
 def collect_state(
     project_dir: Path,
     cfg: SystemConfig,
@@ -285,7 +319,8 @@ def collect_state(
     prompt_diff, diff_base = _prompt_diff(escalations, prompt_text)
 
     return {
-        "project": {"name": project_dir.name, "dir": str(project_dir), "daemon_live": daemon_live, "now": now},
+        "project": {"name": project_dir.name, "dir": str(project_dir), "daemon_live": daemon_live,
+                    "now": now, "mirror": DEFAULT_MIRROR_DIR, "sdk_version": _sdk_version()},
         "traces": traces,
         "trigger": {
             "log": log,
@@ -313,6 +348,53 @@ def _index_html() -> bytes:
     return (resources.files("evsys_sdk.ui") / "static" / "index.html").read_bytes()
 
 
+def _dashboard_route(project_dir: Path, path: str, full_path: str) -> tuple[int, str, bytes]:
+    """Route the local-mirror endpoints. Mirrors the hosted API's paths exactly:
+
+      /api/experiments                       list (?escalation= / ?agent= to scope)
+      /api/experiments/<id>/detail           ExperimentDetail
+      /api/evals/<eval_id>/predictions       one eval's rollouts (?limit=&offset=)
+      /api/runs/<run_id>/predictions         a run's rollouts (?kind=train|validation|eval)
+      /api/runs/<run_id>/data                raw + transformed data and the transform chain
+      /api/agent-runs                        what each agent run produced
+      /api/registry                          every extension resolvable by name
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    from .local_api import LocalDashboard
+
+    query = parse_qs(urlparse(full_path).query)
+    one = lambda k, d=None: (query.get(k) or [d])[0]  # noqa: E731
+    db = LocalDashboard(project_dir / DEFAULT_MIRROR_DIR)
+    parts = [p for p in path.strip("/").split("/") if p]
+
+    try:
+        if parts == ["api", "experiments"]:
+            payload: Any = db.experiments(escalation=one("escalation"), agent=one("agent"))
+        elif len(parts) == 4 and parts[:2] == ["api", "experiments"] and parts[3] == "detail":
+            payload = db.experiment_detail(parts[2])
+        elif len(parts) == 4 and parts[:2] == ["api", "evals"] and parts[3] == "predictions":
+            payload = db.eval_predictions(parts[2], limit=int(one("limit", 50)),
+                                          offset=int(one("offset", 0)))
+        elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "predictions":
+            payload = {"predictions": db.run_predictions(parts[2], kind=one("kind"))}
+        elif len(parts) == 4 and parts[:2] == ["api", "runs"] and parts[3] == "data":
+            payload = db.run_data(parts[2])
+        elif parts == ["api", "agent-runs"]:
+            payload = db.agent_runs()
+        elif parts == ["api", "registry"]:
+            # everything this process can resolve by name from YAML — the
+            # extension surface, including anything the project registered
+            from ..registry import _all_registries
+
+            payload = {kind: sorted(reg.list()) for kind, reg in _all_registries().items()}
+        else:
+            return 404, "text/plain", b"not found"
+    except Exception as e:  # a bad read must not take the whole UI down
+        return 500, "application/json", json.dumps({"error": str(e)}).encode()
+    return 200, "application/json", json.dumps(payload, default=str).encode()
+
+
 def _make_handler(project_dir: Path, cfg: SystemConfig, prompt_file: Path | None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -323,6 +405,13 @@ def _make_handler(project_dir: Path, cfg: SystemConfig, prompt_file: Path | None
             elif path == "/api/state":
                 state = collect_state(project_dir, cfg, prompt_file=prompt_file)
                 self._reply(200, "application/json", json.dumps(state).encode())
+            elif path.startswith("/api/experiments") or path.startswith("/api/evals") \
+                    or path.startswith("/api/agent-runs") or path.startswith("/api/runs") \
+                    or path.startswith("/api/registry"):
+                # The dashboard-shaped surface, served from the local mirror —
+                # the same JSON the hosted API returns, so the frontend's
+                # components render local runs unchanged.
+                self._reply(*_dashboard_route(project_dir, path, self.path))
             else:
                 self._reply(404, "text/plain", b"not found")
 

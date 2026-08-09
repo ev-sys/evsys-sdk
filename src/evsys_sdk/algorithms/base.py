@@ -247,8 +247,10 @@ class BaseAlgorithm:
         return out
 
     def _dispatch_train_data(self, ctx: RunContext, callbacks: list[Any]) -> None:
-        """Fire ``on_train_data`` on each callback with the final training rows.
-        Never raises — logging must not break training."""
+        """Re-fire ``on_train_data`` with the algorithm's own rendering of the
+        final rows. Never raises — logging must not break training."""
+        # `on_raw_data` is dispatched by the runner for every algorithm; this
+        # only re-emits the FINAL rows, which an algorithm may render itself.
         log_ctx = ctx.extras.get("log_context")
         try:
             rows = self._train_data_rows(ctx)
