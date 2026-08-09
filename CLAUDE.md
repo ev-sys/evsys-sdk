@@ -69,3 +69,39 @@ extension points consistent with this so the whole surface stays predictable.
     experiments end-to-end via the SDK.
   * `docs/DESIGN.md` — layout + protocol rationale; researcher-project
     section explains the on-disk shape `evsys init-project` creates.
+
+## Running on your own infrastructure
+
+Three orthogonal choices, each its own extension point:
+
+| Question | Extension point | Built-ins |
+|---|---|---|
+| Which protocol does training speak? | `backend` | `tinker` (hosted), `skyrl` (self-hosted), `local`, `mock` |
+| Whose hardware speaks it? | `compute` | `skypilot` |
+| Where does the *agent* run? | `sandbox` | `e2b`, `modal`, `local` |
+
+The hosted default needs no `compute:` at all. To run the same `config.yaml`
+on infrastructure you control:
+
+```yaml
+backend:
+  kind: skyrl                    # serves the Tinker protocol on your GPUs
+  params:
+    compute:
+      kind: skypilot             # provisions the machine it runs on
+      params:
+        infra: aws               # or k8s / gcp / runpod / …
+        accelerators: "L4:1"     # omit for a CPU cluster (JAX backend)
+        idle_minutes_to_autostop: 30
+```
+
+`SkyRLBackend.prepare()` brings the compute up, then exports `TINKER_BASE_URL`.
+Every client in a run — the training client, sampling clients, and harbor's
+`TinkerLLM` in the rollout engine — constructs `ServiceClient()` with no
+arguments, so that one variable redirects the whole run. `teardown()` releases
+the cluster; SkyPilot autostops it regardless if the host dies.
+
+Two defaults are deliberate and should not be relaxed casually:
+`idle_minutes_to_autostop` cannot be 0 (a leaked GPU cluster bills by the
+hour), and `remote_identity` is `NO_UPLOAD` because SkyPilot otherwise copies
+your cloud credentials onto a VM that runs agent-authored code.

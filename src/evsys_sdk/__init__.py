@@ -83,6 +83,7 @@ from .registry import (
     list_metrics,
     list_sandboxes,
     list_context_sources,
+    list_computes,
     list_trace_sources,
     list_transforms,
     list_triggers,
@@ -150,6 +151,9 @@ from . import trace_sources as _trace_sources  # noqa: F401
 from . import triggers as _triggers  # noqa: F401
 from . import context_sources as _context_sources  # noqa: F401
 from . import backends as _backends  # noqa: F401
+# Compute targets — where a training service runs (SkyPilot, …).
+from . import compute as _compute  # noqa: F401
+from .compute import BaseCompute, build_compute
 from . import data_stores as _data_stores  # noqa: F401
 from . import inference as _inference  # noqa: F401
 from . import metrics as _metrics  # noqa: F401
@@ -193,6 +197,9 @@ __all__ = [
     "get_verifier",
     "list_algorithms",
     "list_backends",
+    "list_computes",
+    "BaseCompute",
+    "build_compute",
     "list_callbacks",
     "list_data_stores",
     "list_inferences",

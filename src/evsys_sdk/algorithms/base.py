@@ -36,6 +36,7 @@ from typing import Any, ClassVar
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..backends.tinker import PROTOCOL_TINKER
 from ..config import CallbackSpec
 from ..protocols import RunContext, RunResult
 from ..training.callbacks import build_callbacks
@@ -138,10 +139,17 @@ class BaseAlgorithm:
     # --- generic driver ----------------------------------------------------
 
     def train(self, ctx: RunContext) -> RunResult:
-        if ctx.backend.name != "tinker":
+        # Gate on the PROTOCOL, not the vendor: these loops need
+        # forward_backward / optim_step / save_weights_for_sampler, which
+        # SkyRL serves from your own hardware just as the hosted service does.
+        # A backend that declares no protocol is judged by its name, so
+        # backends written before this existed keep working.
+        spoken = getattr(ctx.backend, "protocol", None) or ctx.backend.name
+        if spoken != PROTOCOL_TINKER:
             raise RuntimeError(
-                f"{type(self).__name__} requires backend=tinker "
-                f"(got '{ctx.backend.name}')."
+                f"{type(self).__name__} requires a backend speaking the "
+                f"'{PROTOCOL_TINKER}' protocol (got '{ctx.backend.name}'). "
+                "Built-ins: tinker (hosted), skyrl (your own compute)."
             )
         return asyncio.run(self._train_async(ctx))
 

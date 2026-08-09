@@ -73,6 +73,12 @@ remote-modal = [
 traces = [
     "langsmith>=0.1",
 ]
+# `compute: {kind: skypilot}` — provision the machine a training service runs
+# on, on whichever cloud or Kubernetes cluster you hold credentials for. The
+# provider imports `sky` lazily, so this is only needed to actually launch.
+skypilot = [
+    "skypilot>=0.13",
+]
 
 [project.scripts]
 evsys = "evsys_sdk.cli:main"

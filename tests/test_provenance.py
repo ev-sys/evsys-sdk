@@ -186,6 +186,59 @@ class TestSandboxResultsSync:
         box = self._sandbox({"prompt.txt": "x"})
         assert box.collect_tree("evsys_sdk", tmp_path) == []
 
+    def test_live_sync_lands_results_while_the_agent_still_runs(self, tmp_path):
+        """The sync used to run once, at teardown — so a 40-minute agent showed
+        nothing at all until it finished. It runs on a timer now."""
+        import threading
+
+        from evsys_sdk.triggers import remote as rm
+
+        box = self._sandbox({"evsys_sdk/experiments/e1/experiment.json": '{"id": "e1"}'})
+        stop = threading.Event()
+        monkey = rm.SYNC_EVERY_S
+        rm.SYNC_EVERY_S = 0.01
+        try:
+            t = threading.Thread(target=rm._live_sync, args=(box, tmp_path, {}, stop))
+            t.start()
+            landed = tmp_path / "evsys_sdk/experiments/e1/experiment.json"
+            for _ in range(200):                      # ≤2s, no sleep-and-hope
+                if landed.exists():
+                    break
+                stop.wait(0.01)
+            stop.set()
+            t.join(2)
+        finally:
+            rm.SYNC_EVERY_S = monkey
+        assert landed.read_text() == '{"id": "e1"}'   # arrived mid-run, not at the end
+
+    def test_live_sync_survives_a_broken_sandbox(self, tmp_path):
+        """A sync failure must never take down the agent it is watching."""
+        import threading
+
+        from evsys_sdk.triggers import remote as rm
+
+        class _Dead:
+            envs: ClassVar[dict] = {}
+
+            def collect_tree(self, *a, **k):
+                raise RuntimeError("sandbox went away")
+
+            def list_tree(self, *a, **k):
+                raise RuntimeError("sandbox went away")
+
+        stop = threading.Event()
+        monkey = rm.SYNC_EVERY_S
+        rm.SYNC_EVERY_S = 0.01
+        try:
+            t = threading.Thread(target=rm._live_sync, args=(_Dead(), tmp_path, {}, stop))
+            t.start()
+            stop.wait(0.05)
+            stop.set()
+            t.join(2)
+        finally:
+            rm.SYNC_EVERY_S = monkey
+        assert not t.is_alive()
+
     def test_mirror_is_pinned_to_the_live_workdir(self, tmp_path):
         """``EVSYS_LOG_DIR`` must follow the sandbox that is actually running.
 

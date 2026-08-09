@@ -30,6 +30,14 @@ class TinkerBackendConfig(BaseModel):
     """Override the Tinker service URL (rare)."""
 
 
+PROTOCOL_TINKER = "tinker"
+"""The training-service protocol these algorithms speak.
+
+What the RL/SFT loops actually require is the *protocol* — forward_backward,
+optim_step, save_weights_for_sampler — not this particular vendor. Backends
+declare it as a ClassVar so a server that implements the same surface (SkyRL,
+on your own GPUs) is accepted on its capability rather than on its name."""
+
 CONNECT_TIMEOUT_S = 90.0
 """How long to wait for the service client before calling it a failure.
 
@@ -74,6 +82,7 @@ def _version(pkg: str) -> str:
 @register_backend("tinker")
 class TinkerBackend:
     name: ClassVar[str] = "tinker"
+    protocol: ClassVar[str] = PROTOCOL_TINKER
     Config: ClassVar[type] = TinkerBackendConfig
 
     def __init__(self, *, api_key_env: str = "TINKER_API_KEY", base_url: str | None = None) -> None:
