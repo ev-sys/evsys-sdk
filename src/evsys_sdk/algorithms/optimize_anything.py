@@ -196,7 +196,12 @@ class OptimizeAnythingAlgorithm:
 
         return evaluate, n_calls
 
-    def _oa_config(self, oa, *, engine: str, max_evals: int | None, out: Path):
+    def _oa_config(self, oa, *, engine: str, max_evals: int | None, out: Path,
+                   phase: str = "main"):
+        # Phase-distinct dirs: explore-gepa and the gepa continuation must not
+        # share an eval log (the server numbers evals per output_dir), and the
+        # UI attributes points to phases by this layout.
+        stem = f"oa-{engine}" if phase == "main" else f"oa-{phase}-{engine}"
         return oa.OptimizeAnythingConfig(
             engine=engine,
             max_evals=max_evals,
@@ -204,8 +209,8 @@ class OptimizeAnythingAlgorithm:
             max_concurrency=self.cfg.max_concurrency,
             stop_at_score=self.cfg.stop_at_score,
             sandbox=self.cfg.sandbox,
-            output_dir=str(out / f"oa-{engine}"),
-            run_dir=str(out / f"oa-{engine}-work"),
+            output_dir=str(out / stem),
+            run_dir=str(out / f"{stem}-work"),
             # engines hard-reject unknown keys, so the passthrough only goes to
             # the engine it was written for
             engine_config=dict(self.cfg.engine_config) if engine == self.cfg.engine else {},
@@ -241,7 +246,8 @@ class OptimizeAnythingAlgorithm:
             explore = oa.optimize_best_of(
                 seed, **task,
                 configs=[
-                    self._oa_config(oa, engine=e, max_evals=self.cfg.explore_max_evals, out=out)
+                    self._oa_config(oa, engine=e, max_evals=self.cfg.explore_max_evals,
+                                    out=out, phase="explore")
                     for e in self.cfg.explore_engines
                 ],
             )

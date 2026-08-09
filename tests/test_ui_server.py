@@ -146,6 +146,69 @@ def test_prompt_diff_against_snapshot(project: Path) -> None:
     assert "prompt.txt @ escalation-00000015" in s["prompt"]["diff"]
 
 
+def _write_oa_phase(run_dir: Path, stem: str, scores: list[float]) -> None:
+    d = run_dir / stem / "evals"
+    d.mkdir(parents=True, exist_ok=True)
+    for i, sc in enumerate(scores, 1):
+        (d / f"{i}.json").write_text(json.dumps({"eval": i, "score": sc, "candidate": "p"}))
+
+
+def test_collect_optimizations_phases_and_best(project: Path) -> None:
+    run = project / "oa_omni"
+    _write_oa_phase(run, "oa-explore-gepa", [0.5, 0.7])
+    _write_oa_phase(run, "oa-explore-best_of_n", [0.4])
+    _write_oa_phase(run, "oa-gepa", [0.6, 0.8])
+    (run / "oa-gepa" / "evals" / "torn.json").write_text("{not json")  # mid-write: skipped
+    (run / "oa_summary.json").write_text(json.dumps({"engine": "gepa", "phases": []}))
+
+    s = collect_state(project, _cfg())
+    (r,) = s["optimizations"]
+    assert r["run"] == "oa_omni" and r["done"] is True
+    by = {(p["engine"], p["phase"]): p for p in r["phases"]}
+    assert by[("gepa", "explore")]["points"][-1]["best"] == 0.7  # best-so-far, not raw
+    assert by[("best_of_n", "explore")]["points"] == [{"eval": 1, "score": 0.4, "best": 0.4}]
+    assert [q["best"] for q in by[("gepa", "main")]["points"]] == [0.6, 0.8]
+
+
+def test_collect_optimizations_running_run_not_done(project: Path) -> None:
+    _write_oa_phase(project / "oa_live", "oa-gepa", [0.5])  # no oa_summary.json yet
+    s = collect_state(project, _cfg())
+    (r,) = s["optimizations"]
+    assert r["done"] is False and r["phases"][0]["phase"] == "main"
+
+
+def test_no_optimization_dirs_is_empty(project: Path) -> None:
+    s = collect_state(project, _cfg())
+    assert s["optimizations"] == []
+    assert s["context"] == {"sources": {}, "total": 0}
+
+
+def test_optimization_best_prompt_and_examples(project: Path) -> None:
+    run = project / "oa_x"
+    _write_oa_phase(run, "oa-gepa", [0.6])
+    (run / "prompts.json").write_text(json.dumps({"system_prompt": "WRITE LIKE ME"}))
+    (run / "examples.json").write_text(json.dumps(
+        [{"brief": "b", "real": "r", "seed_gen": "s", "seed_score": 0.4,
+          "omni_gen": "o", "omni_score": 0.8}]))
+    (r,) = collect_state(project, _cfg())["optimizations"]
+    assert r["best_prompt"] == "WRITE LIKE ME"
+    assert r["examples"][0]["omni_score"] == 0.8
+
+
+def test_collect_context_items(project: Path) -> None:
+    d = project / ".evsys" / "context" / "directory"
+    d.mkdir(parents=True)
+    rows = [{"item_id": f"i{n}", "source": "directory", "entity": "shrey",
+             "content": f"Subject: hello {n}\n\nbody", "metadata": {"path": f"/x/{n}.txt"}}
+            for n in range(3)]
+    (d / "items.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows) + "{torn")
+    ctx = collect_state(project, _cfg())["context"]
+    assert ctx["total"] == 3
+    items = ctx["sources"]["directory"]
+    assert items[0]["item_id"] == "i2"  # newest first
+    assert items[0]["entity"] == "shrey" and "hello 2" in items[0]["content"]
+
+
 def test_prompt_rewritten_flag(project: Path) -> None:
     esc = project / ".evsys" / "triggers" / "escalations" / "escalation-00000015.json"
     prompt = project / "prompt.txt"

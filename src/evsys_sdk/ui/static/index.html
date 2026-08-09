@@ -244,6 +244,41 @@
     background: var(--good-soft); border-radius: 5px; padding: 1px 7px; margin-left: 8px;
   }
 
+  /* ---------- optimization panel ---------- */
+  .optwrap { padding: 0 18px 14px; display: none; }
+  .optwrap.show { display: block; }
+  .optcard { position: relative; }
+  :root {
+    --eng-gepa: #5a9e4b; --eng-autoresearch: #2e4b7a;
+    --eng-meta_harness: #d96a6f; --eng-best_of_n: #c98500;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --eng-gepa: #74b565; --eng-autoresearch: #7ba0d6;
+    --eng-meta_harness: #e08a8e; --eng-best_of_n: #d9a13d;
+  }}
+  :root[data-theme="dark"] {
+    --eng-gepa: #74b565; --eng-autoresearch: #7ba0d6;
+    --eng-meta_harness: #e08a8e; --eng-best_of_n: #d9a13d;
+  }
+  .optlegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); padding: 8px 14px 0; }
+  .optlegend span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px;
+    margin-right: 6px; vertical-align: middle; background: var(--lc, var(--muted)); }
+  .ctxitem { border-bottom: 1px solid var(--border); }
+  .ctxitem summary { cursor: pointer; font-size: 12px; padding: 7px 14px; color: var(--ink-2); list-style: none; }
+  .ctxitem summary b { color: var(--ink); }
+  .ctxitem pre { margin: 0 14px 8px; }
+  .ctxmeta { font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 0 14px 8px; }
+  .exrow { margin-bottom: 14px; }
+  .exbrief { font-size: 12px; color: var(--ink-2); margin: 0 0 6px; }
+  .exbrief b { color: var(--ink); }
+  .exgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .exmail { border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; background: var(--page); }
+  .exmail .eh { font-size: 10px; font-weight: 700; display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .exmail.real .eh { color: var(--good-text); }
+  .exmail.seedg .eh { color: var(--critical); }
+  .exmail.optg .eh { color: var(--series); }
+  .exmail pre { max-height: 200px; font-size: 10px; }
+
   /* ---------- prompt rewrite diff ---------- */
   .dline { display: block; margin: 0 -14px; padding: 0 14px; }
   .dline.add { background: var(--good-soft); color: var(--good-text); }
@@ -284,12 +319,34 @@
   <div class="stage" id="st4"><div class="n">autoresearch</div><div class="t">prompt.txt rewrite</div><div class="s" id="st4s">–</div></div>
 </div>
 
+<div class="optwrap" id="optWrap">
+  <div class="card optcard">
+    <div class="hd"><span class="title">Prompt optimization</span><span class="sub" id="optSub">–</span></div>
+    <div class="escpick" id="optPick"></div>
+    <div class="tabs" id="optTabs">
+      <button data-tab="chart" class="on">engine race</button>
+      <button data-tab="prompt">final prompt</button>
+      <button data-tab="examples">before / after</button>
+    </div>
+    <div class="bd" id="optBodyChart">
+      <div class="optlegend" id="optLegend"></div>
+      <div class="chartwrap"><svg id="optChart" height="200"></svg><div class="tip" id="optTip"></div></div>
+    </div>
+    <div class="bd tight" id="optBodyPrompt" style="display:none"><pre class="code soft" id="optPrompt">–</pre></div>
+    <div class="bd tight" id="optBodyExamples" style="display:none"><div id="optExamples" style="padding:10px 14px"></div></div>
+  </div>
+</div>
+
 <main>
   <!-- ============ col 1: live traces ============ -->
   <div class="col">
     <div class="card">
       <div class="hd"><span class="title">Production traces</span><span class="sub" id="traceSub">–</span></div>
       <div class="bd tight" id="traceFeed"><div class="empty">no traces ingested yet</div></div>
+    </div>
+    <div class="card" id="ctxCard" style="display:none">
+      <div class="hd"><span class="title">Context</span><span class="sub" id="ctxSub">–</span></div>
+      <div class="bd tight lograil" id="ctxFeed"></div>
     </div>
   </div>
 
@@ -347,7 +404,7 @@ const $ = id => document.getElementById(id);
   if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let STATE = null;
-const ui = { openTraces: new Set(), gateTab: "policy", promptTab: "diff", escSel: null, hashes: {} };
+const ui = { openTraces: new Set(), gateTab: "policy", promptTab: "diff", escSel: null, optSel: null, optTab: "chart", hashes: {} };
 
 /* ---------- theme ---------- */
 $("themeBtn").onclick = () => {
@@ -598,6 +655,127 @@ function renderEscalations(s, force) {
   det.innerHTML = html;
 }
 
+/* ---------- context ---------- */
+function renderContext(s) {
+  const ctx = s.context || {sources: {}, total: 0};
+  const card = $("ctxCard");
+  card.style.display = ctx.total ? "" : "none";
+  if (!ctx.total || !changed("ctx", [Object.keys(ctx.sources), ctx.total])) return;
+  const srcs = Object.entries(ctx.sources);
+  $("ctxSub").textContent = `${ctx.total} items · ${srcs.map(([k]) => k).join(", ")}`;
+  $("ctxFeed").innerHTML = srcs.map(([src, items]) => items.map(it => {
+    const meta = it.metadata || {};
+    const title = (it.content || "").split("\n").find(l => l.trim()) || it.item_id || "(empty)";
+    return `<details class="ctxitem"><summary><b>${esc(it.entity || src)}</b> · ${esc(String(title).slice(0, 70))}</summary>
+      <pre class="code soft" style="max-height:220px">${esc(it.content || "")}</pre>
+      <div class="ctxmeta">${esc(meta.path || it.item_id || "")}</div></details>`;
+  }).join("")).join("");
+}
+
+/* ---------- prompt optimization (optimize_anything runs) ---------- */
+function engColor(engine) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--eng-" + engine).trim();
+  return v || getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
+}
+function renderOptim(s, force) {
+  const runs = s.optimizations || [];
+  const wrap = $("optWrap");
+  wrap.classList.toggle("show", runs.length > 0);
+  if (!runs.length) return;
+  if (!ui.optSel || !runs.some(r => r.run === ui.optSel)) ui.optSel = runs[runs.length - 1].run;
+  const run = runs.find(r => r.run === ui.optSel);
+  const sig = [ui.optSel, ui.optTab, run.phases.map(p => [p.engine, p.phase, p.points.length])];
+  if (!force && !changed("optim", sig)) return;
+
+  $("optTabs").querySelectorAll("button").forEach(b => {
+    b.classList.toggle("on", b.dataset.tab === ui.optTab);
+    b.onclick = () => { ui.optTab = b.dataset.tab; renderOptim(STATE, true); };
+  });
+  $("optBodyChart").style.display = ui.optTab === "chart" ? "" : "none";
+  $("optBodyPrompt").style.display = ui.optTab === "prompt" ? "" : "none";
+  $("optBodyExamples").style.display = ui.optTab === "examples" ? "" : "none";
+  $("optPrompt").textContent = run.best_prompt || "(no prompts.json yet — run still optimizing)";
+  const exs = run.examples || [];
+  $("optExamples").innerHTML = exs.length ? exs.map(x => `
+    <div class="exrow">
+      <p class="exbrief"><b>Brief:</b> ${esc(x.brief || "")}</p>
+      <div class="exgrid">
+        <div class="exmail real"><div class="eh"><span>REAL</span></div><pre class="code soft">${esc(x.real || "")}</pre></div>
+        <div class="exmail seedg"><div class="eh"><span>SEED</span><span>${x.seed_score != null ? (+x.seed_score).toFixed(2) : ""}</span></div><pre class="code soft">${esc(x.seed_gen || "")}</pre></div>
+        <div class="exmail optg"><div class="eh"><span>OPTIMIZED</span><span>${(x.omni_score ?? x.opt_score) != null ? (+(x.omni_score ?? x.opt_score)).toFixed(2) : ""}</span></div><pre class="code soft">${esc(x.omni_gen || x.opt_gen || "")}</pre></div>
+      </div>
+    </div>`).join("") : '<div class="empty">no examples.json for this run</div>';
+
+  $("optPick").innerHTML = runs.map(r =>
+    `<button data-id="${esc(r.run)}" class="${r.run === ui.optSel ? "on" : ""}">${esc(r.run)}${r.done ? "" : " ⋯"}</button>`).join("");
+  $("optPick").querySelectorAll("button").forEach(b =>
+    b.onclick = () => { ui.optSel = b.dataset.id; renderOptim(STATE, true); });
+
+  const explore = run.phases.filter(p => p.phase === "explore" && p.points.length);
+  const main = run.phases.filter(p => p.phase === "main" && p.points.length);
+  const xOff = explore.length ? Math.max(...explore.map(p => p.points.length)) : 0;
+  const total = xOff + (main.length ? Math.max(...main.map(p => p.points.length)) : 0);
+  const allBest = run.phases.flatMap(p => p.points.map(q => q.best));
+  const bestNow = allBest.length ? Math.max(...allBest) : 0;
+  $("optSub").textContent = `${run.run} · best ${bestNow.toFixed(2)} · ` +
+    (run.done ? "complete" : "running") +
+    (explore.length ? ` · omni: ${explore.map(p => p.engine).join(" vs ")} → ${main.map(p => p.engine).join(",") || "…"}` : "");
+
+  const svg = $("optChart");
+  const W = svg.clientWidth, H = 200, pad = {l: 36, r: 14, t: 12, b: 22};
+  const ys = allBest.concat([0.4]);
+  const ymin = Math.max(0, Math.min(...ys) - 0.05), ymax = Math.min(1, Math.max(...ys) + 0.06);
+  const X = i => pad.l + (total > 1 ? i / (total - 1) : 0) * (W - pad.l - pad.r);
+  const Y = v => pad.t + (1 - (v - ymin) / (ymax - ymin)) * (H - pad.t - pad.b);
+  let out = "";
+  for (const t of [ymin, (ymin + ymax) / 2, ymax]) {
+    out += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--border)" stroke-width="1" opacity="0.6"/>`
+         + `<text x="${pad.l - 6}" y="${Y(t) + 3.5}" text-anchor="end" style="font-size:10px;fill:var(--muted)">${t.toFixed(2)}</text>`;
+  }
+  const hover = [];
+  const step = (pts, off, color, dash) => {
+    let d = "";
+    pts.forEach((p, i) => {
+      const x = X(off + i), y = Y(p.best);
+      d += i === 0 ? `M ${x} ${y}` : ` H ${x} V ${y}`;
+      hover.push({x, y, p, off: off + i});
+    });
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" ${dash ? 'stroke-dasharray="4 3" opacity="0.9"' : ""}/>`;
+  };
+  for (const ph of explore) out += step(ph.points.map(q => ({...q, engine: ph.engine})), 0, engColor(ph.engine));
+  let switchY = null;
+  if (explore.length) {
+    switchY = Math.max(...explore.flatMap(p => p.points.map(q => q.best)));
+    out += `<circle cx="${X(xOff - 1)}" cy="${Y(switchY)}" r="5.5" fill="var(--page)" stroke="var(--ink)" stroke-width="2"/>`;
+  }
+  for (const ph of main) {
+    const pts = ph.points.map(q => ({...q, engine: ph.engine + (explore.length ? " (fresh)" : "")}));
+    if (switchY != null && pts.length) {
+      out += `<line x1="${X(xOff - 1)}" x2="${X(xOff)}" y1="${Y(switchY)}" y2="${Y(Math.max(pts[0].best, switchY))}"
+               stroke="${engColor(ph.engine)}" stroke-width="2" stroke-dasharray="2 3"/>`;
+    }
+    out += step(pts.map(q => ({...q, best: Math.max(q.best, switchY ?? 0)})), xOff, engColor(ph.engine), false);
+  }
+  out += `<text x="${pad.l}" y="${H - 5}" style="font-size:10px;fill:var(--muted)">eval calls →</text>`;
+  if (explore.length) out += `<text x="${X(xOff - 1)}" y="${H - 5}" text-anchor="middle" style="font-size:10px;fill:var(--muted)">pick best</text>`;
+  svg.innerHTML = out;
+
+  $("optLegend").innerHTML = run.phases.map(p =>
+    `<span style="--lc:${engColor(p.engine)}">${esc(p.engine)}${p.phase === "explore" ? " (explore)" : explore.length ? " (continue)" : ""}</span>`).join("");
+
+  svg.onmousemove = e => {
+    const r = svg.getBoundingClientRect(); const mx = e.clientX - r.left;
+    let b = null, bd = 1e9;
+    for (const h of hover) { const d = Math.abs(h.x - mx); if (d < bd) { bd = d; b = h; } }
+    const tip = $("optTip");
+    if (!b || bd > 25) { tip.style.display = "none"; return; }
+    tip.style.display = "block";
+    tip.innerHTML = `${esc(b.p.engine || "")} · eval ${b.off + 1} · score <b>${(+b.p.score).toFixed(2)}</b> · best <b>${(+b.p.best).toFixed(2)}</b>`;
+    tip.style.left = Math.min(b.x + 10, r.width - 170) + "px"; tip.style.top = (b.y - 8) + "px";
+  };
+  svg.onmouseleave = () => { $("optTip").style.display = "none"; };
+}
+
 /* ---------- prompt ---------- */
 $("promptTabs").querySelectorAll("button").forEach(b => b.onclick = () => {
   ui.promptTab = b.dataset.tab;
@@ -633,6 +811,8 @@ function render(force) {
   renderGate(STATE, force);
   renderEscalations(STATE, force);
   renderPrompt(STATE, force);
+  renderOptim(STATE, force);
+  renderContext(STATE);
 }
 async function tick() {
   try {
