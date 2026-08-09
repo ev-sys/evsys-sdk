@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from .trace_types import Trace
+    from .triggers.state import TriggerState
 
 
 # ---------------------------------------------------------------------------
@@ -264,3 +265,38 @@ class TraceSource(Protocol):
     def to_trace(self, raw: Any) -> Trace:
         """Map one raw platform trace → the canonical :class:`~evsys_sdk.trace_types.Trace`."""
         ...
+
+
+# ---------------------------------------------------------------------------
+# Trigger — the cheap, deterministic gate over accumulated trace state.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TriggerDecision:
+    """The verdict of one deterministic evaluation over the accumulated state."""
+
+    escalate: bool
+    """True ⇒ hand the batch to the trigger agent (a follow-up); False ⇒ stay cheap."""
+    reason: str = ""
+    """Human-readable why (logged + carried into the escalation event)."""
+    signal: dict[str, Any] = field(default_factory=dict)
+    """The stats that drove the decision (e.g. ``{"failure_rate": 0.6}``)."""
+    trace_ids: list[str] = field(default_factory=list)
+    """The specific traces implicated (the batch the agent would look at)."""
+
+
+@runtime_checkable
+class Trigger(Protocol):
+    """A deterministic gate. The runtime accumulates trace state and calls
+    ``evaluate`` every ``policy.every_n`` traces with the ENTIRE state; a
+    ``TriggerDecision.escalate`` hands off to the (heavier) trigger agent.
+
+    Implementations declare ``name`` + ``Config`` (as every extension does) and
+    implement only ``evaluate`` — cheap, pure-Python, no LLM.
+    """
+
+    name: ClassVar[str]
+    Config: ClassVar[type]
+
+    def evaluate(self, state: TriggerState) -> TriggerDecision: ...

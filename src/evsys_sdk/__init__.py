@@ -43,6 +43,7 @@ from .config import (
     TracesConfig,
     TraceSourceSpec,
     TransformSpec,
+    TriggerConfig,
     VerifierSpec,
 )
 from .protocols import (
@@ -54,6 +55,8 @@ from .protocols import (
     RunContext,
     RunResult,
     Transform,
+    Trigger,
+    TriggerDecision,
     Verifier,
 )
 from .registry import (
@@ -65,6 +68,7 @@ from .registry import (
     get_metric,
     get_trace_source,
     get_transform,
+    get_trigger,
     get_verifier,
     list_algorithms,
     list_backends,
@@ -74,6 +78,7 @@ from .registry import (
     list_metrics,
     list_trace_sources,
     list_transforms,
+    list_triggers,
     list_verifiers,
     register_algorithm,
     register_backend,
@@ -83,6 +88,7 @@ from .registry import (
     register_metric,
     register_trace_source,
     register_transform,
+    register_trigger,
     register_verifier,
 )
 from .benchmark import Benchmark, BenchmarkScore, BenchmarkTaskResult
@@ -129,6 +135,7 @@ from .trace_types import Trace, trace_from_dict, iter_traces_jsonl
 # Trigger registration of built-in extensions.
 from . import algorithms as _algorithms  # noqa: F401
 from . import trace_sources as _trace_sources  # noqa: F401
+from . import triggers as _triggers  # noqa: F401
 from . import backends as _backends  # noqa: F401
 from . import data_stores as _data_stores  # noqa: F401
 from . import inference as _inference  # noqa: F401
@@ -190,6 +197,9 @@ __all__ = [
     "register_trace_source",
     "get_trace_source",
     "list_trace_sources",
+    "register_trigger",
+    "get_trigger",
+    "list_triggers",
     # Trace ingestion + system config
     "Trace",
     "trace_from_dict",
@@ -197,6 +207,10 @@ __all__ = [
     "SystemConfig",
     "TracesConfig",
     "TraceSourceSpec",
+    "TriggerConfig",
+    # Trigger (Layer 2 — the cheap gate)
+    "Trigger",
+    "TriggerDecision",
     # Runner
     "run_experiment",
     # YAML

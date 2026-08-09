@@ -80,6 +80,38 @@ class TracesConfig(_Strict):
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
 
 
+class TriggerConfig(_Strict):
+    """The ``trigger`` section of :class:`SystemConfig` — the cheap, always-on gate.
+
+    This is the **policy seed**: its fields are written to
+    ``<state_dir>/policy.json`` on first run, after which the *persisted* policy
+    (not this YAML) is authoritative and re-read live each cycle — so a
+    trigger-agent retune survives restarts. e.g.
+    ``{kind: my_gate, params: {threshold: 0.4}, every_n: 20}``.
+    """
+
+    kind: str
+    """Registry key of the deterministic fn — a researcher- or agent-registered
+    ``@register_trigger``. No built-in fns ship with the SDK."""
+    import_path: str | None = None
+    """Where the fn's ``@register_trigger`` code lives, imported before the gate
+    resolves (registration is an import side effect): a ``.py`` file path
+    (``triggers/gate.py``, relative to the cwd) or a dotted module
+    (``myproj.triggers``). Without it, ``kind`` must already be importable by the
+    daemon process — which the CLI can't do on its own. Mirrors the experiment
+    side's ``agent_import_path``."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Fn-specific thresholds; validated against <Trigger>.Config."""
+    every_n: int = 20
+    """Run the fn once per this many ingested traces (the eval cadence)."""
+    window: int = 100
+    """How many recent raw traces the state keeps for the fn to read."""
+    state_dir: str = ".evsys/triggers"
+    """Local dir for policy.json / state.json / log.jsonl / escalations/."""
+    agent: dict[str, Any] = Field(default_factory=dict)
+    """The trigger-agent block (model, budget, ...) — reserved for the follow-up."""
+
+
 class SystemConfig(_Strict):
     """The continual-learning **system** config (one ``system.yaml``) — the loop
     around individual experiments.
@@ -89,13 +121,16 @@ class SystemConfig(_Strict):
     that decides *when* to run experiments and *what* to do with the results.
     Sections are added as layers land::
 
-        traces:            # Layer 1 (this) — pull production traces in
+        traces:            # Layer 1 — pull production traces in
           trace_sources: [...]
-        # trigger: ...     # Layer 2 (future) — decide "worth learning from?"
+        trigger:           # Layer 2 (this) — cheap gate: "worth learning from?"
+          kind: my_gate    # a researcher- or agent-registered @register_trigger
+          params: {threshold: 0.4}
         # deployment: ...  # Layer 3 (future) — gate + ship the winner
     """
 
     traces: TracesConfig = Field(default_factory=TracesConfig)
+    trigger: TriggerConfig | None = None
 
 
 # ---------------------------------------------------------------------------

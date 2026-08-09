@@ -28,6 +28,8 @@ _GROUPS = (
     "evsys_sdk.backends",
     "evsys_sdk.inference",
     "evsys_sdk.transforms",
+    "evsys_sdk.trace_sources",
+    "evsys_sdk.triggers",
 )
 
 
