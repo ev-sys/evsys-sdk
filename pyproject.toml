@@ -19,6 +19,13 @@ dependencies = [
     # no mask/weights) are validated against this exact server/SDK version.
     "tinker==0.22.3",
     "tinker-cookbook==0.4.2",
+    # Tinker's HTTP transport. Pinned because 0.7.0 fails TLS verification —
+    # every request dies with `invalid peer certificate: UnknownIssuer`, and
+    # because the SDK retries auth internally that surfaces as a HANG at
+    # `ServiceClient()`, not as an error. Bit us on macOS and inside every
+    # fresh container (where `pip install tinker` resolves the newest pyqwest).
+    # 0.6.1 connects in ~2s. Re-test before raising this.
+    "pyqwest==0.6.1",
     "chz",
     # --- Local training (TRL + peft on your own GPU) ---
     "torch>=2.4",

@@ -30,6 +30,47 @@ class TinkerBackendConfig(BaseModel):
     """Override the Tinker service URL (rare)."""
 
 
+CONNECT_TIMEOUT_S = 90.0
+"""How long to wait for the service client before calling it a failure.
+
+``ServiceClient()`` authenticates in its constructor and retries internally, so
+a transport that cannot connect does not raise — it blocks forever. A run then
+looks hung with an empty log, which is exactly how a broken transport cost us
+an afternoon: the real error was ``invalid peer certificate: UnknownIssuer``
+from ``pyqwest`` 0.7.0, invisible behind the retry loop."""
+
+
+def _connect(kwargs: dict[str, Any]) -> Any:
+    """Build the service client, turning a silent stall into a real error."""
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FuturesTimeout
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(tinker.ServiceClient, **kwargs).result(CONNECT_TIMEOUT_S)
+    except FuturesTimeout as e:
+        raise RuntimeError(
+            f"tinker.ServiceClient() did not connect within {CONNECT_TIMEOUT_S:.0f}s. "
+            "It retries auth internally, so a transport failure hangs instead of "
+            "raising. The usual cause is the HTTP transport: pyqwest 0.7.0 fails "
+            "TLS verification ('invalid peer certificate: UnknownIssuer'). "
+            f"Installed: pyqwest {_version('pyqwest')} — pin pyqwest==0.6.1. "
+            "Check reachability and TINKER_API_KEY too."
+        ) from e
+    finally:
+        # the thread is a daemon inside a stuck client; do not block teardown
+        pool.shutdown(wait=False)
+
+
+def _version(pkg: str) -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(pkg)
+    except PackageNotFoundError:
+        return "not installed"
+
+
 @register_backend("tinker")
 class TinkerBackend:
     name: ClassVar[str] = "tinker"
@@ -51,7 +92,7 @@ class TinkerBackend:
         # tinker.ServiceClient picks up the API key from env automatically;
         # we set it explicitly so the active env wins over any earlier export.
         os.environ[self.api_key_env] = api_key
-        service_client = tinker.ServiceClient(**kwargs)
+        service_client = _connect(kwargs)
         return {
             "backend": "tinker",
             "service_client": service_client,
