@@ -1,0 +1,39 @@
+# PRESET experiment for distill-mode escalations. The distiller agent copies
+# this file and fills ONLY the FILLED_BY_AGENT slots + snapshot repo/ref.
+# The algorithm block is the fixed OPD recipe — not the agent's to change.
+name: FILLED_BY_AGENT               # distill-<date>
+description: On-policy distillation of coding-agent traces (preset recipe).
+metadata:
+  hypothesis: FILLED_BY_AGENT       # one line from the verdict
+  tags: [distill, opd, coding-traces]
+  benchmark:
+    engine: harbor
+    path: FILLED_BY_AGENT           # data/benchmark/distill-<date>
+
+run:
+  name: opd_distill
+  data:
+    source_kind: jsonl
+    path: FILLED_BY_AGENT           # data/train/distill-<date>.jsonl
+  model:
+    name: Qwen/Qwen3-4B
+    renderer_name: qwen3
+  backend:
+    kind: tinker
+  algorithm:
+    kind: opd
+    params:
+      teacher_kind: tinker_topk
+      teacher_model: Qwen/Qwen3-32B # same tokenizer family: true top-K logprob OPD
+      topk: 20
+      max_turns: 8
+      max_tokens: 1024
+      temperature: 0.7
+      environment:
+        type: modal
+        kwargs: {sandbox_timeout_secs: 3600}
+      snapshot:
+        repo_dir: FILLED_BY_AGENT   # trace metadata cwd
+        ref: FILLED_BY_AGENT        # trace metadata git_branch
+        base_image: "python:3.12-slim"
+        setup_cmd: "pip install -e . || true"

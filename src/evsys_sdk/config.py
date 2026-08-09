@@ -96,6 +96,21 @@ class SandboxSpec(_Strict):
     """Provider-specific parameters; validated against <Sandbox>.Config."""
 
 
+class DistillConfig(_Strict):
+    """Knobs for ``trigger.agent.mode: distill`` — the trigger agent converts
+    escalated coding traces into eval + training data and launches a PRESET
+    experiment (no autoresearch, no algorithm design)."""
+
+    experiment_template: str = "skills/distill-traces/opd-experiment-template.yaml"
+    """Preset experiment config the agent copies and fills — the algorithm is
+    fixed here, not chosen by the agent."""
+    holdout_fraction: float = 0.2
+    """Newest fraction of sessions held out as the eval set (contamination
+    boundary: eval sessions never feed training rows)."""
+    benchmark_dir: str = "data/benchmark"
+    train_dir: str = "data/train"
+
+
 class RemoteAgentConfig(_Strict):
     """The ``trigger.agent.remote`` block — run the trigger + autoresearch
     agents in a sandbox instead of on the host.
@@ -179,6 +194,13 @@ class TriggerAgentConfig(_Strict):
     """The live artifact autoresearch may rewrite, relative to the spawn cwd.
     Snapshotted to ``<state_dir>/prompt-snapshots/<escalation>.txt`` at spawn time
     so the UI can diff the rewrite against what the agent started from."""
+    mode: Literal["verdict", "distill"] = "verdict"
+    """``verdict``: today's gatekeeper prompt (assess, may launch autoresearch).
+    ``distill``: convert the escalated coding traces into eval + train data and
+    run the preset experiment from ``distill.experiment_template`` — the agent
+    never designs an algorithm and never launches ``training-decider``."""
+    distill: DistillConfig = Field(default_factory=DistillConfig)
+    """Distill-mode knobs (ignored in verdict mode)."""
     remote: RemoteAgentConfig = Field(default_factory=RemoteAgentConfig)
     """Run the agents in E2B sandboxes instead of on the host."""
 
@@ -213,6 +235,8 @@ class TriggerConfig(_Strict):
     """Local dir for policy.json / state.json / log.jsonl / escalations/."""
     agent: TriggerAgentConfig = Field(default_factory=TriggerAgentConfig)
     """How an escalation spawns the headless trigger agent (``claude -p``)."""
+
+
 class ContextSourceSpec(_Strict):
     """A context-ingestion source, by registry name + params. e.g.
     ``{kind: directory, params: {path: ./context}, pull_every: 5m}``."""
