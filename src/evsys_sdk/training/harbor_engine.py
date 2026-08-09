@@ -150,6 +150,7 @@ def _agent_import_and_kwargs(
     temperature: float,
     max_turns: int,
     system_prompt: str | None,
+    extra_kwargs: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Pick the harbor agent + its kwargs for a rollout. Pure + harbor-free so
     the agent-selection logic is unit-testable.
@@ -161,7 +162,19 @@ def _agent_import_and_kwargs(
     tinker-only ``model_path``/``renderer_name`` are ignored).
     """
     if agent_import_path:
-        return agent_import_path, {}
+        # A custom agent still gets the model/rollout knobs (it can ignore what
+        # it doesn't take via **kw); extra_kwargs win on collision.
+        return agent_import_path, {
+            "model_name": model_name,
+            "model_path": model_path,
+            "renderer_name": renderer_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "max_turns": max_turns,
+            "system_prompt": system_prompt,
+            "model_client": model_client,
+            **(extra_kwargs or {}),
+        }
     return f"{_AGENTS_PATH}:BasicLoopAgent", {
         "model_name": model_name,
         "model_path": model_path,
@@ -171,6 +184,7 @@ def _agent_import_and_kwargs(
         "max_turns": max_turns,
         "system_prompt": system_prompt,
         "model_client": model_client,
+        **(extra_kwargs or {}),
     }
 
 
@@ -204,6 +218,10 @@ async def run_harbor_rollouts(
     temperature: float = 1.0,
     system_prompt: str | None = None,
     agent_import_path: str | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
+    environment: dict[str, Any] | None = None,
+    env_writer: Any | None = None,
+    verifier_import_path: str | None = None,
     n_concurrent: int = 4,
     max_retries: int = 2,
     _job_factory: Any | None = None,
@@ -226,6 +244,15 @@ async def run_harbor_rollouts(
     or ``"litellm"`` (closed/API model; ``model_name`` a litellm string, e.g.
     ``"anthropic/claude-opus-4-1"``).
 
+    ``environment`` — harbor ``EnvironmentConfig`` fields as a dict (e.g.
+    ``{"type": "modal", "kwargs": {"sandbox_timeout_secs": 3600}}``). Default
+    stays the in-process ``NoOpEnvironment``. ``env_writer(task_dir)`` is called
+    per materialized task dir — the seam ``snapshot.make_env_writer`` plugs into
+    to drop the codebase Dockerfile context for same-environment rollouts.
+    ``agent_kwargs`` are merged into the agent's constructor kwargs (they win on
+    collision) — how a custom ``agent_import_path`` agent gets configured.
+    ``verifier_import_path`` overrides the outcome verifier class.
+
     ``_job_factory`` is the test seam: ``async (job_config) -> job_result``.
     When ``None``, harbor is imported and ``Job.create(...).run()`` is used.
     """
@@ -235,6 +262,9 @@ async def run_harbor_rollouts(
     # outcome-reward mode picks the adapter (scored task vs generation prompt).
     adapter = (HarborTaskAdapter if outcome_reward else PromptAdapter)(items)
     task_configs = adapter.to_harbor(workspace_dir / "tasks")
+    if env_writer is not None:
+        for tc in task_configs:
+            env_writer(Path(tc.path))
 
     # Lazy harbor imports — keep this module importable without the extra.
     from harbor import Job
@@ -245,7 +275,7 @@ async def run_harbor_rollouts(
         VerifierConfig,
     )
 
-    import_path, agent_kwargs = _agent_import_and_kwargs(
+    import_path, resolved_agent_kwargs = _agent_import_and_kwargs(
         model_client,
         agent_import_path=agent_import_path,
         model_name=model_name,
@@ -255,15 +285,18 @@ async def run_harbor_rollouts(
         temperature=temperature,
         max_turns=max_turns,
         system_prompt=system_prompt,
+        extra_kwargs=agent_kwargs,
     )
-    agent = _to_agent_config(AgentConfig, import_path, agent_kwargs)
+    agent = _to_agent_config(AgentConfig, import_path, resolved_agent_kwargs)
+    env_config = (EnvironmentConfig(**environment) if environment
+                  else EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"))
     config = JobConfig(
         tasks=task_configs,
         agents=[agent],
-        environment=EnvironmentConfig(import_path=f"{_AGENTS_PATH}:NoOpEnvironment"),
+        environment=env_config,
         # outcome_reward: host-side EvsysVerifier wraps the registered fn (SHARED
         # mode, no container) → reward per trajectory. Else: no verifier, reward 0.
-        verifier=(VerifierConfig(import_path=f"{_AGENTS_PATH}:EvsysVerifier")
+        verifier=(VerifierConfig(import_path=verifier_import_path or f"{_AGENTS_PATH}:EvsysVerifier")
                   if outcome_reward else VerifierConfig(disable=True)),
         jobs_dir=workspace_dir / "jobs",
         n_concurrent_trials=n_concurrent,

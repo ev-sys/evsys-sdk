@@ -214,3 +214,73 @@ def test_trial_usage_backfills_tokens_and_falls_back_to_trial_timing():
 def test_phase_seconds_none_when_bounds_missing():
     assert he._phase_seconds(None) is None
     assert he._phase_seconds(SimpleNamespace(started_at=datetime(2026, 1, 1), finished_at=None)) is None
+
+
+# --- Phase-3 extensions: environment / agent_kwargs / env_writer ------------
+
+
+def _capture_job_factory(captured: dict):
+    async def factory(config):
+        captured["config"] = config
+        return SimpleNamespace(trial_results=[])
+    return factory
+
+
+def test_rollouts_default_environment_is_noop(tmp_path: Path):
+    import asyncio
+    captured: dict = {}
+    asyncio.run(he.run_harbor_rollouts(
+        ["hello"], outcome_reward=False, model_name="m", model_path=None,
+        workspace_dir=tmp_path, model_client="litellm",
+        _job_factory=_capture_job_factory(captured),
+    ))
+    env = captured["config"].environment
+    assert "NoOpEnvironment" in (env.import_path or "")
+
+
+def test_rollouts_environment_dict_and_agent_kwargs(tmp_path: Path):
+    import asyncio
+    captured: dict = {}
+    asyncio.run(he.run_harbor_rollouts(
+        ["hello"], outcome_reward=False, model_name="m", model_path=None,
+        workspace_dir=tmp_path, model_client="litellm",
+        agent_import_path="evsys_sdk.training.harbor_coding_agent:CodingLoopAgent",
+        agent_kwargs={"exec_timeout_s": 60, "temperature": 0.9},
+        environment={"type": "modal", "kwargs": {"sandbox_timeout_secs": 120}},
+        _job_factory=_capture_job_factory(captured),
+    ))
+    cfg = captured["config"]
+    assert cfg.environment.type == "modal"
+    assert cfg.environment.kwargs["sandbox_timeout_secs"] == 120
+    agent = cfg.agents[0]
+    assert agent.import_path.endswith(":CodingLoopAgent")
+    # custom agent still receives the model knobs, extra kwargs win on collision
+    assert agent.kwargs["exec_timeout_s"] == 60
+    assert agent.kwargs["temperature"] == 0.9
+    assert agent.kwargs["model_client"] == "litellm"
+    assert agent.model_name == "m"
+
+
+def test_rollouts_env_writer_called_per_task_dir(tmp_path: Path):
+    import asyncio
+    seen: list[Path] = []
+    asyncio.run(he.run_harbor_rollouts(
+        ["a", "b"], outcome_reward=False, model_name="m", model_path=None,
+        workspace_dir=tmp_path, model_client="litellm",
+        env_writer=lambda d: seen.append(Path(d)),
+        _job_factory=_capture_job_factory({}),
+    ))
+    assert len(seen) == 2
+    assert all(d.is_dir() and (d / "instruction.md").exists() for d in seen)
+
+
+def test_rollouts_verifier_override(tmp_path: Path):
+    import asyncio
+    captured: dict = {}
+    asyncio.run(he.run_harbor_rollouts(
+        [_task()], outcome_reward=True, model_name="m", model_path=None,
+        workspace_dir=tmp_path, model_client="litellm",
+        verifier_import_path="evsys_sdk.training.harbor_coding_agent:SandboxTestVerifier",
+        _job_factory=_capture_job_factory(captured),
+    ))
+    assert captured["config"].verifier.import_path.endswith(":SandboxTestVerifier")

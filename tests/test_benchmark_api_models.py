@@ -54,14 +54,17 @@ def test_benchmark_models_parsing():
     assert _benchmark_models({"models": []}) == []
 
 
-def test_agent_spec_explicit_import_path_wins_with_no_kwargs():
+def test_agent_spec_explicit_import_path_gets_model_kwargs():
+    """A custom agent receives the model/rollout knobs too (it can ignore what
+    it doesn't take via **kw) — extra_kwargs win on collision."""
     ip, kw = he._agent_import_and_kwargs(
         "litellm", agent_import_path="my.module:CustomAgent", model_name="m",
         model_path=None, renderer_name=None, max_tokens=256, temperature=0.0,
-        max_turns=1, system_prompt=None,
+        max_turns=1, system_prompt=None, extra_kwargs={"temperature": 0.9},
     )
     assert ip == "my.module:CustomAgent"
-    assert kw == {}
+    assert kw["model_name"] == "m" and kw["max_tokens"] == 256
+    assert kw["temperature"] == 0.9  # extra_kwargs override
 
 
 # --- run_benchmark (standalone, no training) -------------------------------
