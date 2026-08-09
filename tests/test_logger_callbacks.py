@@ -355,3 +355,40 @@ def test_local_logger_routes_benchmark_by_tags_and_records_name(tmp_path):
     # predictions land in the matching split folder, not piled into test/
     assert (logs / "validation" / "rollouts.jsonl").exists()
     assert len((logs / "test" / "rollouts.jsonl").read_text().splitlines()) == 1
+
+def test_debug_logger_persists_token_logprobs(tmp_path):
+    """debug_logger writes per-step token diagnostics (student/teacher logprob +
+    KL per token) to <run>/debug/token_logprobs.jsonl for post-run inspection."""
+    import json
+    from evsys_sdk.training.callbacks import DebugLoggerCallback
+
+    cb = DebugLoggerCallback()
+    ctx = LogContext(output_dir=tmp_path, run_key="arm0")
+    state = SimpleNamespace(ctx=ctx, step=0, num_steps=1)
+    batch = SimpleNamespace(
+        loss_fn="cross_entropy", data=[1], metrics={},
+        token_diagnostics=[{"example": 0, "tokens": [
+            {"token": "a", "pos": 1, "student_logprob": -0.5,
+             "teacher_logprob": -0.2, "teacher_entropy": 0.2, "kl": 0.3},
+            {"token": "b", "pos": 2, "student_logprob": -1.0,
+             "teacher_logprob": -0.1, "teacher_entropy": 0.1, "kl": 0.9},
+        ]}],
+    )
+    cb.on_step_end(state, 0, batch, {"loss": 1.0})
+
+    f = tmp_path / "arm0" / "debug" / "token_logprobs.jsonl"
+    rows = [json.loads(l) for l in f.read_text().splitlines()]
+    assert rows[0]["step"] == 0
+    toks = rows[0]["examples"][0]["tokens"]
+    assert [t["token"] for t in toks] == ["a", "b"]
+    assert toks[1]["kl"] == 0.9 and toks[1]["student_logprob"] == -1.0
+
+
+def test_debug_logger_no_token_file_without_diagnostics(tmp_path):
+    from evsys_sdk.training.callbacks import DebugLoggerCallback
+    cb = DebugLoggerCallback()
+    ctx = LogContext(output_dir=tmp_path, run_key="arm0")
+    state = SimpleNamespace(ctx=ctx, step=0, num_steps=1)
+    batch = SimpleNamespace(loss_fn="cross_entropy", data=[1], metrics={}, token_diagnostics=None)
+    cb.on_step_end(state, 0, batch, {})
+    assert not (tmp_path / "arm0" / "debug").exists()

@@ -73,6 +73,13 @@ class TrainingBatch:
     """Optional on-policy rollouts the algorithm produced this step (RL/SDFT set
     this to their ``TrajectoryGroup``s; SFT leaves it ``None``). Logged via the
     ``on_rollout`` hook only when ``log_rollouts`` is on (e.g. a ``--dry`` run)."""
+    token_diagnostics: list[dict[str, Any]] | None = None
+    """Optional per-example, per-token diagnostics (SDFT sets this when
+    ``log_token_logprobs`` is on): each entry is
+    ``{"example": int, "tokens": [{token, student_logprob, teacher_logprob,
+    teacher_entropy, kl, ...}, ...]}``. ``step_metrics`` fills in the student
+    logprob + KL once the forward-backward result is available. Persisted by
+    ``debug_logger`` to ``<run>/debug/token_logprobs.jsonl``."""
 
 
 @runtime_checkable
