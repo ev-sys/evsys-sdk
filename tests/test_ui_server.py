@@ -126,6 +126,26 @@ def test_collect_state_escalation_join(project: Path) -> None:
     assert e["agent_log"] == "Done. Rewrote prompt.txt."
 
 
+def test_prompt_diff_against_snapshot(project: Path) -> None:
+    trg = project / ".evsys" / "triggers"
+    # no snapshot → no diff
+    s = collect_state(project, _cfg())
+    assert s["prompt"]["diff"] is None and s["prompt"]["diff_base"] is None
+    # snapshot identical to the live prompt → still no diff
+    snaps = trg / "prompt-snapshots"
+    snaps.mkdir()
+    (snaps / "escalation-00000015.txt").write_text("You are a helpful assistant.")
+    s = collect_state(project, _cfg())
+    assert s["prompt"]["diff"] is None
+    assert s["escalations"][0]["prompt_before"] == "You are a helpful assistant."
+    # live prompt rewritten → unified diff against the escalation-time snapshot
+    (project / "prompt.txt").write_text("You are a helpful assistant.\nEnd with ANSWER: <integer>.")
+    s = collect_state(project, _cfg())
+    assert s["prompt"]["diff_base"] == "escalation-00000015"
+    assert "+End with ANSWER: <integer>." in s["prompt"]["diff"]
+    assert "prompt.txt @ escalation-00000015" in s["prompt"]["diff"]
+
+
 def test_prompt_rewritten_flag(project: Path) -> None:
     esc = project / ".evsys" / "triggers" / "escalations" / "escalation-00000015.json"
     prompt = project / "prompt.txt"

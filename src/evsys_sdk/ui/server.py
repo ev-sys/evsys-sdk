@@ -18,6 +18,7 @@ no new dependencies. The frontend (``static/index.html``) polls ``/api/state``.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import time
@@ -119,10 +120,30 @@ def _collect_escalations(root: Path) -> list[dict]:
                 "event": _read_json(path),
                 "verdict": _read_json(root / "verdicts" / f"{stem}.json"),
                 "agent_log": _read_text(root / "agent-runs" / f"{stem}.log"),
+                "prompt_before": _read_text(root / "prompt-snapshots" / f"{stem}.txt"),
                 "mtime": _mtime(path),
             }
         )
     return out
+
+
+def _prompt_diff(escalations: list[dict], prompt_text: str | None) -> tuple[str | None, str | None]:
+    """Unified diff of the live prompt against the newest escalation-time snapshot
+    (what the trigger agent started from). ``(None, None)`` when there is no
+    snapshot or nothing changed; ``(diff, escalation_id)`` otherwise."""
+    latest = next((e for e in reversed(escalations) if e.get("prompt_before") is not None), None)
+    if latest is None or prompt_text is None:
+        return None, None
+    before = latest["prompt_before"]
+    if before == prompt_text:
+        return None, None
+    diff = "\n".join(
+        difflib.unified_diff(
+            before.splitlines(), prompt_text.splitlines(),
+            fromfile=f"prompt.txt @ {latest['id']}", tofile="prompt.txt (live)", lineterm="",
+        )
+    )
+    return diff, latest["id"]
 
 
 def _collect_gate(project_dir: Path, cfg: SystemConfig, root: Path) -> dict:
@@ -178,6 +199,7 @@ def collect_state(
     prompt_mtime = _mtime(prompt_file) if prompt_file else None
     esc_mtimes = [e["mtime"] for e in escalations if e["mtime"] is not None]
     rewritten = bool(prompt_mtime and esc_mtimes and prompt_mtime > min(esc_mtimes))
+    prompt_diff, diff_base = _prompt_diff(escalations, prompt_text)
 
     return {
         "project": {"name": project_dir.name, "dir": str(project_dir), "daemon_live": daemon_live, "now": now},
@@ -196,6 +218,8 @@ def collect_state(
             "path": str(prompt_file) if prompt_file else None,
             "mtime": prompt_mtime,
             "rewritten": rewritten,
+            "diff": prompt_diff,
+            "diff_base": diff_base,
         },
     }
 

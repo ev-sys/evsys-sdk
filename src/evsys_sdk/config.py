@@ -103,6 +103,10 @@ class TriggerAgentConfig(_Strict):
     """Extra argv appended to the ``claude`` command."""
     prompt_template: str | None = None
     """Override the default mission prompt (``{escalation_path}`` etc. are formatted in)."""
+    prompt_file: str = "prompt.txt"
+    """The live artifact autoresearch may rewrite, relative to the spawn cwd.
+    Snapshotted to ``<state_dir>/prompt-snapshots/<escalation>.txt`` at spawn time
+    so the UI can diff the rewrite against what the agent started from."""
 
 
 class TriggerConfig(_Strict):

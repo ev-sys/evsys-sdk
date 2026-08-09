@@ -243,6 +243,13 @@
     display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--good-text);
     background: var(--good-soft); border-radius: 5px; padding: 1px 7px; margin-left: 8px;
   }
+
+  /* ---------- prompt rewrite diff ---------- */
+  .dline { display: block; margin: 0 -14px; padding: 0 14px; }
+  .dline.add { background: var(--good-soft); color: var(--good-text); }
+  .dline.del { background: var(--crit-soft); color: var(--critical); }
+  .dline.hunk { color: var(--muted); }
+  .dline.meta { color: var(--muted); font-weight: 700; }
   .offline {
     display: none; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
     background: var(--critical); color: #fff; font-weight: 600; font-size: 12.5px;
@@ -322,6 +329,10 @@
     </div>
     <div class="card">
       <div class="hd"><span class="title">Live system prompt</span><span class="sub">prompt.txt<span id="promptTag"></span></span></div>
+      <div class="tabs" id="promptTabs" style="display:none">
+        <button data-tab="diff" class="on">rewrite diff</button>
+        <button data-tab="current">current</button>
+      </div>
       <div class="bd tight"><pre class="code soft" id="promptBody">–</pre></div>
     </div>
   </div>
@@ -336,7 +347,7 @@ const $ = id => document.getElementById(id);
   if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let STATE = null;
-const ui = { openTraces: new Set(), gateTab: "policy", escSel: null, hashes: {} };
+const ui = { openTraces: new Set(), gateTab: "policy", promptTab: "diff", escSel: null, hashes: {} };
 
 /* ---------- theme ---------- */
 $("themeBtn").onclick = () => {
@@ -588,10 +599,28 @@ function renderEscalations(s, force) {
 }
 
 /* ---------- prompt ---------- */
-function renderPrompt(s) {
-  if (!changed("prompt", [s.prompt.text, s.prompt.rewritten])) return;
-  $("promptBody").textContent = s.prompt.text || "(prompt.txt not found)";
+$("promptTabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+  ui.promptTab = b.dataset.tab;
+  renderPrompt(STATE, true);
+});
+function diffHtml(d) {
+  return d.split("\n").map(l => {
+    const cls = l.startsWith("+++") || l.startsWith("---") ? "meta"
+      : l.startsWith("@@") ? "hunk"
+      : l.startsWith("+") ? "add"
+      : l.startsWith("-") ? "del" : "";
+    return `<span class="dline ${cls}">${esc(l) || " "}</span>`;
+  }).join("");
+}
+function renderPrompt(s, force) {
+  if (!force && !changed("prompt", [s.prompt.text, s.prompt.rewritten, s.prompt.diff, ui.promptTab])) return;
+  const hasDiff = !!s.prompt.diff;
+  $("promptTabs").style.display = hasDiff ? "flex" : "none";
+  $("promptTabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x.dataset.tab === ui.promptTab));
   $("promptTag").innerHTML = s.prompt.rewritten ? '<span class="tag">rewritten by autoresearch ✓</span>' : "";
+  const body = $("promptBody");
+  if (hasDiff && ui.promptTab === "diff") body.innerHTML = diffHtml(s.prompt.diff);
+  else body.textContent = s.prompt.text || "(prompt.txt not found)";
 }
 
 /* ---------- main loop ---------- */
@@ -603,7 +632,7 @@ function render(force) {
   renderLog(STATE);
   renderGate(STATE, force);
   renderEscalations(STATE, force);
-  renderPrompt(STATE);
+  renderPrompt(STATE, force);
 }
 async function tick() {
   try {
