@@ -11,8 +11,20 @@ messages, but most are duck-typed.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Iterable, Protocol, Sequence, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Protocol,
+    runtime_checkable,
+)
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from .trace_types import Trace
 
 
 # ---------------------------------------------------------------------------
@@ -214,3 +226,41 @@ class Transform(Protocol):
     Config: ClassVar[type]
 
     def __call__(self, rows: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]: ...
+
+
+# ---------------------------------------------------------------------------
+# TraceSource — ingest agent traces from a hosted observability platform.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TraceContext:
+    """Handed to the per-trace hook after a trace lands locally."""
+
+    source: str
+    """The registered adapter name (e.g. 'langgraph')."""
+    store: Any = None
+    """The ``LocalTraceStore`` the trace was written to (kept generic)."""
+    spec: Any = None
+    """The ``TraceSourceSpec`` that configured this source."""
+
+
+@runtime_checkable
+class TraceSource(Protocol):
+    """A source that pulls agent traces from a hosted observability platform.
+
+    An adapter implements ONLY the two platform-specific methods below; the
+    generic pull loop / local write / per-trace hook fan-out live in
+    ``evsys_sdk.trace_sources.base.BaseTraceSource``.
+    """
+
+    name: ClassVar[str]
+    Config: ClassVar[type]
+
+    def pull_raw(self, since: datetime | None) -> Iterable[Any]:
+        """Fetch runs newer than ``since`` from the platform, grouped one item per trace."""
+        ...
+
+    def to_trace(self, raw: Any) -> Trace:
+        """Map one raw platform trace → the canonical :class:`~evsys_sdk.trace_types.Trace`."""
+        ...

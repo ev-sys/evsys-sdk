@@ -153,7 +153,7 @@ def _cmd_benchmark_upload(args: argparse.Namespace) -> int:
         "n_tasks": result.n_tasks,
     }
     print(json.dumps(payload, indent=2))
-    print(f"\n# paste into your experiment config.yaml:")
+    print("\n# paste into your experiment config.yaml:")
     print(f"# metadata.benchmark.id: {result.benchmark_id}")
     return 0
 
@@ -204,6 +204,37 @@ def _cmd_new_experiment(args: argparse.Namespace) -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
     print(f"OK: scaffolded experiment at {path}")
+    return 0
+
+
+def _cmd_traces_pull(args: argparse.Namespace) -> int:
+    """Pull agent traces from configured sources into the local ``.evsys/traces`` store."""
+    from datetime import datetime
+
+    import yaml
+
+    from .config import SystemConfig
+    from .trace_sources import run_pull
+
+    with open(args.config) as f:
+        raw = yaml.safe_load(f) or {}
+    cfg = SystemConfig(**raw)
+    since = None
+    if getattr(args, "since", None):
+        since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
+    try:
+        n = run_pull(
+            cfg.traces.trace_sources,
+            watch=args.watch,
+            source=args.source,
+            limit=args.limit,
+            since=since,
+        )
+    except ImportError as e:
+        print(f"error: {e}")
+        return 1
+    if not args.watch:
+        print(f"ingested {n} new trace(s)")
     return 0
 
 
@@ -289,6 +320,16 @@ def main(argv: list[str] | None = None) -> int:
     p_em.add_argument("--batch-size", type=int, default=1, help="Submit prompts in chunks of this size (needs generate_batch on the inference client).")
     p_em.add_argument("--fail-on-retries", action="store_true")
     p_em.set_defaults(func=_cmd_eval_model)
+
+    p_tr = sub.add_parser("traces", help="Ingest agent traces from hosted observability platforms.")
+    tr_sub = p_tr.add_subparsers(dest="traces_cmd", required=True)
+    p_trp = tr_sub.add_parser("pull", help="Pull new traces into the local .evsys/traces store.")
+    p_trp.add_argument("config", help="Path to a system.yaml (traces: {trace_sources: [...]}).")
+    p_trp.add_argument("--source", default=None, help="Only pull this source kind (e.g. langgraph).")
+    p_trp.add_argument("--since", default=None, help="ISO-8601 start time; overrides the stored cursor.")
+    p_trp.add_argument("--limit", type=int, default=None, help="Max new traces per source (one-shot).")
+    p_trp.add_argument("--watch", action="store_true", help="Daemon: pull on each source's pull_every.")
+    p_trp.set_defaults(func=_cmd_traces_pull)
 
     args = parser.parse_args(argv)
     return args.func(args)

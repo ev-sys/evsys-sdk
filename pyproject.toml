@@ -46,6 +46,11 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
+# Opt-in trace ingestion from hosted observability platforms. Adapters
+# lazy-import their client, so `import evsys_sdk` works without this extra.
+traces = [
+    "langsmith>=0.1",
+]
 
 [project.scripts]
 evsys = "evsys_sdk.cli:main"
@@ -63,6 +68,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "slow: tests that take >5s",
     "tinker: tests that hit the Tinker API (require TINKER_API_KEY)",
+    "langsmith: tests that hit LangSmith (require LANGSMITH_API_KEY)",
     "supabase: tests that hit Supabase (require SUPABASE_URL+key)",
     "gpu: tests that require CUDA",
 ]
