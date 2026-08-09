@@ -84,6 +84,7 @@ _transforms = Registry("transform")
 _callbacks = Registry("callback")
 _trace_sources = Registry("trace_source")
 _triggers = Registry("trigger")
+_sandboxes = Registry("sandbox")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -132,6 +133,10 @@ def register_trace_source(name: str | None = None):
 
 def register_trigger(name: str | None = None):
     return _triggers.register(name)
+
+
+def register_sandbox(name: str | None = None):
+    return _sandboxes.register(name)
 
 
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -186,6 +191,10 @@ def get_trigger(name: str) -> type:
     return _triggers.get(name)
 
 
+def get_sandbox(name: str) -> type:
+    return _sandboxes.get(name)
+
+
 def get_default_inference_factory(backend_kind: str) -> Callable[..., Any] | None:
     """Return the registered default factory for ``backend_kind`` or ``None``."""
     return _DEFAULT_INFERENCE_FACTORIES.get(backend_kind)
@@ -232,6 +241,10 @@ def list_triggers() -> list[str]:
     return _triggers.list()
 
 
+def list_sandboxes() -> list[str]:
+    return _sandboxes.list()
+
+
 # Internal helpers used by yaml_loader / runner
 def _all_registries() -> dict[str, Registry]:
     return {
@@ -245,6 +258,7 @@ def _all_registries() -> dict[str, Registry]:
         "callback": _callbacks,
         "trace_source": _trace_sources,
         "trigger": _triggers,
+        "sandbox": _sandboxes,
     }
 
 

@@ -38,7 +38,9 @@ from .config import (
     DataStoreSpec,
     ExperimentConfig,
     ModelConfig,
+    RemoteAgentConfig,
     RunConfig,
+    SandboxSpec,
     SystemConfig,
     TracesConfig,
     TraceSourceSpec,
@@ -67,6 +69,7 @@ from .registry import (
     get_data_store,
     get_inference,
     get_metric,
+    get_sandbox,
     get_trace_source,
     get_transform,
     get_trigger,
@@ -77,6 +80,7 @@ from .registry import (
     list_data_stores,
     list_inferences,
     list_metrics,
+    list_sandboxes,
     list_trace_sources,
     list_transforms,
     list_triggers,
@@ -87,6 +91,7 @@ from .registry import (
     register_data_store,
     register_inference,
     register_metric,
+    register_sandbox,
     register_trace_source,
     register_transform,
     register_trigger,
@@ -135,6 +140,8 @@ from .trace_types import Trace, trace_from_dict, iter_traces_jsonl
 
 # Trigger registration of built-in extensions.
 from . import algorithms as _algorithms  # noqa: F401
+from . import sandboxes as _sandboxes  # noqa: F401
+from .sandboxes import BaseSandbox
 from . import trace_sources as _trace_sources  # noqa: F401
 from . import triggers as _triggers  # noqa: F401
 from . import backends as _backends  # noqa: F401
@@ -201,6 +208,11 @@ __all__ = [
     "register_trigger",
     "get_trigger",
     "list_triggers",
+    "register_sandbox",
+    "get_sandbox",
+    "list_sandboxes",
+    "BaseSandbox",
+    "SandboxSpec",
     # Trace ingestion + system config
     "Trace",
     "trace_from_dict",
@@ -210,6 +222,7 @@ __all__ = [
     "TraceSourceSpec",
     "TriggerConfig",
     "TriggerAgentConfig",
+    "RemoteAgentConfig",
     # Trigger (Layer 2 — the cheap gate)
     "Trigger",
     "TriggerDecision",

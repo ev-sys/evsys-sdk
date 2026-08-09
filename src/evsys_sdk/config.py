@@ -80,6 +80,78 @@ class TracesConfig(_Strict):
     trace_sources: list[TraceSourceSpec] = Field(default_factory=list)
 
 
+class SandboxSpec(_Strict):
+    """Which sandbox provider runs the agents, by registry name + params. e.g.
+    ``{kind: e2b, params: {template: evsys-agent}}`` or ``{kind: local}``.
+
+    ``kind`` is any ``@register_sandbox`` provider — the built-in ``e2b`` and
+    ``local``, or one the project registers itself. ``params`` are validated
+    against that provider's ``Config``, so provider-specific knobs (an E2B
+    template id, a region, a machine size) live here instead of leaking into
+    the provider-agnostic block above."""
+
+    kind: str = "e2b"
+    """Registry key of the @register_sandbox provider. ``evsys list sandboxes``."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Provider-specific parameters; validated against <Sandbox>.Config."""
+
+
+class RemoteAgentConfig(_Strict):
+    """The ``trigger.agent.remote`` block — run the trigger + autoresearch
+    agents in a sandbox instead of on the host.
+
+    State moves by **copy-in / copy-out**: the sandbox is staged with a snapshot
+    of exactly what the agent may read (escalation, trace window, live policy,
+    gate fn, prompt file, skills), and only the known artifact set (verdict,
+    ``policy.json``, the gate ``.py``, the declared artifacts) is copied back —
+    so the daemon's hot-reload semantics are unchanged and the sandbox needs no
+    network path back to the host.
+
+    Everything here is provider-agnostic; *which* sandbox runs is the
+    :class:`SandboxSpec` under ``sandbox:``. The default (``e2b``) needs
+    ``E2B_API_KEY`` locally and the ``remote`` extra
+    (``pip install evsys-sdk[remote]``).
+    """
+
+    enabled: bool = False
+    """Run agents remotely. The ``--remote`` CLI flag flips this to True."""
+    sandbox: SandboxSpec = Field(default_factory=SandboxSpec)
+    """The provider that supplies the sandbox — ``{kind, params}``."""
+    setup_cmd: str | None = "npm install -g @anthropic-ai/claude-code"
+    """Run once after sandbox creation — installs the agents' dependencies.
+    A provider that can boot a prebuilt image (e.g. ``sandbox.params.template``
+    on E2B) skips this and spawns much faster. None disables."""
+    timeout_s: float = 1800.0
+    """Per-agent wall clock inside the sandbox."""
+    env_passthrough: list[str] = Field(default_factory=lambda: ["ANTHROPIC_API_KEY"])
+    """Local env vars injected into the sandbox (headless claude in a sandbox
+    authenticates via ANTHROPIC_API_KEY; there is no OAuth in there)."""
+    include_traces: Literal["window", "all"] = "window"
+    """How much of each traces.jsonl to stage: the recent tail or everything."""
+    trace_tail_lines: int = 500
+    """Tail size per source when ``include_traces: window``."""
+    autoresearch_sandbox: bool = True
+    """On a YES verdict, run the autoresearch stage in its OWN fresh sandbox
+    (with the same staged skills) instead of inside the trigger agent's."""
+    artifacts: list[str] = Field(default_factory=list)
+    """The GENERAL improve-contract: project-relative files/globs the agents
+    may rewrite; they are staged in and copied back only when changed. Empty →
+    defaults to ``[prompt_file]`` (the demo convention) — set this to make the
+    loop improve anything else (config files, templates, few-shot banks, ...).
+    The gate's own artifacts (verdict, policy.json, the gate .py) are always
+    part of the contract and need not be listed."""
+    autoresearch_prompt_template: str | None = None
+    """Override the autoresearch sandbox's mission (format keys:
+    ``{escalation_path} {verdict_path} {traces_dir} {artifacts}``). The default
+    is artifact-general: follow the project's skills, experiments via the evsys
+    SDK are allowed (evals; weight updates through hosted backends like
+    tinker), rewrite only the declared artifacts."""
+    sdk_install: str | None = "pip install evsys-sdk"
+    """Best-effort extra install so the agents can use the SDK in-sandbox
+    (evals etc.). Failures are logged into the agent log, not fatal — bake a
+    provider image for guaranteed deps. None disables."""
+
+
 class TriggerAgentConfig(_Strict):
     """The ``trigger.agent`` block — how an escalation spawns the headless trigger
     agent (``claude -p``). Disabled by default: with ``enabled: false`` the gate
@@ -107,6 +179,8 @@ class TriggerAgentConfig(_Strict):
     """The live artifact autoresearch may rewrite, relative to the spawn cwd.
     Snapshotted to ``<state_dir>/prompt-snapshots/<escalation>.txt`` at spawn time
     so the UI can diff the rewrite against what the agent started from."""
+    remote: RemoteAgentConfig = Field(default_factory=RemoteAgentConfig)
+    """Run the agents in E2B sandboxes instead of on the host."""
 
 
 class TriggerConfig(_Strict):

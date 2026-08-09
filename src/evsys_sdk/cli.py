@@ -58,6 +58,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         list_data_stores,
         list_inferences,
         list_metrics,
+        list_sandboxes,
         list_trace_sources,
         list_transforms,
         list_triggers,
@@ -74,6 +75,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         ("inference", list_inferences),
         ("trace_sources", list_trace_sources),
         ("triggers", list_triggers),
+        ("sandboxes", list_sandboxes),
     ]:
         items = fn()
         if args.kind and args.kind != kind:
@@ -224,6 +226,11 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
     with open(args.config) as f:
         raw = yaml.safe_load(f) or {}
     cfg = SystemConfig(**raw)
+    if getattr(args, "remote", False):
+        if cfg.trigger is None:
+            print("error: --remote needs a `trigger:` section in the system config")
+            return 1
+        cfg.trigger.agent.remote.enabled = True
     # Layer 2: if a trigger is configured, its deterministic gate becomes the
     # per-trace hook Layer-1 ingestion fires (else the no-op seam).
     hook = resolve_hook(cfg.trigger)
@@ -267,6 +274,8 @@ def _cmd_trigger_agent(args: argparse.Namespace) -> int:
         print("error: system config has no `trigger:` section")
         return 1
     agent_cfg = cfg.trigger.agent
+    if getattr(args, "remote", False):
+        agent_cfg.remote.enabled = True
     root = cfg.trigger.state_dir
     if args.print_command:
         vp = Path(root) / "verdicts" / f"{Path(args.escalation).stem}.json"
@@ -380,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
     p_trp.add_argument("--since", default=None, help="ISO-8601 start time; overrides the stored cursor.")
     p_trp.add_argument("--limit", type=int, default=None, help="Max new traces per source (one-shot).")
     p_trp.add_argument("--watch", action="store_true", help="Daemon: pull on each source's pull_every.")
+    p_trp.add_argument("--remote", action="store_true",
+                       help="Run escalation agents in sandboxes (overrides trigger.agent.remote.enabled).")
     p_trp.set_defaults(func=_cmd_traces_pull)
 
     p_trg = sub.add_parser("trigger", help="The cheap gate + its headless agent (Layer 2).")
@@ -388,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     p_trga.add_argument("config", help="Path to a system.yaml (trigger: {agent: {...}}).")
     p_trga.add_argument("escalation", help="Path to an escalation event JSON.")
     p_trga.add_argument("--detach", action="store_true", help="Fire-and-forget instead of foreground.")
+    p_trga.add_argument("--remote", action="store_true",
+                        help="Run the agent in a sandbox (overrides trigger.agent.remote.enabled).")
     p_trga.add_argument("--print-command", action="store_true", dest="print_command",
                         help="Print the claude -p command without running it.")
     p_trga.set_defaults(func=_cmd_trigger_agent)

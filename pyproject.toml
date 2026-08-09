@@ -46,6 +46,18 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
 ]
+# Hosted sandbox providers for remote agent execution. Each provider lazy-
+# imports its vendor SDK, so `import evsys_sdk` (and the built-in `local`
+# provider) work without this extra — only `sandbox: {kind: e2b}` needs it.
+remote = [
+    "e2b>=1.0",
+]
+# The `modal` sandbox provider. Modal is also the hosted rollout environment
+# (`environment: {type: modal}`), so a training run that already uses Modal
+# needs nothing extra to ALSO run its agents there.
+remote-modal = [
+    "modal>=1.0",
+]
 # Opt-in trace ingestion from hosted observability platforms. Adapters
 # lazy-import their client, so `import evsys_sdk` works without this extra.
 traces = [

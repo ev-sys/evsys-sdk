@@ -446,7 +446,53 @@ legal mutation space.
 
 **Same pattern** for every point: `register_verifier`, `register_metric`,
 `register_backend`, `register_inference`, `register_transform`,
-`register_data_store`, `register_log_store`.
+`register_data_store`, `register_log_store`, `register_trace_source`,
+`register_trigger`, `register_sandbox`.
+
+### Sandbox providers (`register_sandbox`)
+
+*Where* a trigger/autoresearch agent runs is a registry choice, not a
+hardcoded vendor. `BaseSandbox` (`evsys_sdk.sandboxes.base`) owns the generic
+copy-in / copy-out — stage a manifest, run the setup commands, copy back only
+the artifacts that actually changed, tear down — and a provider implements
+five methods:
+
+| Method | Does |
+|---|---|
+| `start()` | create/boot the sandbox (no-op if it boots lazily) |
+| `write(path, content)` | put a file in |
+| `read(path) -> str \| None` | get a file out (`None` when absent) |
+| `exec(cmd, *, timeout_s, cwd, on_line)` | run a command, streaming output |
+| `kill()` | tear down (best-effort, never raises) |
+
+Built-ins:
+
+| Provider | Needs | Notes |
+|---|---|---|
+| `e2b` | `E2B_API_KEY`, `[remote]` extra | Hosted microVMs. `params: {template, metadata}` |
+| `modal` | `~/.modal.toml` (`modal token set`), `[remote-modal]` extra | Same account as `environment: {type: modal}` rollouts, so a Modal training run needs nothing extra to run its agents there too. `params: {app_name, image, image_pip, cpu, memory, gpu, region, block_network}` |
+| `local` | nothing | Scratch dir + subprocess on this host — the same file contract, **no** isolation. For developing the loop without any account. |
+
+`evsys list sandboxes` shows what is registered.
+
+```python
+from evsys_sdk import BaseSandbox, register_sandbox
+
+@register_sandbox("my_cloud")
+class MyCloudSandbox(BaseSandbox):
+    class Config(BaseModel):
+        model_config = {"extra": "forbid"}
+        region: str = "us-east-1"
+    ...  # the five methods
+```
+
+```yaml
+trigger:
+  agent:
+    remote:
+      enabled: true
+      sandbox: {kind: my_cloud, params: {region: eu-west-1}}
+```
 
 ### External packages via entry points
 
