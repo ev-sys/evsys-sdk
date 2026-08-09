@@ -82,6 +82,9 @@ def _make_sandbox(remote_cfg: Any, envs: dict[str, str]) -> Any:
 
 _SANDBOX_FACTORY = _make_sandbox  # seam
 
+_PENDING: list[threading.Thread] = []
+"""In-flight detached remote agents, so a caller about to exit can drain them."""
+
 
 # ---------------------------------------------------------------------------
 # Staging (pure — unit-testable without a sandbox)
@@ -178,7 +181,10 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
         # best-effort: a failed SDK install is logged, it does not kill the run
         sbx.setup(getattr(remote_cfg, "sdk_install", None), required=False,
                   on_line=_on_line, label="sdk_install")
-        code, out = sbx.exec(shlex.join(prompt_argv), timeout_s=remote_cfg.timeout_s,
+        # `< /dev/null`: a headless claude waits ~3s for stdin it will never
+        # get in a sandbox, then warns. Close it explicitly.
+        code, out = sbx.exec(shlex.join(prompt_argv) + " < /dev/null",
+                             timeout_s=remote_cfg.timeout_s,
                              cwd=sbx.workdir, on_line=_on_line)
         f.write(f"===== remote {stage}: exit {code} =====\n")
     return code, out
@@ -335,8 +341,24 @@ def spawn_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path
 
     t = threading.Thread(target=_target, name="evsys-remote-agent", daemon=True)
     t.start()
+    _PENDING.append(t)
     return t
 
 
-__all__ = ["build_manifest", "run_remote", "spawn_remote", "WORKDIR",
+def join_pending(timeout_s: float | None = None) -> int:
+    """Wait for in-flight remote agents, returning how many were still running.
+
+    A detached LOCAL agent is a `Popen` in its own session, so it outlives the
+    daemon that spawned it. A detached REMOTE agent is a daemon thread, which
+    does NOT — a one-shot `evsys traces pull` would exit and kill the agent
+    before it had done anything at all. Callers that are about to exit must
+    drain them.
+    """
+    alive = [t for t in _PENDING if t.is_alive()]
+    for t in alive:
+        t.join(timeout_s)
+    return len([t for t in alive if t.is_alive()])
+
+
+__all__ = ["build_manifest", "join_pending", "run_remote", "spawn_remote", "WORKDIR",
            "REMOTE_AUTORESEARCH_PROMPT"]

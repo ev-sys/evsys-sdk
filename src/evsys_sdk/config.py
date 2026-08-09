@@ -183,7 +183,11 @@ class TriggerAgentConfig(_Strict):
     """Path to the evsys-sdk plugin (``--plugin-dir``) so the ``trigger-agent`` +
     ``training-decider`` subagents + skills are available to the headless run."""
     permission_mode: str = "acceptEdits"
-    """Headless permission mode (non-interactive); e.g. 'acceptEdits', 'bypassPermissions'."""
+    """Headless permission mode (non-interactive); e.g. 'acceptEdits',
+    'bypassPermissions'. NOTE: 'bypassPermissions' maps to
+    --dangerously-skip-permissions, which refuses to run as root — so it cannot
+    be used in a sandbox whose container runs as root (Modal's does). Use
+    'acceptEdits' there."""
     autoresearch: bool = True
     """When true, the agent may launch ``training-decider`` on a YES verdict."""
     extra_args: list[str] = Field(default_factory=list)

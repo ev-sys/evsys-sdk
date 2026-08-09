@@ -251,6 +251,14 @@ def _cmd_traces_pull(args: argparse.Namespace) -> int:
         return 1
     if not args.watch:
         print(f"ingested {n} new trace(s)")
+        # A remote agent runs in a daemon THREAD (unlike the local path's
+        # detached subprocess), so exiting here would kill it mid-flight before
+        # it had done anything. Drain in-flight agents first.
+        from .triggers.remote import join_pending
+
+        still = join_pending()
+        if still:
+            print(f"warning: {still} remote agent(s) still running at exit")
     return 0
 
 
