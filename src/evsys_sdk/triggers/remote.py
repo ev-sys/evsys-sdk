@@ -183,9 +183,16 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
                   on_line=_on_line, label="sdk_install")
         # `< /dev/null`: a headless claude waits ~3s for stdin it will never
         # get in a sandbox, then warns. Close it explicitly.
-        code, out = sbx.exec(shlex.join(prompt_argv) + " < /dev/null",
-                             timeout_s=remote_cfg.timeout_s,
-                             cwd=sbx.workdir, on_line=_on_line)
+        try:
+            code, out = sbx.exec(shlex.join(prompt_argv) + " < /dev/null",
+                                 timeout_s=remote_cfg.timeout_s,
+                                 cwd=sbx.workdir, on_line=_on_line)
+        except Exception as e:
+            # The sandbox died under us (expired, evicted, network). Say so IN
+            # the transcript — otherwise the log simply stops after "started"
+            # and there is nothing anywhere that says why.
+            f.write(f"===== remote {stage}: FAILED: {type(e).__name__}: {e} =====\n")
+            raise
         f.write(f"===== remote {stage}: exit {code} =====\n")
     return code, out
 
@@ -193,6 +200,30 @@ def _stage_and_run(sbx: Any, *, manifest: dict[str, str], prompt_argv: list[str]
 MIRROR_DIR = "evsys_sdk"
 """Where the SDK's local mirror lands inside the sandbox — ``EVSYS_LOG_DIR``
 is set to this, relative to the workdir, so it comes back at a known root."""
+
+RESULT_DIRS = (MIRROR_DIR, "outputs")
+"""Directories synced back wholesale when the sandbox dies.
+
+``evsys_sdk`` is the machine-readable record (experiments, runs, metrics,
+evals, rollouts) the UI reads. ``outputs`` is the human-readable side — the
+run's logs, the training rollouts, the agent's own experiment log. Without the
+second one you can see that a run happened and not what it printed."""
+
+
+def _pin_mirror(sbx: Any) -> None:
+    """Point the sandbox-side mirror at ``<workdir>/evsys_sdk``, so the results
+    sync knows where to look.
+
+    Set from the LIVE sandbox's ``workdir``, not the module constant: a
+    provider is free to stage elsewhere (``LocalSandbox`` uses a scratch dir;
+    ``ModalSandbox`` with ``user: agent`` stages under that user's home). Using
+    the constant pointed the mirror at a directory the agent never wrote to on
+    any such provider, and every experiment it ran died with the box.
+
+    Safe before ``start()``: adapters read ``envs`` when they boot, not when
+    they are constructed.
+    """
+    sbx.envs["EVSYS_LOG_DIR"] = sbx.path(MIRROR_DIR)
 
 
 def _collect_experiments(sbx: Any, cwd: Path, baseline: dict[str, str]) -> list[str]:
@@ -205,13 +236,38 @@ def _collect_experiments(sbx: Any, cwd: Path, baseline: dict[str, str]) -> list[
     the agent trains a model, evaluates it, and every trace of that work dies
     with the box, leaving only a prompt diff and no way to see what it tried.
     """
-    try:
-        landed = sbx.collect_tree(MIRROR_DIR, cwd, baseline=baseline)
-    except Exception as e:  # a results-sync failure must not fail the run
-        log.warning("[remote] could not collect experiments: %s", e)
-        return []
+    landed: list[str] = []
+    for d in RESULT_DIRS:
+        try:
+            landed += sbx.collect_tree(d, cwd, baseline=baseline)
+        except Exception as e:  # a results-sync failure must not fail the run
+            log.warning("[remote] could not collect %s: %s", d, e)
     if landed:
         log.info("[remote] brought back %d experiment file(s) from the sandbox", len(landed))
+    return landed
+
+
+def _collect_new_files(sbx: Any, cwd: Path, baseline: dict[str, str]) -> list[str]:
+    """Bring home the files the agent CREATED at the workdir root.
+
+    ``collect`` only round-trips paths that were staged IN, so a script the
+    agent wrote, the dataset it curated and its run log — the actual evidence
+    of what it did — were invisible. Top level only, and skipping the dirs the
+    tree sync already covers.
+    """
+    keep: list[tuple[str, Path]] = []
+    try:
+        for rel in sbx.list_tree("", max_files=400):
+            if "/" in rel or rel in baseline:
+                continue                     # nested (covered elsewhere) or staged
+            keep.append((rel, cwd / rel))
+    except Exception as e:
+        log.warning("[remote] could not list new files: %s", e)
+        return []
+    landed = sbx.collect(keep, baseline)
+    if landed:
+        log.info("[remote] brought back %d file(s) the agent wrote: %s",
+                 len(landed), ", ".join(landed[:6]))
     return landed
 
 
@@ -244,17 +300,15 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
     # Provenance travels INTO the sandbox: experiments the agent launches in
     # there get stamped with the escalation exactly as a host-side agent's do.
     sandbox_kind = getattr(getattr(remote_cfg, "sandbox", None), "kind", None) or "e2b"
-    # Pin the mirror to a known root so the results sync knows where to look;
-    # the SDK's default is cwd-relative and the agent may cd anywhere.
-    mirror_env = {"EVSYS_LOG_DIR": f"{WORKDIR}/{MIRROR_DIR}"}
-    stage1_envs = {**envs, **mirror_env,
+    stage1_envs = {**envs,
                    **trigger_env(escalation_path, agent=AGENT_TRIGGER,
                                  agent_run=escalation_path.stem,
                                  sandbox=sandbox_kind)}
 
     result: dict[str, Any] = {"stage1_exit": None, "stage2_exit": None,
-                              "artifacts": [], "experiments": []}
+                              "artifacts": [], "experiments": [], "new_files": []}
     sbx = _SANDBOX_FACTORY(remote_cfg, stage1_envs)
+    _pin_mirror(sbx)
     try:
         # absolute paths come from the live sandbox, not a constant: a provider
         # is free to stage somewhere else (LocalSandbox uses a scratch dir).
@@ -277,6 +331,7 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
             pair_map[gate_rel] = cwd / gate_rel
         result["artifacts"] = sbx.collect(list(pair_map.items()), manifest)
         result["experiments"] = _collect_experiments(sbx, cwd, manifest)
+        result["new_files"] = _collect_new_files(sbx, cwd, manifest)
     finally:
         sbx.kill()
 
@@ -301,11 +356,12 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
             argv2 += ["--model", agent_cfg.model]
         manifest2 = dict(manifest)
         manifest2[f".evsys/triggers/verdicts/{escalation_path.stem}.json"] = json.dumps(verdict)
-        stage2_envs = {**envs, **mirror_env,
+        stage2_envs = {**envs,
                        **trigger_env(escalation_path, agent=AGENT_AUTORESEARCH,
                                              agent_run=escalation_path.stem,
                                              sandbox=sandbox_kind)}
         sbx2 = _SANDBOX_FACTORY(remote_cfg, stage2_envs)
+        _pin_mirror(sbx2)
         try:
             code2, _ = _stage_and_run(sbx2, manifest=manifest2, prompt_argv=argv2,
                                       remote_cfg=remote_cfg, log_file=log_file,
@@ -315,6 +371,7 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
                          if not rel.startswith(".evsys/") and not rel.startswith("skills/")]
             result["artifacts"] += sbx2.collect(art_pairs, manifest2)
             result["experiments"] += _collect_experiments(sbx2, cwd, manifest2)
+            result["new_files"] += _collect_new_files(sbx2, cwd, manifest2)
         finally:
             sbx2.kill()
 
