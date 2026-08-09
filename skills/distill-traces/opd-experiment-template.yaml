@@ -29,9 +29,14 @@ run:
       max_turns: 8
       max_tokens: 1024
       temperature: 0.7
+      # Same-environment rollouts: pick ONE.
+      #   docker — local, no account needed (needs a running docker daemon)
+      #   modal  — hosted (needs `pip install modal` + ~/.modal.toml)
       environment:
-        type: modal
-        kwargs: {sandbox_timeout_secs: 3600}
+        type: docker
+      # environment:
+      #   type: modal
+      #   kwargs: {sandbox_timeout_secs: 3600}
       snapshot:
         repo_dir: FILLED_BY_AGENT   # trace metadata cwd
         ref: FILLED_BY_AGENT        # trace metadata git_branch
