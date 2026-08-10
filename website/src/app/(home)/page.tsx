@@ -1,53 +1,5 @@
 import Link from 'next/link';
-import { Mermaid } from '@/components/mermaid';
-
-// The whitepaper's "whole system at a glance" - the overall structure.
-const SYSTEM = `flowchart TB
-    CFG["ExperimentConfig (YAML)<br/>the single canonical artifact"]
-
-    subgraph ORG["① Experiment layer - the organizing unit"]
-        direction TB
-        E["Experiment.run()"]
-        EXP["expand: run / runs / matrix → arms<br/>n_repeats → seeded groups"]
-        AR["ArmResult per run"]
-        ER["ExperimentResult<br/>best_arm · best_score · conclusion"]
-        E --> EXP --> AR --> ER
-    end
-
-    subgraph RUN["per-arm RunConfig (one training run)"]
-        direction LR
-        subgraph DATA["② Data surface"]
-            direction TB
-            SRC["raw source"] --> WSP["Workspace cache"] --> TRN["transforms[]"] --> TYP["typed rows"]
-        end
-        subgraph ALG["③ Algorithm surface"]
-            direction TB
-            BK["Backend<br/>mock · local · tinker"] --> AL["Algorithm.train(ctx)"]
-            AL --> RES["RunResult<br/>status · metrics · artifacts"]
-        end
-        subgraph EVALS["④ Evaluation"]
-            direction TB
-            BMK["Benchmark (test, once)"]
-            VAL["Validation (in-loop)"]
-            MET["Metric · Verifier"]
-        end
-        TYP --> AL
-        AL --> EVALS
-    end
-
-    subgraph OBS["⑤ Observability & storage"]
-        direction LR
-        LS["LogStore"] --- DC["DashboardClient"] --- ST["EvsysStore"]
-    end
-
-    REG["⑥ Registries (8) - kind → class<br/>algorithm · backend · transform · data_store<br/>log_store · metric · verifier · inference"]
-
-    CFG --> E
-    EXP --> RUN
-    AR --> RES
-    AR --> EVALS
-    E --> OBS
-    REG -. "resolves every 'kind:' in the YAML" .-> RUN`;
+import { LoopFlow } from '@/components/diagrams/loop-flow';
 
 const AGENT_YAML = `# A coding agent launches an experiment by writing this - and
 # sweeps, swaps algorithms, or registers new components by editing it.
@@ -204,17 +156,18 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Overall structure diagram */}
+      {/* Continual-learning loop */}
       <section className="mt-16">
         <h2 className="mb-2 text-2xl font-bold tracking-tight">
-          The overall structure
+          The continual-learning loop
         </h2>
         <p className="mb-4 text-fd-muted-foreground">
-          The whole system on one screen - one canonical config drives the
-          Experiment layer, each run's data and algorithm surfaces, evaluation,
-          and storage; the registries resolve every <code>kind:</code>.
+          Production traces feed a decision agent; when it says yes,{' '}
+          <strong className="font-medium text-foreground">Autoresearch</strong>{' '}
+          finds a better recipe, deployment evals gate the checkpoint, and an
+          improved model ships — then serves users and generates new traces.
         </p>
-        <Mermaid chart={SYSTEM} />
+        <LoopFlow />
       </section>
 
       {/* Built for coding agents - customisability */}
