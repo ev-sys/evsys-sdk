@@ -35,6 +35,7 @@ Vendor SDKs are imported lazily by their provider (``e2b`` ships in the
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import threading
 from pathlib import Path
@@ -42,7 +43,9 @@ from typing import Any
 
 from ..logger import get_logger
 from ..provenance import AGENT_AUTORESEARCH, AGENT_TRIGGER, trigger_env
+from ..constants import EVSYS_API_KEY_ENV
 from ..sandboxes import DEFAULT_WORKDIR, build_sandbox, resolve_envs
+from ..config import SandboxSpec
 from .agent import build_command
 
 log = get_logger(__name__)
@@ -73,9 +76,18 @@ Be decisive; validate before you overwrite."""
 
 
 def _make_sandbox(remote_cfg: Any, envs: dict[str, str]) -> Any:
-    """Resolve ``remote.sandbox: {kind, params}`` into a started sandbox."""
+    """Resolve ``remote.sandbox: {kind, params}`` into a started sandbox.
+
+    When ``EVSYS_API_KEY`` is set and the spec is the default ``e2b`` kind,
+    use the hosted ``platform`` provider so E2B credentials stay server-side.
+    """
+    spec = getattr(remote_cfg, "sandbox", None) or "e2b"
+    kind = spec if isinstance(spec, str) else getattr(spec, "kind", None) or "e2b"
+    params = {} if isinstance(spec, str) else dict(getattr(spec, "params", None) or {})
+    if kind == "e2b" and os.environ.get(EVSYS_API_KEY_ENV) and not os.environ.get("E2B_API_KEY"):
+        spec = SandboxSpec(kind="platform", params={"template_id": params.get("template", "base")})
     return build_sandbox(
-        getattr(remote_cfg, "sandbox", None) or "e2b",
+        spec,
         envs=envs, timeout_s=remote_cfg.timeout_s,
     )
 

@@ -130,8 +130,8 @@ class RemoteAgentConfig(_Strict):
 
     Everything here is provider-agnostic; *which* sandbox runs is the
     :class:`SandboxSpec` under ``sandbox:``. The default (``e2b``) needs
-    ``E2B_API_KEY`` locally and the ``remote`` extra
-    (``pip install evsys-sdk[remote]``).
+    ``E2B_API_KEY`` locally **or** ``EVSYS_API_KEY`` for the hosted
+    ``platform`` provider (``pip install evsys-sdk[remote]`` only for direct E2B).
     """
 
     enabled: bool = False

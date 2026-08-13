@@ -16,6 +16,7 @@ from __future__ import annotations
 from . import e2b as _e2b  # noqa: F401
 from . import local as _local  # noqa: F401
 from . import modal as _modal  # noqa: F401
+from . import platform as _platform  # noqa: F401
 from .base import DEFAULT_WORKDIR, BaseSandbox, SandboxSetupError
 from .runtime import available_sandboxes, build_sandbox, resolve_envs
 

@@ -17,7 +17,8 @@ from .providers_verda import VerdaProvider
 from .base import BaseCompute, ComputeError
 
 # Side-effect import: register the built-in provider.
-from . import skypilot as _skypilot  # noqa: F401,E402
+from . import skypilot as _skypilot  # noqa: F401
+from . import platform_queue as _platform_queue  # noqa: F401,E402
 
 
 def build_compute(spec: Any) -> BaseCompute:
