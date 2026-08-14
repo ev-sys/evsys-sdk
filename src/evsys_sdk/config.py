@@ -102,6 +102,25 @@ class SandboxSpec(_Strict):
     """Provider-specific parameters; validated against <Sandbox>.Config."""
 
 
+class AgentSpec(_Strict):
+    """Which LLM agent the SDK spawns, by registry name + params. e.g.
+    ``{kind: trigger, params: {mode: distill}}`` or a project's own
+    ``@register_agent`` class.
+
+    ``params`` are validated against that agent's ``Config`` (the shared
+    invocation fields — ``claude_bin``, ``model``, ``permission_mode``,
+    ``plugin_dir``, ``extra_args``, ``environment`` — plus the agent's own).
+    Nothing *requires* this spec today: the ``trigger.agent`` block keeps its
+    flat historical shape and the entry points construct the built-in agents
+    from it. This is the ``{kind, params}`` surface for code (and future
+    config blocks) that selects an agent by name."""
+
+    kind: str = "trigger"
+    """Registry key of the @register_agent class."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Agent-specific parameters; validated against <Agent>.Config."""
+
+
 class DistillConfig(_Strict):
     """Knobs for ``trigger.agent.mode: distill`` — the trigger agent converts
     escalated coding traces into eval + training data and launches a PRESET

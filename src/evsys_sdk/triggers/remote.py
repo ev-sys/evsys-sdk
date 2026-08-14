@@ -42,6 +42,8 @@ from typing import Any
 
 from ..logger import get_logger
 from ..provenance import AGENT_AUTORESEARCH, AGENT_TRIGGER, trigger_env
+from ..agents.base import REMOTE_AUTORESEARCH_PROMPT  # noqa: F401  (re-export)
+from ..agents.base import AutoresearchAgent
 from ..sandboxes import DEFAULT_WORKDIR, build_sandbox, resolve_envs
 from .agent import build_command
 
@@ -52,24 +54,8 @@ WORKDIR = DEFAULT_WORKDIR
 stages into a scratch dir) — read ``sandbox.workdir`` rather than this when the
 path has to be real."""
 
-REMOTE_AUTORESEARCH_PROMPT = """You are the evsys **autoresearch agent**, running remotely. The \
-trigger agent already judged this escalation worth fixing — your job is to actually improve the \
-system's artifacts.
-
-- Escalation event:  {escalation_path}
-- Trigger-agent verdict (read its hypothesis): {verdict_path}
-- Ingested traces (JSONL per source under this dir): {traces_dir}
-- The artifacts you may improve (project-relative; ONLY these leave this sandbox): {artifacts}
-- Skills: ./skills/  — the project's own improvement playbooks; follow them.
-
-Do this:
-1. Read the verdict's hypothesis and the implicated traces.
-2. Design the smallest change to the listed artifacts that addresses the failure mode. You MAY run
-   experiments with the evsys SDK (installed here): evaluations, and training/weight updates through
-   hosted backends (e.g. tinker) — compute happens on the backend, not in this sandbox.
-3. Rewrite the artifact(s). Anything you write outside the listed artifacts is discarded.
-
-Be decisive; validate before you overwrite."""
+# REMOTE_AUTORESEARCH_PROMPT moved to `evsys_sdk.agents.base` (the mission
+# lives with the agent now); re-exported above so existing imports keep working.
 
 
 def _make_sandbox(remote_cfg: Any, envs: dict[str, str]) -> Any:
@@ -404,17 +390,23 @@ def run_remote(escalation_path: Path, *, agent_cfg: Any, root: Path, cwd: Path,
         pass
     if (verdict.get("worth_autoresearch") and remote_cfg.autoresearch_sandbox
             and getattr(agent_cfg, "autoresearch", True)):
-        template = remote_cfg.autoresearch_prompt_template or REMOTE_AUTORESEARCH_PROMPT
-        prompt = template.format(
+        # The researcher agent, on the escalation mission. Deliberately NOT
+        # from_config: the sandboxed stage has always run without plugin_dir /
+        # extra_args (the skills are staged in instead), so only the shared
+        # invocation basics are lifted off the config.
+        agent2 = AutoresearchAgent(
+            claude_bin=getattr(agent_cfg, "claude_bin", "claude"),
+            model=getattr(agent_cfg, "model", None),
+            permission_mode=getattr(agent_cfg, "permission_mode", "acceptEdits"),
+            prompt_template=remote_cfg.autoresearch_prompt_template,
+            environment=getattr(remote_cfg, "sandbox", None),
+        )
+        argv2 = agent2.build_command(
             escalation_path=sbx_esc,
             verdict_path=f".evsys/triggers/verdicts/{escalation_path.stem}.json",
             traces_dir=".evsys/traces",
             artifacts=", ".join(artifacts),
         )
-        argv2 = [getattr(agent_cfg, "claude_bin", "claude"), "-p", prompt,
-                 "--permission-mode", getattr(agent_cfg, "permission_mode", "acceptEdits")]
-        if getattr(agent_cfg, "model", None):
-            argv2 += ["--model", agent_cfg.model]
         manifest2 = dict(manifest)
         manifest2[f".evsys/triggers/verdicts/{escalation_path.stem}.json"] = json.dumps(verdict)
         stage2_envs = {**envs,
