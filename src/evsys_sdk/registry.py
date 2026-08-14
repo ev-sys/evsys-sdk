@@ -88,6 +88,8 @@ _sandboxes = Registry("sandbox")
 _context_sources = Registry("context_source")
 _computes = Registry("compute")
 _availabilities = Registry("availability")
+_agents = Registry("agent")
+_functions = Registry("function")
 
 # Default inference factories per backend kind. Lets `Experiment` ask
 # `get_default_inference_factory("tinker")` and get back a callable
@@ -159,6 +161,18 @@ def register_availability(name: str | None = None):
     return _availabilities.register(name)
 
 
+def register_agent(name: str | None = None):
+    """An LLM agent the SDK spawns — the trigger gatekeeper, autoresearch, or
+    one a project defines (mission construction + claude argv + where it runs)."""
+    return _agents.register(name)
+
+
+def register_function(name: str | None = None):
+    """A deterministic function the system runs — the cheap-gate / verifier
+    shape: pure params in, a value out, no LLM in the loop."""
+    return _functions.register(name)
+
+
 def register_default_inference_factory(backend_kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register the default ``(run_result, run_cfg) -> InferenceClient`` for
     a backend kind. Called by each inference module's import side-effect
@@ -223,6 +237,14 @@ def get_availability(name: str) -> type:
     return _availabilities.get(name)
 
 
+def get_agent(name: str) -> type:
+    return _agents.get(name)
+
+
+def get_function(name: str) -> type:
+    return _functions.get(name)
+
+
 def list_availabilities() -> list[str]:
     return _availabilities.list()
 
@@ -281,6 +303,14 @@ def list_computes() -> list[str]:
     return _computes.list()
 
 
+def list_agents() -> list[str]:
+    return _agents.list()
+
+
+def list_functions() -> list[str]:
+    return _functions.list()
+
+
 # Internal helpers used by yaml_loader / runner
 def _all_registries() -> dict[str, Registry]:
     return {
@@ -298,6 +328,8 @@ def _all_registries() -> dict[str, Registry]:
         "context_source": _context_sources,
         "compute": _computes,
         "availability": _availabilities,
+        "agent": _agents,
+        "function": _functions,
     }
 
 
