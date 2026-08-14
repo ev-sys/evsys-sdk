@@ -48,6 +48,19 @@ class TransformSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class FunctionSpec(_Strict):
+    """A deterministic function the system runs, by registry name + params —
+    any ``@register_function`` class (the shared shape trigger gate fns and
+    verifier fns converge on). Nothing *requires* this spec today; it is the
+    ``{kind, params}`` surface for code (and future config blocks) that
+    selects a function by name."""
+
+    kind: str
+    """Registry key of the @register_function class."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Function-specific parameters; validated against <Function>.Config."""
+
+
 class CallbackSpec(_Strict):
     """A training-loop callback to attach, by registry name + params. e.g.
     ``{kind: early_stopping, params: {metric: pass_rate, patience: 3}}``."""
@@ -100,6 +113,25 @@ class SandboxSpec(_Strict):
     """Registry key of the @register_sandbox provider. ``evsys list sandboxes``."""
     params: dict[str, Any] = Field(default_factory=dict)
     """Provider-specific parameters; validated against <Sandbox>.Config."""
+
+
+class AgentSpec(_Strict):
+    """Which LLM agent the SDK spawns, by registry name + params. e.g.
+    ``{kind: trigger, params: {mode: distill}}`` or a project's own
+    ``@register_agent`` class.
+
+    ``params`` are validated against that agent's ``Config`` (the shared
+    invocation fields — ``claude_bin``, ``model``, ``permission_mode``,
+    ``plugin_dir``, ``extra_args``, ``environment`` — plus the agent's own).
+    Nothing *requires* this spec today: the ``trigger.agent`` block keeps its
+    flat historical shape and the entry points construct the built-in agents
+    from it. This is the ``{kind, params}`` surface for code (and future
+    config blocks) that selects an agent by name."""
+
+    kind: str = "trigger"
+    """Registry key of the @register_agent class."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Agent-specific parameters; validated against <Agent>.Config."""
 
 
 class DistillConfig(_Strict):

@@ -31,12 +31,14 @@ External packages can extend any registry via Python entry points
 """
 
 from .config import (
+    AgentSpec,
     AlgorithmConfig,
     BackendConfig,
     CallbackSpec,
     DataConfig,
     DataStoreSpec,
     ExperimentConfig,
+    FunctionSpec,
     ModelConfig,
     RemoteAgentConfig,
     RunConfig,
@@ -63,10 +65,12 @@ from .protocols import (
     Verifier,
 )
 from .registry import (
+    get_agent,
     get_algorithm,
     get_backend,
     get_callback,
     get_data_store,
+    get_function,
     get_inference,
     get_metric,
     get_sandbox,
@@ -75,10 +79,12 @@ from .registry import (
     get_transform,
     get_trigger,
     get_verifier,
+    list_agents,
     list_algorithms,
     list_backends,
     list_callbacks,
     list_data_stores,
+    list_functions,
     list_inferences,
     list_metrics,
     list_sandboxes,
@@ -88,10 +94,12 @@ from .registry import (
     list_transforms,
     list_triggers,
     list_verifiers,
+    register_agent,
     register_algorithm,
     register_backend,
     register_callback,
     register_data_store,
+    register_function,
     register_inference,
     register_metric,
     register_sandbox,
@@ -144,9 +152,13 @@ from .context_types import ContextItem
 from .trace_types import Trace, trace_from_dict, iter_traces_jsonl
 
 # Trigger registration of built-in extensions.
+from . import agents as _agents  # noqa: F401
+from .agents import AutoresearchAgent, EvsysAgent, TriggerAgent, build_agent
 from . import algorithms as _algorithms  # noqa: F401
 from . import sandboxes as _sandboxes  # noqa: F401
 from .sandboxes import BaseSandbox
+from . import functions as _functions  # noqa: F401
+from .functions import EvsysFunction, TriggerFunction, VerifierFunction, build_function
 from . import trace_sources as _trace_sources  # noqa: F401
 from . import triggers as _triggers  # noqa: F401
 from . import context_sources as _context_sources  # noqa: F401
@@ -225,6 +237,24 @@ __all__ = [
     "list_sandboxes",
     "BaseSandbox",
     "SandboxSpec",
+    # Agents (LLM agents the SDK spawns)
+    "register_agent",
+    "get_agent",
+    "list_agents",
+    "EvsysAgent",
+    "TriggerAgent",
+    "AutoresearchAgent",
+    "build_agent",
+    "AgentSpec",
+    # Functions (deterministic fns the system runs)
+    "register_function",
+    "get_function",
+    "list_functions",
+    "EvsysFunction",
+    "TriggerFunction",
+    "VerifierFunction",
+    "build_function",
+    "FunctionSpec",
     "register_context_source",
     "get_context_source",
     "list_context_sources",
