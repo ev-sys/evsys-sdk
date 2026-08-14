@@ -48,6 +48,19 @@ class TransformSpec(_Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class FunctionSpec(_Strict):
+    """A deterministic function the system runs, by registry name + params —
+    any ``@register_function`` class (the shared shape trigger gate fns and
+    verifier fns converge on). Nothing *requires* this spec today; it is the
+    ``{kind, params}`` surface for code (and future config blocks) that
+    selects a function by name."""
+
+    kind: str
+    """Registry key of the @register_function class."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """Function-specific parameters; validated against <Function>.Config."""
+
+
 class CallbackSpec(_Strict):
     """A training-loop callback to attach, by registry name + params. e.g.
     ``{kind: early_stopping, params: {metric: pass_rate, patience: 3}}``."""
