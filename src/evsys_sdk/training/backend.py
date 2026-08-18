@@ -283,7 +283,10 @@ class MockBackend:
 
     def optim_step_async(self, adam: tinker.AdamParams) -> Any:
         self.optim_calls.append(adam)
-        return _ResolvedFuture(_MockResult(metrics=dict(self.optim_metrics)))
+        metrics = dict(self.optim_metrics)
+        # Echo the LR actually applied this step (schedules change it).
+        metrics["optim/lr"] = float(adam.learning_rate)
+        return _ResolvedFuture(_MockResult(metrics=metrics))
 
     # --- save / snapshot ----------------------------------------------------
 

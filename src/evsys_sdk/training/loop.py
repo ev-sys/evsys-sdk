@@ -27,7 +27,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 import tinker
 
@@ -200,6 +200,7 @@ class TrainingLoop:
         callbacks: list[Callback] | None = None,
         log_prefix: str = "",
         metric_keys: _LoopMetricKeys | None = None,
+        lr_fn: Callable[[int], float] | None = None,
     ) -> None:
         self.backend = backend
         self.step_builder = step_builder
@@ -207,6 +208,9 @@ class TrainingLoop:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.adam_params = adam_params
+        self.lr_fn = lr_fn
+        """Optional ``(step) -> lr``. When set, each optim step uses a fresh
+        ``AdamParams`` with that learning rate (betas/eps preserved)."""
         self.save_every = save_every
         self.evaluators: list[Evaluator] = list(evaluators or [])
         self.callbacks: list[Callback] = list(callbacks or [])
@@ -264,6 +268,18 @@ class TrainingLoop:
 
     # --- per-step machinery -------------------------------------------------
 
+    def _adam_for_step(self, step: int) -> tinker.AdamParams:
+        """Adam params for ``step``, applying ``lr_fn`` when configured."""
+        if self.lr_fn is None:
+            return self.adam_params
+        lr = float(self.lr_fn(step))
+        return tinker.AdamParams(
+            learning_rate=lr,
+            beta1=self.adam_params.beta1,
+            beta2=self.adam_params.beta2,
+            eps=self.adam_params.eps,
+        )
+
     async def _run_one_step(self, step: int, num_steps: int,
                             state: LoopState | None = None) -> None:
         t0 = time.time()
@@ -283,7 +299,8 @@ class TrainingLoop:
                 loss_fn=batch.loss_fn,
                 loss_fn_config=batch.loss_fn_config,
             )
-        optim_future = self.backend.optim_step_async(self.adam_params)
+        adam = self._adam_for_step(step)
+        optim_future = self.backend.optim_step_async(adam)
 
         fb_result = await fb_future.result_async()
         optim_result = await optim_future.result_async()
@@ -296,7 +313,7 @@ class TrainingLoop:
         metrics: dict[str, float] = {
             self._keys.step: float(step),
             self._keys.done_frac: float(step + 1) / float(num_steps),
-            self._keys.optim_lr: float(self.adam_params.learning_rate),
+            self._keys.optim_lr: float(adam.learning_rate),
         }
         try:
             metrics.update(self.step_builder.step_metrics(step, batch, fb_result))

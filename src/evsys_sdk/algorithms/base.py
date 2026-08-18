@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import math
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import tinker
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,6 +41,7 @@ from ..protocols import RunContext, RunResult
 from ..training.callbacks import build_callbacks
 from ..training.evaluators import build_in_loop_evaluators
 from ..training.loop import TrainingBatch, TrainingLoop
+from ..training.lr_schedule import LR_SCHEDULE_KINDS, make_lr_fn
 from ..training.tinker_backend import TinkerBackend
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,20 @@ class BaseAlgorithmConfig(BaseModel):
     batch_size: int = Field(default=4, gt=0)
     max_steps: int | None = None
     """Hard step cap. When set, wins over ``num_epochs * steps_per_epoch``."""
+
+    # LR schedule (Tinker loop recomputes AdamParams.learning_rate each step)
+    lr_schedule: Literal[
+        "constant",
+        "linear_warmup",
+        "linear_decay",
+        "cosine",
+        "cosine_with_warmup",
+    ] = "constant"
+    """Schedule kind. Default ``constant`` preserves historical flat-LR behavior."""
+    lr_warmup_steps: int = 0
+    """Warmup length for ``linear_warmup`` / ``*_with_warmup`` / ``linear_decay``."""
+    lr_min_ratio: float = 0.0
+    """Floor as a fraction of ``learning_rate`` (e.g. ``0.1`` → ``0.1 * lr``)."""
 
     # Model / LoRA / renderer
     lora_rank: int = 8
@@ -192,6 +207,18 @@ class BaseAlgorithm:
             workspace_dir=Path(ctx.output_dir) / "harbor_val",
             run_id=ctx.extras.get("dashboard_run_id"),
         )
+        if self.cfg.lr_schedule not in LR_SCHEDULE_KINDS:
+            raise ValueError(
+                f"unknown lr_schedule {self.cfg.lr_schedule!r}; "
+                f"expected one of {list(LR_SCHEDULE_KINDS)}"
+            )
+        lr_fn = make_lr_fn(
+            kind=self.cfg.lr_schedule,
+            base_lr=self.cfg.learning_rate,
+            num_steps=total_steps,
+            warmup_steps=self.cfg.lr_warmup_steps,
+            min_lr_ratio=self.cfg.lr_min_ratio,
+        )
         loop = TrainingLoop(
             backend=backend,
             step_builder=self,
@@ -203,6 +230,7 @@ class BaseAlgorithm:
                 beta2=self.cfg.adam_beta2,
                 eps=self.cfg.adam_eps,
             ),
+            lr_fn=lr_fn,
             save_every=save_every,
             evaluators=evaluators,
             callbacks=build_callbacks(self.cfg.callbacks),
