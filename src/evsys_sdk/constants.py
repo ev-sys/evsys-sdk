@@ -46,6 +46,7 @@ EP_LOG_METRICS = "/sdk/runs/{run_id}/metrics/"          # long-format run_metric
 EP_LOG_EVAL = "/sdk/runs/{run_id}/evals/"               # evals (D13)
 EP_ADD_CHECKPOINT = "/sdk/runs/{run_id}/checkpoints/"   # run_checkpoints (D7)
 EP_LOG_PREDICTIONS = "/sdk/runs/{run_id}/predictions/"
+EP_REPORT_PUSH = "/sdk/reports/push/"
 
 # ---------------------------------------------------------------------------
 # JSON response / field keys
