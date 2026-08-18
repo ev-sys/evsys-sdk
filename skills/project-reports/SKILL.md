@@ -2,9 +2,11 @@
 name: project-reports
 description: >
   Push and browse project HTML reports on the EvolvingSystems dashboard via
-  the evsys CLI / EvsysStore. Use when an agent (or researcher) needs to upload
-  a static HTML report folder, inspect the project's report filesystem tree,
-  pick a path, or share a viewer URL with a logged-in project member.
+  the evsys CLI / EvsysStore. Use when an agent (or researcher) needs to write
+  or upload a static HTML report, name it, inspect the project's report
+  filesystem tree, pick a path, or share a viewer URL with a logged-in project
+  member. Reports are written in third person; names are a readable date
+  followed by the title.
 ---
 
 # Project HTML reports
@@ -48,9 +50,29 @@ reports = store.list_reports()    # [{id, path, url, entry_file, ...}]
 Typical path conventions (not enforced — any segments are allowed):
 
 ```text
-experiments/<exp-slug>/<run-or-eval-name>
-benchmarks/<name>/latest
-notes/<topic>
+experiments/<exp-slug>/<YYYY-MM-DD> <short-name>
+benchmarks/<name>/<YYYY-MM-DD> latest
+notes/<YYYY-MM-DD> <topic>
+```
+
+## Writing the report
+
+- Write in **third person**. The report is a record of the work, not a diary.
+  Prefer "The run reached 0.81 on the held-out split" over "I ran an eval and
+  we got 0.81." Do not address the reader as "you" in the findings.
+- The **report name** (the leaf of `--path`, or `--name`) is a **readable
+  calendar date**, then a space, then a short title. Use `YYYY-MM-DD`, not a
+  compact stamp like `20260520` and not a time-of-day.
+
+```text
+2026-08-17 tool-search eval
+2026-08-17 composio public tool search
+```
+
+```bash
+evsys report push ./out/eval-report \
+  --path "experiments/sft/2026-08-17 tool-search eval"
+# or: --path experiments/sft --name "2026-08-17 tool-search eval"
 ```
 
 ## Push a report
@@ -59,10 +81,10 @@ Local directory **must** contain `index.html` (or pass `--entry`):
 
 ```bash
 evsys report push ./out/eval-report \
-  --path experiments/20260520_sft/eval
+  --path "experiments/sft/2026-08-17 tool-search eval"
 ```
 
-- Leaf of `--path` is the report name (`eval` above).
+- Leaf of `--path` is the report name (`2026-08-17 tool-search eval` above).
 - Missing parent folders are created.
 - Re-pushing the same path **replaces** that report’s files (siblings stay).
 
@@ -97,14 +119,20 @@ print(r["url"])
 ## Agent checklist
 
 1. `evsys report list` (or `tree`) — see existing paths.
-2. Choose a clear `--path` under the right folder (create parents by including
-   them in the path; or create an empty folder in the UI).
-3. Build a local dir with `index.html` (+ assets with relative links).
+2. Choose a `--path` whose **leaf name** is `YYYY-MM-DD` plus a short title
+   (create parents by including them in the path; or create an empty folder
+   in the UI).
+3. Write the HTML in **third person**. Build a local dir with `index.html`
+   (+ assets with relative links).
 4. `evsys report push <dir> --path <virtual/path>`.
 5. Surface the returned `url` to the user / in experiment notes.
 
 ## Do not
 
+- Do not write the report in first person ("I", "we") or as a how-to addressed
+  to the reader.
+- Do not name a report with a compact stamp (`20260520_eval`) or a time of day.
+  The name is `YYYY-MM-DD` plus a short title.
 - Do not upload secrets inside the HTML/assets (any project member can view).
 - Do not treat the URL as public — it is membership-gated.
 - Do not expect multipart push through `EvsysStore._call`; push uses
