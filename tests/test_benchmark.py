@@ -216,6 +216,37 @@ def test_score_aggregates(benchmark_dir: Path):
     assert score.per_task[0].expected == "A"
 
 
+class _BatchScriptedInference(_ScriptedInference):
+    """Same canned completions, but exposes generate_batch for chunked scoring."""
+
+    def generate_batch(
+        self,
+        *,
+        prompts: list[str],
+        max_tokens: int = 256,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+    ) -> list[str]:
+        return [
+            self.generate(
+                prompt=p,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop,
+            )
+            for p in prompts
+        ]
+
+
+def test_score_uses_generate_batch_when_available(benchmark_dir: Path):
+    bench = Benchmark.from_dir(benchmark_dir)
+    client = _BatchScriptedInference(["A", "Z", "C", "this has a needle inside", "E"])
+    score = bench.score(client, batch_size=2)
+    assert score.metrics["n_tasks"] == 5.0
+    assert score.metrics["pass_rate"] == pytest.approx(4 / 5)
+    assert len(client.calls) == 5
+
+
 def test_score_num_samples_drives_pass_at_k(benchmark_dir: Path):
     bench = Benchmark.from_dir(benchmark_dir)
     # 2 tasks (limit=2), 3 samples each. t1 expects "A", t2 expects "B".
