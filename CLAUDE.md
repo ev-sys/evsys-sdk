@@ -23,17 +23,20 @@ Adding a skill:
     same for both audiences. The two dirs are independent — no symlinks, no
     auto-sync. Update each on its own as the relevant skill evolves.
 
-The plugin is **skills-only** (no agents) and ships to both coding agents from a
-single `skills/` source:
+The plugin ships to both coding agents from a single `skills/` source:
  * Claude Code: `.claude-plugin/plugin.json` (manifest) +
  `.claude-plugin/marketplace.json` (marketplace entry).
  * Cursor: `.cursor-plugin/plugin.json` (manifest) +
  `.cursor-plugin/marketplace.json` (marketplace entry).
 
-All four point at `skills/` — edit a skill once and both agents pick it up. Do
-not add an `agents/` directory; any decision/loop logic lives as a skill (e.g.
-`skills/autoresearch-launch/`). Skill folder names and their frontmatter `name`
-must be identical kebab-case.
+All four point at `skills/` — edit a skill once and both agents pick it up. Skill
+folder names and their frontmatter `name` must be identical kebab-case.
+
+Agents live in `.claude/agents/<name>.md` (one Markdown file per agent:
+frontmatter `name` + `description`, body = the agent's system prompt). The
+filename must match the frontmatter `name` (kebab-case). Reusable decision/loop
+logic an agent depends on should still live as a skill so both the agent and
+plugin consumers share it.
 
 ## Dev workflow
 
