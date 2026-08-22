@@ -151,7 +151,8 @@ class TinkerBackend:
         """
         if not os.environ.get(api_key_env):
             raise RuntimeError(f"{api_key_env} not set in environment")
-        service = tinker.ServiceClient()
+        from ..tinker_service import make_service_client
+        service = make_service_client()
         meta = dict(user_metadata or {})
         if renderer_name:
             meta["renderer_name"] = renderer_name
