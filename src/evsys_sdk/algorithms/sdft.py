@@ -25,7 +25,7 @@ import tinker
 from ..data_types import PromptExample, TargetFormat, parse_rows
 from ..protocols import RunContext
 from ..registry import register_algorithm
-from ..training.batch_utils import coerce_floats
+from ..training.batch_utils import coerce_floats, extract_weights
 from ..training.loop import TrainingBatch
 from ..training.sdft_data import (
     DEFAULT_DEMO_TEMPLATE,
@@ -53,6 +53,10 @@ class SDFTConfig(BaseAlgorithmConfig):
     # SDFT knobs
     topk: int = 20
     teacher_sync_every: int | None = None  # reserved; static teacher for now
+    student_snapshot_every: int = 8
+    """Refresh the on-policy sampler checkpoint every N steps (bounded
+    staleness). Tinker counts each ``save_weights_for_sampler`` as a session;
+    snapshotting every step hits the active-session cap on long runs."""
     max_context_length: int = 2048
     demo_template: str = DEFAULT_DEMO_TEMPLATE
     system_prompt: str | None = None
@@ -100,6 +104,7 @@ class SDFT(BaseAlgorithm):
         # saves a sampler checkpoint and points the harbor agent at it).
         self._backend = backend
         self._snapshot_i = 0
+        self._sampler_path: str | None = None
         # Rollouts persist under the run's workspace on disk; training rollouts
         # are NOT uploaded to the dashboard (only eval rollouts are).
         self._workspace = Path(ctx.output_dir) / "harbor_rollouts"
@@ -123,11 +128,15 @@ class SDFT(BaseAlgorithm):
         ]
 
         # 2. On-policy student rollouts via harbor's engine, generation-only
-        #    (verify=False → no verifier/reward). Save a sampler checkpoint so the
-        #    harbor agent samples from the current weights. One group per prompt
-        #    (prompt order); take its single sample.
-        self._snapshot_i += 1
-        model_path = await self._backend.save_for_sampler(f"student_snap_{self._snapshot_i}")
+        #    (verify=False → no verifier/reward). Snapshot sampler weights every
+        #    ``student_snapshot_every`` steps (bounded staleness vs session cap).
+        every = max(1, int(self.cfg.student_snapshot_every))
+        if self._sampler_path is None or (step_idx % every) == 0:
+            self._snapshot_i += 1
+            self._sampler_path = await self._backend.save_for_sampler(
+                f"student_snap_{self._snapshot_i}",
+            )
+        model_path = self._sampler_path
         groups = await run_harbor_rollouts(
             [self._student_user_content(q) for q in questions],
             outcome_reward=False,        # raw prompts → generation-only (no verifier/reward)
@@ -197,34 +206,46 @@ class SDFT(BaseAlgorithm):
     def step_metrics(
         self, step_idx: int, batch: TrainingBatch, fb_result: Any,
     ) -> dict[str, float]:
-        """``train/mean_loss`` = mean negative-logprob of the teacher's
-        preferred tokens under the student's distribution.
+        """``train/mean_loss`` = weight-averaged soft (or hard) CE.
 
-        The loop already merges ``batch.metrics`` (teacher entropy / truncated
-        count); here we add the loss derived from the forward-backward output.
-        Per-position student logprobs are 0 on non-loss positions, negative on
-        the rest; ignore the zeros."""
+        Soft top-K SDFT datums carry ``(N, K)`` ``target_tokens`` /
+        ``weights`` where ``weights[t, k] = p_T^{(t)}(x_{t,k})``. Tinker
+        returns matching ``(N, K)`` student logprobs. The objective we
+        minimize is ``-sum w log π``; this metric is the same quantity
+        normalized by ``sum w`` (mean per-unit-weight NLL).
+
+        An earlier unweighted average over nonzero logprobs ignored ``w``
+        and rose as the teacher peaked — even when weighted CE improved.
+        """
         outputs = getattr(fb_result, "loss_fn_outputs", None)
         if not outputs:
             return {}
         total_logprob = 0.0
-        n_tokens = 0
-        for out in outputs:
-            logprobs = coerce_floats(out.get("logprobs") if isinstance(out, dict)
-                                      else getattr(out, "logprobs", None))
+        total_weight = 0.0
+        for datum, out in zip(batch.data, outputs):
+            logprobs = coerce_floats(
+                out.get("logprobs") if isinstance(out, dict)
+                else getattr(out, "logprobs", None),
+            )
             if not logprobs:
                 continue
-            for v in logprobs:
-                if v != 0.0:
-                    total_logprob += v
-                    n_tokens += 1
-        if n_tokens == 0:
+            weights = coerce_floats(extract_weights(datum))
+            if weights is None or len(weights) == 0:
+                continue
+            k = min(len(logprobs), len(weights))
+            for j in range(k):
+                w = weights[j]
+                if w == 0.0:
+                    continue
+                total_logprob += logprobs[j] * w
+                total_weight += w
+        if total_weight <= 0:
             return {}
-        mean_lp = total_logprob / n_tokens
+        mean_lp = total_logprob / total_weight
         return {
             "train/mean_logprob": float(mean_lp),
             "train/mean_loss": -float(mean_lp),
-            "train/loss_n_tokens": float(n_tokens),
+            "train/loss_n_tokens": float(total_weight),
         }
 
     def _hyperparams_extra(self) -> dict[str, Any]:
