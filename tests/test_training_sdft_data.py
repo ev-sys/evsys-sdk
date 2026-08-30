@@ -102,6 +102,51 @@ def test_teacher_prompt_uses_default_demo_template_when_not_overridden():
     assert "G" in content
 
 
+def test_teacher_prompt_renders_candidate_tools():
+    tok = _StubTokenizer()
+    build_teacher_prompt(
+        question="Q",
+        golden_answer="GOLD",
+        tokenizer=tok,
+        candidate_tools="- A: desc\n- B: desc",
+        demo_template="{question}\nCANDS:\n{candidate_tools}\nPick one.",
+    )
+    content = tok.calls[0]["messages"][0]["content"]
+    assert content.startswith("Q\nCANDS:\n- A: desc")
+    assert "GOLD" not in content  # golden unused by this template
+
+
+def test_teacher_prompt_golden_demo_ignores_empty_candidates():
+    """Old golden-demo templates keep working when candidate_tools is unused."""
+    tok = _StubTokenizer()
+    build_teacher_prompt(
+        question="Q",
+        golden_answer="G",
+        tokenizer=tok,
+        candidate_tools="",
+        demo_template="{question}|{golden_answer}",
+    )
+    assert tok.calls[0]["messages"][0]["content"] == "Q|G"
+
+
+def test_simple_sdft_dataset_returns_candidate_tools():
+    from evsys_sdk.data_types import PromptExample
+    from evsys_sdk.training.sdft_data import SimpleSDFTDataset
+
+    rows = [
+        PromptExample(
+            inputs={"question": "Q1", "candidate_tools": "- T1: d"},
+            expected="T1",
+        ),
+        PromptExample(inputs={"question": "Q2"}, expected="T2"),
+    ]
+    ds = SimpleSDFTDataset(rows=rows, batch_size=2)
+    qs, gs, cs = ds.get_batch(0)
+    assert qs == ["Q1", "Q2"]
+    assert gs == ["T1", "T2"]
+    assert cs == ["- T1: d", ""]
+
+
 # ---------------------------------------------------------------------------
 # student_datum_from_rollout
 # ---------------------------------------------------------------------------
@@ -279,3 +324,90 @@ def test_build_topk_targets_zero_completion_returns_zero_target_datum():
     )
     weights = new_datums[0].loss_fn_inputs["weights"].to_torch()
     assert (weights == 0).all()
+
+
+def test_merge_teacher_topk_averages_and_renormalizes():
+    from evsys_sdk.training.sdft_data import merge_teacher_topk_logprobs
+
+    t1 = [[(10, 0.0), (11, -1.0)]]  # pos0
+    t2 = [[(10, -1.0), (12, 0.0)]]
+    merged = merge_teacher_topk_logprobs([t1, t2], topk=3)
+    assert len(merged) == 1 and merged[0] is not None
+    ids = [tid for tid, _ in merged[0]]
+    assert set(ids) == {10, 11, 12}
+    # logprobs should be a valid distribution after merge
+    import math
+    probs = [math.exp(lp) for _, lp in merged[0]]
+    assert sum(probs) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_mixed_dataset_returns_candidates_and_modes():
+    from evsys_sdk.data_types import PromptExample
+    from evsys_sdk.training.sdft_data import MixedSDFTDataset
+
+    cur = [
+        PromptExample(
+            inputs={"question": f"cq{i}", "candidate_tools": f"cat{i}"},
+            expected=f"CE{i}",
+        )
+        for i in range(8)
+    ]
+    prior = [
+        [
+            PromptExample(
+                inputs={"question": f"p0q{i}", "candidate_tools": f"p0c{i}"},
+                expected=f"P0{i}",
+            )
+            for i in range(4)
+        ],
+        [
+            PromptExample(
+                inputs={"question": f"p1q{i}"},
+                expected=f"P1{i}",
+            )
+            for i in range(4)
+        ],
+    ]
+    ds = MixedSDFTDataset(
+        current_rows=cur, prior_rows=prior, batch_size=4, replay_fraction=0.5,
+    )
+    qs, gold, cands, modes = ds.get_batch(0)
+    assert len(qs) == len(gold) == len(cands) == len(modes) == 4
+    assert modes.count("ensemble") == 2
+    assert any(m.startswith("frozen:") for m in modes)
+    # current rows keep candidate_tools; missing prior → ""
+    assert any(c.startswith("cat") for c in cands)
+    assert "" in cands or any(c.startswith("p0c") for c in cands)
+
+
+def test_weight_scale_scales_topk_weights():
+    student = [_make_student_datum()]
+    slice_ = CompletionSlice(tokens=[5, 6, 7, 8], teacher_prompt_len=2, truncated=False)
+    teacher = [
+        [None] * 2 + [[(10, 0.0)], [(11, 0.0)], [(12, 0.0)], [(13, 0.0)]],
+    ]
+    full, _ = build_topk_targets(
+        student_data=student, completion_slices=[slice_],
+        teacher_topk_logprobs=teacher, topk=1, skip_first_n=0, weight_scale=1.0,
+    )
+    scaled, _ = build_topk_targets(
+        student_data=student, completion_slices=[slice_],
+        teacher_topk_logprobs=teacher, topk=1, skip_first_n=0, weight_scale=0.4,
+    )
+    w_full = full[0].loss_fn_inputs["weights"].to_torch()
+    w_scaled = scaled[0].loss_fn_inputs["weights"].to_torch()
+    assert w_scaled.sum().item() == pytest.approx(0.4 * w_full.sum().item(), abs=1e-5)
+
+
+def test_sdft_config_accepts_multi_teacher_fields():
+    from evsys_sdk.algorithms.sdft import SDFTConfig
+
+    cfg = SDFTConfig(
+        sft_anchor_alpha=0.4,
+        frozen_teacher_sampler_paths=["tinker://a", "tinker://b"],
+        replay_fraction=0.25,
+        student_snapshot_every=16,
+    )
+    assert cfg.sft_anchor_alpha == 0.4
+    assert len(cfg.frozen_teacher_sampler_paths) == 2
+    assert cfg.replay_fraction == 0.25
