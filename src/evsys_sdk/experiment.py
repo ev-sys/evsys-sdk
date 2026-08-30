@@ -247,14 +247,33 @@ class Experiment:
         if self.config.continual is not None:
             arms = self._run_continual(experiment_id, benchmarks, meta)
         else:
-            arms = []
-            for primary in primaries:
-                for arm_cfg, group_name in self._replicates_for(primary):
-                    group_id = group_id_by_name.get(group_name) if group_name else None
-                    arms.append(self._execute_arm(
-                        experiment_id, arm_cfg, benchmarks, meta,
-                        group_id=group_id, group_name=group_name,
-                    ))
+            # Flatten to a (arm_cfg, group_id, group_name) work list, then run the
+            # arms concurrently in a capped thread pool — each arm trains in its own
+            # worker thread (hence its own asyncio event loop), so arms overlap on
+            # their I/O-bound tinker/harbor calls. Per-arm failure isolation lives
+            # in _execute_arm; result order matches submission order.
+            work = [
+                (arm_cfg, (group_id_by_name.get(group_name) if group_name else None), group_name)
+                for primary in primaries
+                for arm_cfg, group_name in self._replicates_for(primary)
+            ]
+            cap = max(1, int(self.config.max_concurrent_arms))
+            if cap == 1 or len(work) <= 1:
+                arms = [
+                    self._execute_arm(experiment_id, ac, benchmarks, meta,
+                                      group_id=gid, group_name=gn)
+                    for (ac, gid, gn) in work
+                ]
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=min(cap, len(work)),
+                                        thread_name_prefix="arm") as ex:
+                    futures = [
+                        ex.submit(self._execute_arm, experiment_id, ac, benchmarks,
+                                  meta, group_id=gid, group_name=gn)
+                        for (ac, gid, gn) in work
+                    ]
+                    arms = [f.result() for f in futures]  # submission order preserved
 
         best_arm = self._pick_best(arms, success_metric) if success_metric else None
         best_score = best_arm.score(success_metric) if (best_arm and success_metric) else None

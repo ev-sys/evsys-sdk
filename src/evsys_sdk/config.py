@@ -193,6 +193,13 @@ class ExperimentConfig(_Strict):
     base_seed: int | None = None
     """Starting seed for auto-generated replicates. None → use each primary's own ``seed``."""
 
+    max_concurrent_arms: int = Field(default=4, ge=1)
+    """How many arms run concurrently. Each arm trains in its own worker thread
+    (own event loop), so arms overlap on their I/O-bound tinker/harbor calls. 1 =
+    sequential (the prior behavior). Cap it for tinker seats / rate-limits / cost /
+    local RAM — not local CPU (arms are I/O-bound, single Python thread per arm).
+    Ignored for ``continual`` (chained stages are inherently sequential)."""
+
     parent_experiment_id: str | None = None
     """For evolutionary lineage."""
     metadata: dict[str, Any] = Field(default_factory=dict)
